@@ -2,20 +2,29 @@
  * An agent's Overview: its runtime and storage, and how the team's app
  * reaches it with a service account key.
  */
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { api, errorMessage, ifMatch, unwrap } from "../../../api/client";
 import { terms } from "../../../lib/terms";
+import { Button } from "@/components/ui/button/button";
 import { Card } from "@/components/ui/card/card";
 import { CodeBlock } from "@/components/ui/code-block/code-block";
 import { DescriptionList } from "@/components/ui/description-list/description-list";
 import { Stack } from "@/components/ui/layout/layout";
 import { TextLink } from "@/components/ui/text-link/text-link";
 import { Time } from "@/components/ui/time/time";
+import { toast } from "@/components/ui/toast/toast";
 import s from "../../shared.module.css";
-import { type Agent, type AgentAbilities, agentStatus } from "./labels";
+import {
+  type Agent,
+  type AgentAbilities,
+  agentStatus,
+  storeAgent,
+} from "./labels";
 
 type Props = { agent: Agent; abilities: AgentAbilities };
 
-export function OverviewTab({ agent }: Props) {
+export function OverviewTab({ agent, abilities }: Props) {
   const status = agentStatus(agent);
   return (
     <Stack gap={4}>
@@ -27,7 +36,34 @@ export function OverviewTab({ agent }: Props) {
           dividers
           items={[
             { label: "Status", value: status.label },
-            { label: "Template", value: agent.templateName },
+            {
+              label: "Template",
+              value: (
+                <span>
+                  <TextLink
+                    render={
+                      <Link
+                        to="/templates/$templateId"
+                        params={{ templateId: agent.templateId }}
+                      />
+                    }
+                  >
+                    {agent.templateName}
+                  </TextLink>{" "}
+                  v{agent.templateVersion}
+                  {agent.templateCurrentVersion > agent.templateVersion ? (
+                    <span className={s.secondary}>
+                      v{agent.templateCurrentVersion} is available.{" "}
+                      {abilities.canEdit ? (
+                        <UpgradeButton agent={agent} />
+                      ) : (
+                        "Editors can upgrade the agent."
+                      )}
+                    </span>
+                  ) : null}
+                </span>
+              ),
+            },
             {
               label: "Storage",
               value:
@@ -104,5 +140,41 @@ function UsageCard({ agent }: { agent: Agent }) {
         />
       </Stack>
     </Card>
+  );
+}
+
+/** Moves the agent to its template's current version; it restarts with it on the next message. */
+function UpgradeButton({ agent }: { agent: Agent }) {
+  const qc = useQueryClient();
+  const upgrade = useMutation({
+    mutationFn: async () =>
+      unwrap(
+        await api.PATCH("/v1/agents/{agentId}", {
+          params: {
+            path: { agentId: agent.id },
+            header: ifMatch(agent.revision),
+          },
+          body: { templateVersion: agent.templateCurrentVersion },
+        }),
+      ),
+    onSuccess: (updated) => {
+      storeAgent(qc, updated);
+      toast.success(
+        `Upgraded to v${updated.templateVersion}`,
+        "It uses the new version from its next message. Its conversations are kept.",
+      );
+    },
+    onError: (err) =>
+      toast.error("Couldn't upgrade the agent", errorMessage(err)),
+  });
+  return (
+    <Button
+      size="sm"
+      variant="secondary"
+      loading={upgrade.isPending}
+      onClick={() => upgrade.mutate()}
+    >
+      Upgrade to v{agent.templateCurrentVersion}
+    </Button>
   );
 }

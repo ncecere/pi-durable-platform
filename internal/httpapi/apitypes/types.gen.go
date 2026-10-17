@@ -9,6 +9,45 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AgentTemplateStatus.
+const (
+	AgentTemplateStatusPending   AgentTemplateStatus = "pending"
+	AgentTemplateStatusPrivate   AgentTemplateStatus = "private"
+	AgentTemplateStatusPublished AgentTemplateStatus = "published"
+)
+
+// Valid indicates whether the value is a known member of the AgentTemplateStatus enum.
+func (e AgentTemplateStatus) Valid() bool {
+	switch e {
+	case AgentTemplateStatusPending:
+		return true
+	case AgentTemplateStatusPrivate:
+		return true
+	case AgentTemplateStatusPublished:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentTemplateReviewDecision.
+const (
+	Approve AgentTemplateReviewDecision = "approve"
+	Reject  AgentTemplateReviewDecision = "reject"
+)
+
+// Valid indicates whether the value is a known member of the AgentTemplateReviewDecision enum.
+func (e AgentTemplateReviewDecision) Valid() bool {
+	switch e {
+	case Approve:
+		return true
+	case Reject:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ApiKeyStatus.
 const (
 	ApiKeyStatusActive  ApiKeyStatus = "active"
@@ -303,6 +342,27 @@ func (e AuditActorKindParam) Valid() bool {
 	}
 }
 
+// Defines values for AdminListTemplatesParamsStatus.
+const (
+	AdminListTemplatesParamsStatusPending   AdminListTemplatesParamsStatus = "pending"
+	AdminListTemplatesParamsStatusPrivate   AdminListTemplatesParamsStatus = "private"
+	AdminListTemplatesParamsStatusPublished AdminListTemplatesParamsStatus = "published"
+)
+
+// Valid indicates whether the value is a known member of the AdminListTemplatesParamsStatus enum.
+func (e AdminListTemplatesParamsStatus) Valid() bool {
+	switch e {
+	case AdminListTemplatesParamsStatusPending:
+		return true
+	case AdminListTemplatesParamsStatusPrivate:
+		return true
+	case AdminListTemplatesParamsStatusPublished:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AdminListAuditParamsActorKind.
 const (
 	AdminListAuditParamsActorKindSystem AdminListAuditParamsActorKind = "system"
@@ -347,13 +407,20 @@ type Agent struct {
 	Revision    int64              `json:"revision"`
 
 	// Running Whether its runtime is up now (it hibernates when idle and wakes on the next request)
-	Running      bool               `json:"running"`
-	TeamId       openapi_types.UUID `json:"teamId"`
-	TeamName     string             `json:"teamName"`
-	TeamSlug     string             `json:"teamSlug"`
-	TemplateName string             `json:"templateName"`
-	TemplateSlug string             `json:"templateSlug"`
-	UpdatedAt    time.Time          `json:"updatedAt"`
+	Running  bool               `json:"running"`
+	TeamId   openapi_types.UUID `json:"teamId"`
+	TeamName string             `json:"teamName"`
+	TeamSlug string             `json:"teamSlug"`
+
+	// TemplateCurrentVersion The template's newest version (an upgrade is available when it is higher)
+	TemplateCurrentVersion int32              `json:"templateCurrentVersion"`
+	TemplateId             openapi_types.UUID `json:"templateId"`
+	TemplateName           string             `json:"templateName"`
+	TemplateSlug           string             `json:"templateSlug"`
+
+	// TemplateVersion The template version the agent runs
+	TemplateVersion int32     `json:"templateVersion"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 // AgentCreate defines model for AgentCreate.
@@ -361,8 +428,11 @@ type AgentCreate struct {
 	Description *string `json:"description,omitempty"`
 	Name        string  `json:"name"`
 
-	// Template Template slug (default assistant)
+	// Template A platform template's slug (default assistant), when templateId is not given
 	Template *string `json:"template,omitempty"`
+
+	// TemplateId The template (from the catalog, or the team's own)
+	TemplateId *openapi_types.UUID `json:"templateId,omitempty"`
 }
 
 // AgentEnsure defines model for AgentEnsure.
@@ -372,8 +442,9 @@ type AgentEnsure struct {
 	// Name Defaults to the external key
 	Name *string `json:"name,omitempty"`
 
-	// Template Template slug (default assistant)
-	Template *string `json:"template,omitempty"`
+	// Template A platform template's slug (default assistant), when templateId is not given
+	Template   *string             `json:"template,omitempty"`
+	TemplateId *openapi_types.UUID `json:"templateId,omitempty"`
 }
 
 // AgentMessageAccepted defines model for AgentMessageAccepted.
@@ -390,12 +461,79 @@ type AgentMessageCreate struct {
 
 // AgentTemplate defines model for AgentTemplate.
 type AgentTemplate struct {
-	Description string             `json:"description"`
-	Id          openapi_types.UUID `json:"id"`
-	Name        string             `json:"name"`
+	// AgentCount How many agents use it (one template's view only)
+	AgentCount     *int64             `json:"agentCount,omitempty"`
+	Archived       bool               `json:"archived"`
+	CreatedAt      time.Time          `json:"createdAt"`
+	CurrentVersion int32              `json:"currentVersion"`
+	Description    string             `json:"description"`
+	Id             openapi_types.UUID `json:"id"`
+	Name           string             `json:"name"`
+
+	// ReviewNote Why the last request to publish was rejected
+	ReviewNote *string `json:"reviewNote,omitempty"`
+	Revision   int64   `json:"revision"`
 
 	// Slug Example: assistant
 	Slug string `json:"slug"`
+
+	// Status private: the team only; pending: waiting for a platform admin; published: in the catalog
+	Status AgentTemplateStatus `json:"status"`
+
+	// TeamId The owning team; absent for platform templates
+	TeamId    *openapi_types.UUID `json:"teamId,omitempty"`
+	TeamName  *string             `json:"teamName,omitempty"`
+	TeamSlug  *string             `json:"teamSlug,omitempty"`
+	UpdatedAt time.Time           `json:"updatedAt"`
+}
+
+// AgentTemplateStatus private: the team only; pending: waiting for a platform admin; published: in the catalog
+type AgentTemplateStatus string
+
+// AgentTemplateCreate defines model for AgentTemplateCreate.
+type AgentTemplateCreate struct {
+	Description *string `json:"description,omitempty"`
+
+	// Instructions The agent's system prompt (version 1)
+	Instructions string  `json:"instructions"`
+	Name         string  `json:"name"`
+	Notes        *string `json:"notes,omitempty"`
+	Slug         string  `json:"slug"`
+}
+
+// AgentTemplateReview defines model for AgentTemplateReview.
+type AgentTemplateReview struct {
+	Decision AgentTemplateReviewDecision `json:"decision"`
+
+	// Note Shown to the team when rejected
+	Note *string `json:"note,omitempty"`
+}
+
+// AgentTemplateReviewDecision defines model for AgentTemplateReview.Decision.
+type AgentTemplateReviewDecision string
+
+// AgentTemplateUpdate defines model for AgentTemplateUpdate.
+type AgentTemplateUpdate struct {
+	Archived    *bool   `json:"archived,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Name        *string `json:"name,omitempty"`
+}
+
+// AgentTemplateVersion defines model for AgentTemplateVersion.
+type AgentTemplateVersion struct {
+	CreatedAt     time.Time `json:"createdAt"`
+	CreatedByName *string   `json:"createdByName,omitempty"`
+	Instructions  string    `json:"instructions"`
+	Notes         string    `json:"notes"`
+	Version       int32     `json:"version"`
+}
+
+// AgentTemplateVersionCreate defines model for AgentTemplateVersionCreate.
+type AgentTemplateVersionCreate struct {
+	Instructions string `json:"instructions"`
+
+	// Notes What changed
+	Notes *string `json:"notes,omitempty"`
 }
 
 // AgentThread defines model for AgentThread.
@@ -414,6 +552,9 @@ type AgentUpdate struct {
 	Description *string `json:"description,omitempty"`
 	Enabled     *bool   `json:"enabled,omitempty"`
 	Name        *string `json:"name,omitempty"`
+
+	// TemplateVersion Move to another version of the template (upgrade or roll back); applies when the agent next starts
+	TemplateVersion *int32 `json:"templateVersion,omitempty"`
 }
 
 // ApiKey defines model for ApiKey.
@@ -974,6 +1115,9 @@ type ServiceAccountIdParam = openapi_types.UUID
 // TeamParam defines model for TeamParam.
 type TeamParam = string
 
+// TemplateIdParam defines model for TemplateIdParam.
+type TemplateIdParam = openapi_types.UUID
+
 // ThreadIdParam defines model for ThreadIdParam.
 type ThreadIdParam = string
 
@@ -1003,6 +1147,14 @@ type StartLoginParams struct {
 	// Next Same-origin path to return to after sign-in.
 	Next *string `form:"next,omitempty" json:"next,omitempty"`
 }
+
+// AdminListTemplatesParams defines parameters for AdminListTemplates.
+type AdminListTemplatesParams struct {
+	Status *AdminListTemplatesParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// AdminListTemplatesParamsStatus defines parameters for AdminListTemplates.
+type AdminListTemplatesParamsStatus string
 
 // AdminListAuditParams defines parameters for AdminListAudit.
 type AdminListAuditParams struct {
@@ -1077,6 +1229,18 @@ type AdminListUsersParams struct {
 
 // AdminUpdateUserParams defines parameters for AdminUpdateUser.
 type AdminUpdateUserParams struct {
+	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
+	IfMatch IfMatchHeader `json:"If-Match"`
+}
+
+// ListAgentTemplatesParams defines parameters for ListAgentTemplates.
+type ListAgentTemplatesParams struct {
+	// Team Team slug or ID (the caller must be on it)
+	Team *string `form:"team,omitempty" json:"team,omitempty"`
+}
+
+// UpdateAgentTemplateParams defines parameters for UpdateAgentTemplate.
+type UpdateAgentTemplateParams struct {
 	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
 	IfMatch IfMatchHeader `json:"If-Match"`
 }
@@ -1165,6 +1329,18 @@ type AdminAssignOwnerJSONRequestBody = OwnerAssign
 // AdminUpdateUserJSONRequestBody defines body for AdminUpdateUser for application/json ContentType.
 type AdminUpdateUserJSONRequestBody = UserUpdate
 
+// CreatePlatformTemplateJSONRequestBody defines body for CreatePlatformTemplate for application/json ContentType.
+type CreatePlatformTemplateJSONRequestBody = AgentTemplateCreate
+
+// UpdateAgentTemplateJSONRequestBody defines body for UpdateAgentTemplate for application/json ContentType.
+type UpdateAgentTemplateJSONRequestBody = AgentTemplateUpdate
+
+// ReviewTemplateJSONRequestBody defines body for ReviewTemplate for application/json ContentType.
+type ReviewTemplateJSONRequestBody = AgentTemplateReview
+
+// CreateTemplateVersionJSONRequestBody defines body for CreateTemplateVersion for application/json ContentType.
+type CreateTemplateVersionJSONRequestBody = AgentTemplateVersionCreate
+
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = AgentUpdate
 
@@ -1173,6 +1349,9 @@ type SendAgentMessageJSONRequestBody = AgentMessageCreate
 
 // CreateMyApiKeyJSONRequestBody defines body for CreateMyApiKey for application/json ContentType.
 type CreateMyApiKeyJSONRequestBody = ApiKeyCreate
+
+// CreateTeamTemplateJSONRequestBody defines body for CreateTeamTemplate for application/json ContentType.
+type CreateTeamTemplateJSONRequestBody = AgentTemplateCreate
 
 // CreateTeamAgentJSONRequestBody defines body for CreateTeamAgent for application/json ContentType.
 type CreateTeamAgentJSONRequestBody = AgentCreate

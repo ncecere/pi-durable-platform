@@ -26,16 +26,32 @@ type Agent struct {
 	UpdatedAt       time.Time
 	LastUsedAt      *time.Time
 	ExternalKey     *string
+	TemplateVersion int32
 }
 
 type AgentTemplate struct {
-	ID           uuid.UUID
-	Slug         string
-	Name         string
-	Description  string
+	ID             uuid.UUID
+	Slug           string
+	Name           string
+	Description    string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	TeamID         uuid.NullUUID
+	Status         string
+	ReviewNote     string
+	Archived       bool
+	CurrentVersion int32
+	Revision       int64
+	CreatedBy      uuid.NullUUID
+}
+
+type AgentTemplateVersion struct {
+	TemplateID   uuid.UUID
+	Version      int32
 	Instructions string
+	Notes        string
+	CreatedBy    uuid.NullUUID
 	CreatedAt    time.Time
-	UpdatedAt    time.Time
 }
 
 type ApiKey struct {

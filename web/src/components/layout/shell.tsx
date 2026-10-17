@@ -10,7 +10,11 @@ import { useCurrentUser, useInstance } from "../../session";
 import { AppShell, Main, TopBar } from "@/components/ui/app-shell/app-shell";
 import { Badge } from "@/components/ui/badge/badge";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs/breadcrumbs";
-import { CommandPalette, CommandPaletteTrigger, useCommandPaletteShortcut } from "@/components/ui/command-palette/command-palette";
+import {
+  CommandPalette,
+  CommandPaletteTrigger,
+  useCommandPaletteShortcut,
+} from "@/components/ui/command-palette/command-palette";
 import { TooltipProvider } from "@/components/ui/tooltip/tooltip";
 import { useMediaQuery } from "@/lib/bitop-utils";
 import styles from "./layout.module.css";
@@ -60,7 +64,10 @@ export function AppLayout({ children }: { children?: ReactNode }) {
   const narrow = useMediaQuery("(max-width: 37.5rem)");
   // The bottom record or form page's back link names the route's page underneath.
   const pageCrumbs = useCurrentPageCrumbs();
-  const under = pageCrumbs.length > 0 ? crumbs[crumbs.length - 1 - pageCrumbs.length]?.label : undefined;
+  const under =
+    pageCrumbs.length > 0
+      ? crumbs[crumbs.length - 1 - pageCrumbs.length]?.label
+      : undefined;
   const backLabel = typeof under === "string" ? under : undefined;
   const commands = useCommands(me, active);
   // Only admins and auditors get the admin shell; others see the workspace shell around the no-access page.
@@ -88,16 +95,32 @@ export function AppLayout({ children }: { children?: ReactNode }) {
         sidebar={<AppSidebar me={me} mode={mode} active={active} />}
         topbar={
           <TopBar
-            start={<Breadcrumbs items={fitCrumbs(crumbs, narrow)} className={styles.crumbs} />}
+            start={
+              <Breadcrumbs
+                items={fitCrumbs(crumbs, narrow)}
+                className={styles.crumbs}
+              />
+            }
             end={
               <>
                 {inAdmin && readOnlyAdmin && (
                   // On a phone only the dot shows (the word stays for screen readers), so the search button fits.
-                  <Badge tone="warning" dot className={styles.adminBadge} title={terms.readOnly}>
-                    <span className={styles.adminBadgeText}>{terms.readOnly}</span>
+                  <Badge
+                    tone="warning"
+                    dot
+                    className={styles.adminBadge}
+                    title={terms.readOnly}
+                  >
+                    <span className={styles.adminBadgeText}>
+                      {terms.readOnly}
+                    </span>
                   </Badge>
                 )}
-                <CommandPaletteTrigger onClick={() => setPaletteOpen(true)} label="Search or jump to…" className={styles.search} />
+                <CommandPaletteTrigger
+                  onClick={() => setPaletteOpen(true)}
+                  label="Search or jump to…"
+                  className={styles.search}
+                />
               </>
             }
           />
@@ -105,7 +128,9 @@ export function AppLayout({ children }: { children?: ReactNode }) {
       >
         <Main>
           <RateLimitBanner />
-          <TakeoverHost backLabel={backLabel}>{children ?? <Outlet />}</TakeoverHost>
+          <TakeoverHost backLabel={backLabel}>
+            {children ?? <Outlet />}
+          </TakeoverHost>
         </Main>
       </AppShell>
       <CommandPalette
@@ -113,7 +138,11 @@ export function AppLayout({ children }: { children?: ReactNode }) {
         onOpenChange={setPaletteOpen}
         groups={commands.groups}
         label={PALETTE_LABEL}
-        placeholder={canAdmin ? "Search pages, teams and admin pages…" : "Search pages, teams and actions…"}
+        placeholder={
+          canAdmin
+            ? "Search pages, teams and admin pages…"
+            : "Search pages, teams and actions…"
+        }
         emptyText="No results found."
       />
     </TooltipProvider>

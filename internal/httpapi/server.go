@@ -85,7 +85,7 @@ func apiRoutes(d Deps) []route {
 	routes := opsRoutes(d)
 	// Add a new area's route groups here (and its paths to api/openapi.yaml).
 	for _, group := range [][]route{a.authRoutes(), a.teamRoutes(), a.platformAdminRoutes(), a.apiKeyRoutes(),
-		a.serviceAccountRoutes(), a.serviceAccountAdminRoutes(), a.agentRoutes()} {
+		a.serviceAccountRoutes(), a.serviceAccountAdminRoutes(), a.agentRoutes(), a.templateRoutes()} {
 		routes = append(routes, group...)
 	}
 	return routes

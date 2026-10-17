@@ -49,6 +49,9 @@ const agentBase = {
   teamId: team.id,
   teamSlug: team.slug,
   teamName: team.name,
+  templateId: "t1",
+  templateVersion: 1,
+  templateCurrentVersion: 2,
 };
 const triage = { ...agentBase, id: "a1", name: "Triage", running: true };
 const perUser = { ...agentBase, id: "a2", name: "Assistant for user 42", running: false, externalKey: "user-42" };
@@ -91,6 +94,45 @@ describe("agents", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Assistant for user 42" })).toBeInTheDocument();
     expect(screen.getByText("Service-managed")).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: /Test/ })).not.toBeInTheDocument();
+  });
+});
+
+const platformTemplate = {
+  id: "t1",
+  slug: "assistant",
+  name: "Assistant",
+  description: "A general helper.",
+  status: "published",
+  archived: false,
+  currentVersion: 2,
+  revision: 1,
+  createdAt: "2026-10-17T12:00:00Z",
+  updatedAt: "2026-10-17T12:00:00Z",
+};
+const pendingTemplate = { ...platformTemplate, id: "t2", slug: "triage", name: "Triage", status: "pending", teamId: team.id, teamSlug: team.slug, teamName: team.name, agentCount: 0 };
+
+describe("templates", () => {
+  it("lists the catalog with each template's owner", async () => {
+    mockApi({ ...shellRoutes("none", "editor"), "GET /v1/agent-templates": () => [platformTemplate] });
+    const { container } = renderApp("/catalog");
+    expect(await screen.findByRole("heading", { level: 1, name: "Catalog" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Assistant" })).toHaveAttribute("href", "/templates/t1");
+    expect(screen.getByText("Platform")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /New platform template/ })).not.toBeInTheDocument();
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("lets a platform admin review a team's request to publish", async () => {
+    mockApi({
+      ...shellRoutes("platform_admin", null),
+      "GET /v1/agent-templates/t2": () => pendingTemplate,
+      "GET /v1/agent-templates/t2/versions": () => [{ version: 2, instructions: "Sort tickets.", notes: "", createdAt: "2026-10-17T12:00:00Z" }],
+    });
+    renderApp("/templates/t2");
+    expect(await screen.findByRole("heading", { level: 1, name: "Triage" })).toBeInTheDocument();
+    expect(screen.getByText("Waiting for review")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review request" })).toBeInTheDocument();
+    expect(await screen.findByText("Sort tickets.")).toBeInTheDocument();
   });
 });
 

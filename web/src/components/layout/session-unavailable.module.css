@@ -5,7 +5,11 @@
   min-height: 100dvh;
   padding: var(--space-8) var(--space-4);
   background:
-    radial-gradient(60rem 30rem at 50% -10%, var(--color-primary-subtle), transparent 70%),
+    radial-gradient(
+      60rem 30rem at 50% -10%,
+      var(--color-primary-subtle),
+      transparent 70%
+    ),
     var(--color-bg);
 }
 

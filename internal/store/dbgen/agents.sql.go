@@ -57,7 +57,7 @@ func (q *Queries) DeleteAgent(ctx context.Context, id uuid.UUID) error {
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key FROM agents WHERE id = $1
+SELECT id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key, template_version FROM agents WHERE id = $1
 `
 
 func (q *Queries) GetAgent(ctx context.Context, id uuid.UUID) (Agent, error) {
@@ -78,12 +78,13 @@ func (q *Queries) GetAgent(ctx context.Context, id uuid.UUID) (Agent, error) {
 		&i.UpdatedAt,
 		&i.LastUsedAt,
 		&i.ExternalKey,
+		&i.TemplateVersion,
 	)
 	return i, err
 }
 
 const getAgentByExternalKey = `-- name: GetAgentByExternalKey :one
-SELECT id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key FROM agents WHERE team_id = $1 AND external_key = $2
+SELECT id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key, template_version FROM agents WHERE team_id = $1 AND external_key = $2
 `
 
 type GetAgentByExternalKeyParams struct {
@@ -109,58 +110,22 @@ func (q *Queries) GetAgentByExternalKey(ctx context.Context, arg GetAgentByExter
 		&i.UpdatedAt,
 		&i.LastUsedAt,
 		&i.ExternalKey,
-	)
-	return i, err
-}
-
-const getAgentTemplate = `-- name: GetAgentTemplate :one
-SELECT id, slug, name, description, instructions, created_at, updated_at FROM agent_templates WHERE id = $1
-`
-
-func (q *Queries) GetAgentTemplate(ctx context.Context, id uuid.UUID) (AgentTemplate, error) {
-	row := q.db.QueryRow(ctx, getAgentTemplate, id)
-	var i AgentTemplate
-	err := row.Scan(
-		&i.ID,
-		&i.Slug,
-		&i.Name,
-		&i.Description,
-		&i.Instructions,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getAgentTemplateBySlug = `-- name: GetAgentTemplateBySlug :one
-SELECT id, slug, name, description, instructions, created_at, updated_at FROM agent_templates WHERE slug = $1
-`
-
-func (q *Queries) GetAgentTemplateBySlug(ctx context.Context, slug string) (AgentTemplate, error) {
-	row := q.db.QueryRow(ctx, getAgentTemplateBySlug, slug)
-	var i AgentTemplate
-	err := row.Scan(
-		&i.ID,
-		&i.Slug,
-		&i.Name,
-		&i.Description,
-		&i.Instructions,
-		&i.CreatedAt,
-		&i.UpdatedAt,
+		&i.TemplateVersion,
 	)
 	return i, err
 }
 
 const insertAgent = `-- name: InsertAgent :one
-INSERT INTO agents (id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, created_by, external_key)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key
+INSERT INTO agents (id, team_id, template_id, template_version, name, description, db_password_enc, runtime_token_enc, created_by, external_key)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key, template_version
 `
 
 type InsertAgentParams struct {
 	ID              uuid.UUID
 	TeamID          uuid.UUID
 	TemplateID      uuid.UUID
+	TemplateVersion int32
 	Name            string
 	Description     string
 	DbPasswordEnc   []byte
@@ -174,6 +139,7 @@ func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (Agent
 		arg.ID,
 		arg.TeamID,
 		arg.TemplateID,
+		arg.TemplateVersion,
 		arg.Name,
 		arg.Description,
 		arg.DbPasswordEnc,
@@ -197,44 +163,14 @@ func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (Agent
 		&i.UpdatedAt,
 		&i.LastUsedAt,
 		&i.ExternalKey,
+		&i.TemplateVersion,
 	)
 	return i, err
 }
 
-const listAgentTemplates = `-- name: ListAgentTemplates :many
-SELECT id, slug, name, description, instructions, created_at, updated_at FROM agent_templates ORDER BY name, id
-`
-
-func (q *Queries) ListAgentTemplates(ctx context.Context) ([]AgentTemplate, error) {
-	rows, err := q.db.Query(ctx, listAgentTemplates)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []AgentTemplate{}
-	for rows.Next() {
-		var i AgentTemplate
-		if err := rows.Scan(
-			&i.ID,
-			&i.Slug,
-			&i.Name,
-			&i.Description,
-			&i.Instructions,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listAgentsForUser = `-- name: ListAgentsForUser :many
-SELECT a.id, a.team_id, a.template_id, a.name, a.description, a.db_password_enc, a.runtime_token_enc, a.enabled, a.revision, a.created_by, a.created_at, a.updated_at, a.last_used_at, a.external_key, t.slug AS team_slug, t.name AS team_name, tpl.slug AS template_slug, tpl.name AS template_name
+SELECT a.id, a.team_id, a.template_id, a.name, a.description, a.db_password_enc, a.runtime_token_enc, a.enabled, a.revision, a.created_by, a.created_at, a.updated_at, a.last_used_at, a.external_key, a.template_version, t.slug AS team_slug, t.name AS team_name, tpl.slug AS template_slug, tpl.name AS template_name,
+       tpl.current_version AS template_current_version
 FROM agents a
 JOIN agent_templates tpl ON tpl.id = a.template_id
 JOIN teams t ON t.id = a.team_id
@@ -250,24 +186,26 @@ type ListAgentsForUserParams struct {
 }
 
 type ListAgentsForUserRow struct {
-	ID              uuid.UUID
-	TeamID          uuid.UUID
-	TemplateID      uuid.UUID
-	Name            string
-	Description     string
-	DbPasswordEnc   []byte
-	RuntimeTokenEnc []byte
-	Enabled         bool
-	Revision        int64
-	CreatedBy       uuid.NullUUID
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	LastUsedAt      *time.Time
-	ExternalKey     *string
-	TeamSlug        string
-	TeamName        string
-	TemplateSlug    string
-	TemplateName    string
+	ID                     uuid.UUID
+	TeamID                 uuid.UUID
+	TemplateID             uuid.UUID
+	Name                   string
+	Description            string
+	DbPasswordEnc          []byte
+	RuntimeTokenEnc        []byte
+	Enabled                bool
+	Revision               int64
+	CreatedBy              uuid.NullUUID
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	LastUsedAt             *time.Time
+	ExternalKey            *string
+	TemplateVersion        int32
+	TeamSlug               string
+	TeamName               string
+	TemplateSlug           string
+	TemplateName           string
+	TemplateCurrentVersion int32
 }
 
 // The agents of the teams the person belongs to (service-managed ones only
@@ -296,10 +234,12 @@ func (q *Queries) ListAgentsForUser(ctx context.Context, arg ListAgentsForUserPa
 			&i.UpdatedAt,
 			&i.LastUsedAt,
 			&i.ExternalKey,
+			&i.TemplateVersion,
 			&i.TeamSlug,
 			&i.TeamName,
 			&i.TemplateSlug,
 			&i.TemplateName,
+			&i.TemplateCurrentVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -312,7 +252,7 @@ func (q *Queries) ListAgentsForUser(ctx context.Context, arg ListAgentsForUserPa
 }
 
 const listTeamAgents = `-- name: ListTeamAgents :many
-SELECT id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key FROM agents
+SELECT id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key, template_version FROM agents
 WHERE team_id = $1 AND ($2::boolean OR external_key IS NULL)
 ORDER BY lower(name), id
 `
@@ -347,6 +287,7 @@ func (q *Queries) ListTeamAgents(ctx context.Context, arg ListTeamAgentsParams) 
 			&i.UpdatedAt,
 			&i.LastUsedAt,
 			&i.ExternalKey,
+			&i.TemplateVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -359,7 +300,7 @@ func (q *Queries) ListTeamAgents(ctx context.Context, arg ListTeamAgentsParams) 
 }
 
 const lockAgent = `-- name: LockAgent :one
-SELECT id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key FROM agents WHERE id = $1 FOR UPDATE
+SELECT id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key, template_version FROM agents WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) LockAgent(ctx context.Context, id uuid.UUID) (Agent, error) {
@@ -380,6 +321,7 @@ func (q *Queries) LockAgent(ctx context.Context, id uuid.UUID) (Agent, error) {
 		&i.UpdatedAt,
 		&i.LastUsedAt,
 		&i.ExternalKey,
+		&i.TemplateVersion,
 	)
 	return i, err
 }
@@ -395,16 +337,17 @@ func (q *Queries) TouchAgent(ctx context.Context, id uuid.UUID) error {
 }
 
 const updateAgent = `-- name: UpdateAgent :one
-UPDATE agents SET name = $2, description = $3, enabled = $4, revision = revision + 1, updated_at = now()
+UPDATE agents SET name = $2, description = $3, enabled = $4, template_version = $5, revision = revision + 1, updated_at = now()
 WHERE id = $1
-RETURNING id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key
+RETURNING id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key, template_version
 `
 
 type UpdateAgentParams struct {
-	ID          uuid.UUID
-	Name        string
-	Description string
-	Enabled     bool
+	ID              uuid.UUID
+	Name            string
+	Description     string
+	Enabled         bool
+	TemplateVersion int32
 }
 
 func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Agent, error) {
@@ -413,6 +356,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Agent
 		arg.Name,
 		arg.Description,
 		arg.Enabled,
+		arg.TemplateVersion,
 	)
 	var i Agent
 	err := row.Scan(
@@ -430,6 +374,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Agent
 		&i.UpdatedAt,
 		&i.LastUsedAt,
 		&i.ExternalKey,
+		&i.TemplateVersion,
 	)
 	return i, err
 }

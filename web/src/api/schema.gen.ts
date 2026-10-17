@@ -604,8 +604,153 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Templates agents can be made from (anyone signed in) */
+        /**
+         * The catalog, and with team= that team's own templates (what the team can deploy)
+         * @description Archived templates are left out. Platform templates come first.
+         */
         get: operations["listAgentTemplates"];
+        put?: never;
+        /** Create a platform template, always in the catalog (platform admins) */
+        post: operations["createPlatformTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/teams/{team}/agent-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        /** The team's own templates, archived ones too (members; platform staff) */
+        get: operations["listTeamTemplates"];
+        put?: never;
+        /** Create a template private to the team, with its first version (editors and above) */
+        post: operations["createTeamTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent-templates/{templateId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                templateId: components["parameters"]["TemplateIdParam"];
+            };
+            cookie?: never;
+        };
+        /** A template (platform and published templates for everyone; team templates for the team and platform staff) */
+        get: operations["getAgentTemplate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename, describe or archive a template (platform admins; the team's editors and above)
+         * @description Archived templates take no new deployments; agents already deployed keep working.
+         */
+        patch: operations["updateAgentTemplate"];
+        trace?: never;
+    };
+    "/v1/agent-templates/{templateId}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                templateId: components["parameters"]["TemplateIdParam"];
+            };
+            cookie?: never;
+        };
+        /** The template's versions, newest first */
+        get: operations["listTemplateVersions"];
+        put?: never;
+        /** Add a version; new agents get it, existing agents keep theirs until upgraded */
+        post: operations["createTemplateVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent-templates/{templateId}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                templateId: components["parameters"]["TemplateIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask a platform admin to put a private team template in the catalog (the team's owners and admins) */
+        post: operations["publishTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent-templates/{templateId}/unpublish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                templateId: components["parameters"]["TemplateIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Take a team template out of the catalog, or withdraw its request (the team's owners and admins)
+         * @description Agents already deployed from it keep working.
+         */
+        post: operations["unpublishTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent-templates/{templateId}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                templateId: components["parameters"]["TemplateIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve (into the catalog) or reject (back to private, with a note) a request to publish (platform admins) */
+        post: operations["reviewTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/agent-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every template; status=pending is the review queue (platform admins and auditors) */
+        get: operations["adminListTemplates"];
         put?: never;
         post?: never;
         delete?: never;
@@ -850,6 +995,67 @@ export interface components {
             slug: string;
             name: string;
             description: string;
+            /**
+             * Format: uuid
+             * @description The owning team; absent for platform templates
+             */
+            teamId?: string | null;
+            teamSlug?: string | null;
+            teamName?: string | null;
+            /**
+             * @description private: the team only; pending: waiting for a platform admin; published: in the catalog
+             * @enum {string}
+             */
+            status: "private" | "pending" | "published";
+            /** @description Why the last request to publish was rejected */
+            reviewNote?: string | null;
+            archived: boolean;
+            /** Format: int32 */
+            currentVersion: number;
+            /**
+             * Format: int64
+             * @description How many agents use it (one template's view only)
+             */
+            agentCount?: number | null;
+            /** Format: int64 */
+            revision: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        AgentTemplateCreate: {
+            slug: string;
+            name: string;
+            description?: string;
+            /** @description The agent's system prompt (version 1) */
+            instructions: string;
+            notes?: string;
+        };
+        AgentTemplateUpdate: {
+            name?: string;
+            description?: string;
+            archived?: boolean;
+        };
+        AgentTemplateVersion: {
+            /** Format: int32 */
+            version: number;
+            instructions: string;
+            notes: string;
+            createdByName?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        AgentTemplateVersionCreate: {
+            instructions: string;
+            /** @description What changed */
+            notes?: string;
+        };
+        AgentTemplateReview: {
+            /** @enum {string} */
+            decision: "approve" | "reject";
+            /** @description Shown to the team when rejected */
+            note?: string;
         };
         Agent: {
             /** Format: uuid */
@@ -860,8 +1066,20 @@ export interface components {
             teamId: string;
             teamSlug: string;
             teamName: string;
+            /** Format: uuid */
+            templateId: string;
             templateSlug: string;
             templateName: string;
+            /**
+             * Format: int32
+             * @description The template version the agent runs
+             */
+            templateVersion: number;
+            /**
+             * Format: int32
+             * @description The template's newest version (an upgrade is available when it is higher)
+             */
+            templateCurrentVersion: number;
             /** @description Set for service-managed agents (created by a service account with its own key) */
             externalKey?: string | null;
             enabled: boolean;
@@ -879,20 +1097,32 @@ export interface components {
         AgentCreate: {
             name: string;
             description?: string;
-            /** @description Template slug (default assistant) */
+            /** @description A platform template's slug (default assistant), when templateId is not given */
             template?: string;
+            /**
+             * Format: uuid
+             * @description The template (from the catalog, or the team's own)
+             */
+            templateId?: string;
         };
         AgentEnsure: {
             /** @description Defaults to the external key */
             name?: string;
             description?: string;
-            /** @description Template slug (default assistant) */
+            /** @description A platform template's slug (default assistant), when templateId is not given */
             template?: string;
+            /** Format: uuid */
+            templateId?: string;
         };
         AgentUpdate: {
             name?: string;
             description?: string;
             enabled?: boolean;
+            /**
+             * Format: int32
+             * @description Move to another version of the template (upgrade or roll back); applies when the agent next starts
+             */
+            templateVersion?: number;
         };
         AgentThread: {
             threadId: string;
@@ -1398,6 +1628,7 @@ export interface components {
         };
     };
     parameters: {
+        TemplateIdParam: string;
         AgentIdParam: string;
         /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
         ThreadIdParam: string;
@@ -2506,14 +2737,17 @@ export interface operations {
     };
     listAgentTemplates: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Team slug or ID (the caller must be on it) */
+                team?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Templates ordered by name */
+            /** @description Templates */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2525,6 +2759,342 @@ export interface operations {
                 };
             };
             401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    createPlatformTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentTemplateCreate"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentTemplate"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    listTeamTemplates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Templates */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentTemplate"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    createTeamTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentTemplateCreate"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentTemplate"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    getAgentTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                templateId: components["parameters"]["TemplateIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The template */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentTemplate"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    updateAgentTemplate: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+                "If-Match": components["parameters"]["IfMatchHeader"];
+            };
+            path: {
+                templateId: components["parameters"]["TemplateIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentTemplateUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentTemplate"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            412: components["responses"]["ErrorReply"];
+            428: components["responses"]["ErrorReply"];
+        };
+    };
+    listTemplateVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                templateId: components["parameters"]["TemplateIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentTemplateVersion"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    createTemplateVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                templateId: components["parameters"]["TemplateIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentTemplateVersionCreate"];
+            };
+        };
+        responses: {
+            /** @description The template with its new current version */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentTemplate"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    publishTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                templateId: components["parameters"]["TemplateIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pending review */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentTemplate"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    unpublishTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                templateId: components["parameters"]["TemplateIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Private again */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentTemplate"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    reviewTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                templateId: components["parameters"]["TemplateIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentTemplateReview"];
+            };
+        };
+        responses: {
+            /** @description Reviewed */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentTemplate"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    adminListTemplates: {
+        parameters: {
+            query?: {
+                status?: "private" | "pending" | "published";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Templates, most recently changed first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentTemplate"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
         };
     };
     listAgents: {

@@ -94,12 +94,10 @@ type View struct {
 	TeamName     string
 	TemplateSlug string
 	TemplateName string
-	Running      bool
-}
-
-// Templates lists the agent templates (any signed-in person).
-func (s *Service) Templates(ctx context.Context) ([]dbgen.AgentTemplate, error) {
-	return s.q.ListAgentTemplates(ctx)
+	// TemplateCurrentVersion is the template's newest version (an upgrade is
+	// available when it is above the agent's TemplateVersion).
+	TemplateCurrentVersion int32
+	Running                bool
 }
 
 // List returns the agents of the actor's teams (for a service account, its
@@ -118,9 +116,9 @@ func (s *Service) List(ctx context.Context, a authz.Actor, includeManaged bool) 
 		out[i] = View{
 			Agent: dbgen.Agent{ID: r.ID, TeamID: r.TeamID, TemplateID: r.TemplateID, Name: r.Name, Description: r.Description,
 				Enabled: r.Enabled, Revision: r.Revision, CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
-				LastUsedAt: r.LastUsedAt, ExternalKey: r.ExternalKey},
+				LastUsedAt: r.LastUsedAt, ExternalKey: r.ExternalKey, TemplateVersion: r.TemplateVersion},
 			TeamSlug: r.TeamSlug, TeamName: r.TeamName, TemplateSlug: r.TemplateSlug, TemplateName: r.TemplateName,
-			Running: s.host.Running(r.ID.String()),
+			TemplateCurrentVersion: r.TemplateCurrentVersion, Running: s.host.Running(r.ID.String()),
 		}
 	}
 	return out, nil
@@ -154,7 +152,7 @@ func (s *Service) view(ctx context.Context, q *dbgen.Queries, ag dbgen.Agent) (V
 		return View{}, err
 	}
 	return View{Agent: ag, TeamSlug: t.Slug, TeamName: t.Name, TemplateSlug: tpl.Slug, TemplateName: tpl.Name,
-		Running: s.host.Running(ag.ID.String())}, nil
+		TemplateCurrentVersion: tpl.CurrentVersion, Running: s.host.Running(ag.ID.String())}, nil
 }
 
 func (s *Service) load(ctx context.Context, q *dbgen.Queries, id uuid.UUID) (dbgen.Agent, error) {
@@ -181,9 +179,12 @@ func (s *Service) Get(ctx context.Context, a authz.Actor, id uuid.UUID) (View, e
 	return s.view(ctx, s.q, ag)
 }
 
-// CreateInput is a new team agent.
+// CreateInput is a new team agent: its template by ID, or a platform
+// template by slug (default: the assistant). It gets the template's current
+// version.
 type CreateInput struct {
 	Name, Description, Template string
+	TemplateID                  *uuid.UUID
 }
 
 // CreateTeamAgent makes an agent for a team (editors and above, people or
@@ -216,9 +217,6 @@ func (s *Service) createInTeam(ctx context.Context, a authz.Actor, teamRef strin
 	}
 	if utf8.RuneCountInString(in.Description) > 2000 {
 		return View{}, false, errBadDesc
-	}
-	if in.Template == "" {
-		in.Template = DefaultTemplate
 	}
 	var out View
 	created := false
@@ -260,10 +258,8 @@ func (s *Service) createInTeam(ctx context.Context, a authz.Actor, teamRef strin
 		} else if n >= MaxPerTeam {
 			return errTooMany
 		}
-		tpl, err := q.GetAgentTemplateBySlug(ctx, in.Template)
-		if errors.Is(store.NotFound(err), store.ErrNotFound) {
-			return errTemplateNotFound
-		} else if err != nil {
+		tpl, err := deployable(ctx, q, t.ID, in.TemplateID, in.Template)
+		if err != nil {
 			return err
 		}
 		desc := in.Description
@@ -271,7 +267,7 @@ func (s *Service) createInTeam(ctx context.Context, a authz.Actor, teamRef strin
 			desc = tpl.Description
 		}
 		ag, err := s.insert(ctx, q, a, dbgen.InsertAgentParams{
-			TeamID: t.ID, TemplateID: tpl.ID, Name: in.Name, Description: desc, ExternalKey: key,
+			TeamID: t.ID, TemplateID: tpl.ID, TemplateVersion: tpl.CurrentVersion, Name: in.Name, Description: desc, ExternalKey: key,
 		})
 		if err != nil {
 			return err
@@ -353,17 +349,20 @@ func (s *Service) insert(ctx context.Context, q *dbgen.Queries, a authz.Actor, p
 }
 
 func snapshot(ag dbgen.Agent) map[string]any {
-	m := map[string]any{"name": ag.Name, "description": ag.Description, "enabled": ag.Enabled}
+	m := map[string]any{"name": ag.Name, "description": ag.Description, "enabled": ag.Enabled, "templateVersion": ag.TemplateVersion}
 	if ag.ExternalKey != nil {
 		m["externalKey"] = *ag.ExternalKey
 	}
 	return m
 }
 
-// UpdateInput holds optional changes.
+// UpdateInput holds optional changes. TemplateVersion moves the agent to
+// another version of its template (upgrade or roll back); it takes effect
+// the next time the agent starts, so a running agent is hibernated.
 type UpdateInput struct {
 	Name, Description *string
 	Enabled           *bool
+	TemplateVersion   *int32
 }
 
 // Update changes an agent's name, description or whether it is on. Turning it
@@ -387,7 +386,13 @@ func (s *Service) Update(ctx context.Context, a authz.Actor, id uuid.UUID, in Up
 		if ag.Revision != expectedRevision {
 			return apperr.Stale()
 		}
-		p := dbgen.UpdateAgentParams{ID: id, Name: ag.Name, Description: ag.Description, Enabled: ag.Enabled}
+		p := dbgen.UpdateAgentParams{ID: id, Name: ag.Name, Description: ag.Description, Enabled: ag.Enabled, TemplateVersion: ag.TemplateVersion}
+		if in.TemplateVersion != nil && *in.TemplateVersion != ag.TemplateVersion {
+			if _, err := version(ctx, q, ag.TemplateID, *in.TemplateVersion); err != nil {
+				return err
+			}
+			p.TemplateVersion = *in.TemplateVersion
+		}
 		if in.Name != nil {
 			p.Name = strings.TrimSpace(*in.Name)
 			if n := utf8.RuneCountInString(p.Name); n < 1 || n > 100 || strings.ContainsAny(p.Name, "\r\n\x00") {
@@ -417,7 +422,8 @@ func (s *Service) Update(ctx context.Context, a authz.Actor, id uuid.UUID, in Up
 		out, err = s.view(ctx, q, updated)
 		return err
 	})
-	if err == nil && !out.Agent.Enabled {
+	if err == nil && (!out.Agent.Enabled || (in.TemplateVersion != nil && out.Running)) {
+		// Turned off, or a new version: the runtime restarts with it on the next request.
 		_ = s.host.Hibernate(ctx, id.String())
 		out.Running = false
 	}
@@ -547,7 +553,7 @@ func (s *Service) spec(ctx context.Context, ag dbgen.Agent) (launcher.Spec, erro
 	if err != nil {
 		return launcher.Spec{}, err
 	}
-	tpl, err := s.q.GetAgentTemplate(ctx, ag.TemplateID)
+	tv, err := version(ctx, s.q, ag.TemplateID, ag.TemplateVersion)
 	if err != nil {
 		return launcher.Spec{}, err
 	}
@@ -568,7 +574,7 @@ func (s *Service) spec(ctx context.Context, ag dbgen.Agent) (launcher.Spec, erro
 		}
 	}
 	return launcher.Spec{
-		AgentID: ag.ID.String(), Name: ag.Name, Instructions: tpl.Instructions,
+		AgentID: ag.ID.String(), Name: ag.Name, Instructions: tv.Instructions,
 		Schema: schema, DatabaseURL: dsn, Token: string(token), Env: env,
 	}, nil
 }

@@ -15,6 +15,10 @@ export type ServiceAccountTab = (typeof serviceAccountTabs)[number];
 export const agentTabs = ["overview", "test", "settings"] as const;
 export type AgentTab = (typeof agentTabs)[number];
 
+/** A template: Overview (current instructions) · Versions · Settings. */
+export const templateTabs = ["overview", "versions", "settings"] as const;
+export type TemplateTab = (typeof templateTabs)[number];
+
 /** Team settings: Members (with open invites) · Audit log · General. */
 export const teamSettingsTabs = ["members", "audit", "general"] as const;
 export type TeamSettingsTab = (typeof teamSettingsTabs)[number];

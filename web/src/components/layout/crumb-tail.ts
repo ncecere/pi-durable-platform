@@ -59,10 +59,15 @@ export type PageCrumb = {
  * effects before its parent's: when both mount together (Back to a result
  * over a run), registration order alone would put the result under the run.
  */
-export function insertByDepth<T extends { depth?: number }>(stack: T[], item: T): T[] {
+export function insertByDepth<T extends { depth?: number }>(
+  stack: T[],
+  item: T,
+): T[] {
   const d = item.depth ?? 1;
   const at = stack.findIndex((x) => (x.depth ?? 1) > d);
-  return at < 0 ? [...stack, item] : [...stack.slice(0, at), item, ...stack.slice(at)];
+  return at < 0
+    ? [...stack, item]
+    : [...stack.slice(0, at), item, ...stack.slice(at)];
 }
 
 let pageCrumbs: PageCrumb[] = [];
@@ -83,10 +88,17 @@ export function usePageCrumb(crumb: PageCrumb | undefined) {
   useEffect(() => {
     if (!crumb) return;
     const i = pageCrumbs.findIndex((c) => c.id === crumb.id);
-    setPageCrumbs(i < 0 ? insertByDepth(pageCrumbs, crumb) : pageCrumbs.map((c) => (c.id === crumb.id ? crumb : c)));
+    setPageCrumbs(
+      i < 0
+        ? insertByDepth(pageCrumbs, crumb)
+        : pageCrumbs.map((c) => (c.id === crumb.id ? crumb : c)),
+    );
   }, [crumb]);
   const id = crumb?.id;
-  useEffect(() => () => setPageCrumbs(pageCrumbs.filter((c) => c.id !== id)), [id]);
+  useEffect(
+    () => () => setPageCrumbs(pageCrumbs.filter((c) => c.id !== id)),
+    [id],
+  );
 }
 
 /** The open pages' crumbs, bottom first (the shell's breadcrumbs, the back links). */

@@ -6,18 +6,38 @@
  * up here when it's added there.
  */
 import { useNavigate } from "@tanstack/react-router";
-import { Bot, Boxes, FileClock, KeyRound, Plus, Settings, User, UserPlus, Users } from "lucide-react";
+import {
+  Bot,
+  Boxes,
+  FileClock,
+  KeyRound,
+  Plus,
+  Settings,
+  User,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import { useMemo } from "react";
 import { requestIntent } from "../../lib/intents";
 import { type TeamSettingsTab } from "../../lib/tabs";
 import { terms } from "../../lib/terms";
 import { type Me } from "../../session";
 import { type CommandGroup } from "@/components/ui/command-palette/command-palette";
-import { type ColorMode, useColorMode } from "@/components/ui/color-mode/color-mode";
+import {
+  type ColorMode,
+  useColorMode,
+} from "@/components/ui/color-mode/color-mode";
 import { roleLabels } from "../roles";
 import { type ActiveTeam } from "./active-team";
 import { useCapabilities } from "./location";
-import { adminKeywords, adminNav, icon, teamAccess, teamNavFor, workspaceNav } from "./nav";
+import {
+  adminKeywords,
+  adminNav,
+  icon,
+  teamAccess,
+  teamNavFor,
+  workspaceNav,
+} from "./nav";
 import { themeCommands } from "./theme";
 
 /** The palette's accessible name; its combobox carries it too. */
@@ -27,9 +47,22 @@ type Navigate = ReturnType<typeof useNavigate>;
 type Membership = Me["teams"][number];
 type Item = CommandGroup["items"][number];
 
-function pageGroup(navigate: Navigate, me: Me, slug: string | undefined, mine: Membership | undefined, mode: ColorMode): CommandGroup {
+function pageGroup(
+  navigate: Navigate,
+  me: Me,
+  slug: string | undefined,
+  mine: Membership | undefined,
+  mode: ColorMode,
+): CommandGroup {
   const items: Item[] = [
-    ...workspaceNav.map((n) => ({ id: "page:" + n.to, label: n.label, icon: n.icon, hint: "Page", keywords: n.keywords, onSelect: () => void navigate({ to: n.to }) })),
+    ...workspaceNav.map((n) => ({
+      id: "page:" + n.to,
+      label: n.label,
+      icon: n.icon,
+      hint: "Page",
+      keywords: n.keywords,
+      onSelect: () => void navigate({ to: n.to }),
+    })),
     {
       id: "profile",
       label: "Profile",
@@ -43,7 +76,15 @@ function pageGroup(navigate: Navigate, me: Me, slug: string | undefined, mine: M
       label: terms.apiKeys,
       icon: icon(KeyRound),
       hint: "Page",
-      keywords: ["account", "key", "keys", "token", "secret", "bearer", "revoke"],
+      keywords: [
+        "account",
+        "key",
+        "keys",
+        "token",
+        "secret",
+        "bearer",
+        "revoke",
+      ],
       onSelect: () => void navigate({ to: "/settings/api-keys" }),
     },
     {
@@ -75,17 +116,37 @@ function pageGroup(navigate: Navigate, me: Me, slug: string | undefined, mine: M
 }
 
 /** Team settings' tabs, with the words people use for them; each only where its tab shows. */
-function teamPlacesGroup(navigate: Navigate, me: Me, team: { slug: string; name: string }, mine: Membership | undefined): CommandGroup {
+function teamPlacesGroup(
+  navigate: Navigate,
+  me: Me,
+  team: { slug: string; name: string },
+  mine: Membership | undefined,
+): CommandGroup {
   const a = teamAccess(me, mine);
   const hint = terms.teamSettings;
   const go = (tab: TeamSettingsTab) => () =>
-    void navigate({ to: "/teams/$team/settings", params: { team: team.slug }, search: { tab: tab === "members" ? undefined : tab } });
+    void navigate({
+      to: "/teams/$team/settings",
+      params: { team: team.slug },
+      search: { tab: tab === "members" ? undefined : tab },
+    });
   const items: (Item & { show: boolean })[] = [
     {
       id: "team-tab:members",
       label: "Members",
       icon: <Users aria-hidden />,
-      keywords: ["member", "people", "invite", "invites", "role", "roles", "who", "access", "owner", "editor"],
+      keywords: [
+        "member",
+        "people",
+        "invite",
+        "invites",
+        "role",
+        "roles",
+        "who",
+        "access",
+        "owner",
+        "editor",
+      ],
       show: a.member || a.staff,
       hint,
       onSelect: go("members"),
@@ -94,7 +155,14 @@ function teamPlacesGroup(navigate: Navigate, me: Me, team: { slug: string; name:
       id: "team-tab:audit",
       label: terms.auditLog,
       icon: <FileClock aria-hidden />,
-      keywords: ["audit", "history", "changes", "who changed", "log", "activity"],
+      keywords: [
+        "audit",
+        "history",
+        "changes",
+        "who changed",
+        "log",
+        "activity",
+      ],
       show: a.canEdit || (!a.member && a.staff),
       hint,
       onSelect: go("audit"),
@@ -103,26 +171,56 @@ function teamPlacesGroup(navigate: Navigate, me: Me, team: { slug: string; name:
       id: "team-tab:general",
       label: "General",
       icon: <Settings aria-hidden />,
-      keywords: ["name", "description", "address", "leave", "archive", "danger zone"],
+      keywords: [
+        "name",
+        "description",
+        "address",
+        "leave",
+        "archive",
+        "danger zone",
+      ],
       show: a.member || a.staff,
       hint,
       onSelect: go("general"),
     },
   ];
-  return { label: team.name, items: items.filter((i) => i.show).map(({ show: _show, ...item }) => item) };
+  return {
+    label: team.name,
+    items: items.filter((i) => i.show).map(({ show: _show, ...item }) => item),
+  };
 }
 
 /** Actions in the current team, by what the user's role allows. */
-function teamActionGroup(navigate: Navigate, slug: string, mine: Membership): CommandGroup {
+function teamActionGroup(
+  navigate: Navigate,
+  slug: string,
+  mine: Membership,
+): CommandGroup {
   const actions: CommandGroup = { label: "Actions", items: [] };
-  if (mine.status === "active" && (mine.role === "owner" || mine.role === "admin")) {
+  if (
+    mine.status === "active" &&
+    (mine.role === "owner" || mine.role === "admin")
+  ) {
     actions.items.push({
       id: "create-service-account",
       label: "Create service account",
       icon: <Bot aria-hidden />,
-      keywords: ["new service account", "bot", "automation", "ci", "headless", "service", "script"],
+      keywords: [
+        "new service account",
+        "bot",
+        "automation",
+        "ci",
+        "headless",
+        "service",
+        "script",
+      ],
       // The list's create form is its URL (?form=new).
-      onSelect: () => void navigate({ to: "/teams/$team/service-accounts", params: { team: slug }, search: { form: "new" } }),
+      onSelect: () =>
+        void navigate({
+          to: "/teams/$team/service-accounts",
+          params: { team: slug },
+          search: { form: "new" },
+        }),
     });
     actions.items.push({
       id: "add-member",
@@ -147,7 +245,8 @@ function teamsGroup(navigate: Navigate, teams: Me["teams"]): CommandGroup {
       icon: icon(Boxes),
       hint: roleLabels[t.role],
       keywords: [t.slug, "team"],
-      onSelect: () => void navigate({ to: "/teams/$team", params: { team: t.slug } }),
+      onSelect: () =>
+        void navigate({ to: "/teams/$team", params: { team: t.slug } }),
     })),
   };
 }
@@ -179,7 +278,10 @@ function adminGroup(navigate: Navigate, platformAdmin: boolean): CommandGroup {
 }
 
 /** The palette's groups. */
-export function useCommands(me: Me, active: ActiveTeam): { groups: CommandGroup[] } {
+export function useCommands(
+  me: Me,
+  active: ActiveTeam,
+): { groups: CommandGroup[] } {
   const navigate = useNavigate();
   const { canAdmin } = useCapabilities(me);
   const slug = active.slug;
@@ -188,12 +290,25 @@ export function useCommands(me: Me, active: ActiveTeam): { groups: CommandGroup[
   const { mode } = useColorMode();
   const groups = useMemo(() => {
     const groups: CommandGroup[] = [pageGroup(navigate, me, slug, mine, mode)];
-    if (slug) groups.push(teamPlacesGroup(navigate, me, { slug, name: teamName }, mine));
+    if (slug)
+      groups.push(
+        teamPlacesGroup(navigate, me, { slug, name: teamName }, mine),
+      );
     if (slug && mine) groups.push(teamActionGroup(navigate, slug, mine));
     groups.push(teamsGroup(navigate, me.teams));
-    if (canAdmin) groups.push(adminGroup(navigate, me.capabilities.platformAdmin));
+    if (canAdmin)
+      groups.push(adminGroup(navigate, me.capabilities.platformAdmin));
     return groups.filter((g) => g.items.length > 0);
     // `me` is only read for its teams and capabilities, which are dependencies.
-  }, [navigate, slug, mine, teamName, me.teams, me.capabilities, canAdmin, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    navigate,
+    slug,
+    mine,
+    teamName,
+    me.teams,
+    me.capabilities,
+    canAdmin,
+    mode,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
   return { groups };
 }

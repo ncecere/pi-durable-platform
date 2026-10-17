@@ -1082,10 +1082,17 @@ paths:
       tags:
       - agents
       operationId: listAgentTemplates
-      summary: Templates agents can be made from (anyone signed in)
+      summary: The catalog, and with team= that team's own templates (what the team can deploy)
+      description: Archived templates are left out. Platform templates come first.
+      parameters:
+      - name: team
+        in: query
+        description: Team slug or ID (the caller must be on it)
+        schema:
+          type: string
       responses:
         '200':
-          description: Templates ordered by name
+          description: Templates
           content:
             application/json:
               schema:
@@ -1098,6 +1105,364 @@ paths:
                     items:
                       $ref: '#/components/schemas/AgentTemplate'
         '401':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - agents
+      operationId: createPlatformTemplate
+      summary: Create a platform template, always in the catalog (platform admins)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentTemplateCreate'
+      responses:
+        '201':
+          description: Created
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgentTemplate'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/agent-templates:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    get:
+      tags:
+      - agents
+      operationId: listTeamTemplates
+      summary: The team's own templates, archived ones too (members; platform staff)
+      responses:
+        '200':
+          description: Templates
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AgentTemplate'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - agents
+      operationId: createTeamTemplate
+      summary: Create a template private to the team, with its first version (editors and above)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentTemplateCreate'
+      responses:
+        '201':
+          description: Created
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgentTemplate'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/agent-templates/{templateId}:
+    parameters:
+    - $ref: '#/components/parameters/TemplateIdParam'
+    get:
+      tags:
+      - agents
+      operationId: getAgentTemplate
+      summary: A template (platform and published templates for everyone; team templates for the team and platform staff)
+      responses:
+        '200':
+          description: The template
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgentTemplate'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    patch:
+      tags:
+      - agents
+      operationId: updateAgentTemplate
+      summary: Rename, describe or archive a template (platform admins; the team's editors and above)
+      description: Archived templates take no new deployments; agents already deployed keep working.
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentTemplateUpdate'
+      responses:
+        '200':
+          description: Updated
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgentTemplate'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/agent-templates/{templateId}/versions:
+    parameters:
+    - $ref: '#/components/parameters/TemplateIdParam'
+    get:
+      tags:
+      - agents
+      operationId: listTemplateVersions
+      summary: The template's versions, newest first
+      responses:
+        '200':
+          description: Versions
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AgentTemplateVersion'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - agents
+      operationId: createTemplateVersion
+      summary: Add a version; new agents get it, existing agents keep theirs until upgraded
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentTemplateVersionCreate'
+      responses:
+        '201':
+          description: The template with its new current version
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgentTemplate'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/agent-templates/{templateId}/publish:
+    parameters:
+    - $ref: '#/components/parameters/TemplateIdParam'
+    post:
+      tags:
+      - agents
+      operationId: publishTemplate
+      summary: Ask a platform admin to put a private team template in the catalog (the team's owners and admins)
+      responses:
+        '200':
+          description: Pending review
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgentTemplate'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/agent-templates/{templateId}/unpublish:
+    parameters:
+    - $ref: '#/components/parameters/TemplateIdParam'
+    post:
+      tags:
+      - agents
+      operationId: unpublishTemplate
+      summary: Take a team template out of the catalog, or withdraw its request (the team's owners and admins)
+      description: Agents already deployed from it keep working.
+      responses:
+        '200':
+          description: Private again
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgentTemplate'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/agent-templates/{templateId}/review:
+    parameters:
+    - $ref: '#/components/parameters/TemplateIdParam'
+    post:
+      tags:
+      - agents
+      operationId: reviewTemplate
+      summary: Approve (into the catalog) or reject (back to private, with a note) a request to publish (platform admins)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentTemplateReview'
+      responses:
+        '200':
+          description: Reviewed
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgentTemplate'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/agent-templates:
+    get:
+      tags:
+      - admin
+      operationId: adminListTemplates
+      summary: Every template; status=pending is the review queue (platform admins and auditors)
+      parameters:
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum: [private, pending, published]
+      responses:
+        '200':
+          description: Templates, most recently changed first
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AgentTemplate'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
           $ref: '#/components/responses/ErrorReply'
   /v1/agents:
     get:
@@ -1547,6 +1912,13 @@ components:
       schema:
         type: string
   parameters:
+    TemplateIdParam:
+      name: templateId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     AgentIdParam:
       name: agentId
       in: path
@@ -1719,7 +2091,7 @@ components:
   schemas:
     AgentTemplate:
       type: object
-      required: [id, slug, name, description]
+      required: [id, slug, name, description, status, archived, currentVersion, revision, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -1731,9 +2103,117 @@ components:
           type: string
         description:
           type: string
+        teamId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The owning team; absent for platform templates
+        teamSlug:
+          type: string
+          nullable: true
+        teamName:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [private, pending, published]
+          description: 'private: the team only; pending: waiting for a platform admin; published: in the catalog'
+        reviewNote:
+          type: string
+          nullable: true
+          description: Why the last request to publish was rejected
+        archived:
+          type: boolean
+        currentVersion:
+          type: integer
+          format: int32
+        agentCount:
+          type: integer
+          format: int64
+          nullable: true
+          description: How many agents use it (one template's view only)
+        revision:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AgentTemplateCreate:
+      type: object
+      required: [slug, name, instructions]
+      properties:
+        slug:
+          type: string
+          pattern: '^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$'
+        name:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 2000
+        instructions:
+          type: string
+          maxLength: 20000
+          description: The agent's system prompt (version 1)
+        notes:
+          type: string
+          maxLength: 2000
+    AgentTemplateUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 2000
+        archived:
+          type: boolean
+    AgentTemplateVersion:
+      type: object
+      required: [version, instructions, notes, createdAt]
+      properties:
+        version:
+          type: integer
+          format: int32
+        instructions:
+          type: string
+        notes:
+          type: string
+        createdByName:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    AgentTemplateVersionCreate:
+      type: object
+      required: [instructions]
+      properties:
+        instructions:
+          type: string
+          maxLength: 20000
+        notes:
+          type: string
+          maxLength: 2000
+          description: What changed
+    AgentTemplateReview:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [approve, reject]
+        note:
+          type: string
+          maxLength: 2000
+          description: Shown to the team when rejected
     Agent:
       type: object
-      required: [id, name, description, teamId, teamSlug, teamName, templateSlug, templateName, enabled, running, revision, createdAt, updatedAt]
+      required: [id, name, description, teamId, teamSlug, teamName, templateId, templateSlug, templateName, templateVersion, templateCurrentVersion, enabled, running, revision, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -1749,10 +2229,21 @@ components:
           type: string
         teamName:
           type: string
+        templateId:
+          type: string
+          format: uuid
         templateSlug:
           type: string
         templateName:
           type: string
+        templateVersion:
+          type: integer
+          format: int32
+          description: The template version the agent runs
+        templateCurrentVersion:
+          type: integer
+          format: int32
+          description: The template's newest version (an upgrade is available when it is higher)
         externalKey:
           type: string
           nullable: true
@@ -1787,7 +2278,11 @@ components:
           maxLength: 2000
         template:
           type: string
-          description: Template slug (default assistant)
+          description: A platform template's slug (default assistant), when templateId is not given
+        templateId:
+          type: string
+          format: uuid
+          description: The template (from the catalog, or the team's own)
     AgentEnsure:
       type: object
       properties:
@@ -1800,7 +2295,10 @@ components:
           maxLength: 2000
         template:
           type: string
-          description: Template slug (default assistant)
+          description: A platform template's slug (default assistant), when templateId is not given
+        templateId:
+          type: string
+          format: uuid
     AgentUpdate:
       type: object
       properties:
@@ -1812,6 +2310,10 @@ components:
           maxLength: 2000
         enabled:
           type: boolean
+        templateVersion:
+          type: integer
+          format: int32
+          description: Move to another version of the template (upgrade or roll back); applies when the agent next starts
     AgentThread:
       type: object
       required: [threadId, title, createdAt, updatedAt]

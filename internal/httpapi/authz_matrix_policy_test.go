@@ -190,7 +190,35 @@ var matrixPolicies = map[string]policy{
 	// A team's agents and their conversations are its members' only:
 	// platform roles never reach them (platform admins may delete).
 	"listAgentTemplates": {own: signedIn, build: func(*mctx) request { return get("/v1/agent-templates") }},
-	"listAgents":         {own: signedIn, build: func(*mctx) request { return get("/v1/agents") }},
+
+	// Templates. Platform templates are platform admins'; a team's templates
+	// are private to it (platform staff read them, to review); its owners
+	// and admins ask to publish, platform admins review.
+	"createPlatformTemplate": {own: padmin, build: func(c *mctx) request {
+		return post("/v1/agent-templates", map[string]any{"slug": fmt.Sprintf("p-%d", c.e.next()), "name": "P", "instructions": "Hi."})
+	}},
+	"adminListTemplates": {own: platform, build: func(*mctx) request { return get("/v1/admin/agent-templates?status=pending") }},
+	"listTeamTemplates":  {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.team("/agent-templates")) }},
+	"createTeamTemplate": {scope: scopeTeam, own: editors, build: func(c *mctx) request {
+		return post(c.team("/agent-templates"), map[string]any{"slug": fmt.Sprintf("t-%d", c.e.next()), "name": "T", "instructions": "Hi."})
+	}},
+	"getAgentTemplate": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.template("", false, "")) }},
+	"updateAgentTemplate": {scope: scopeTeam, own: editors, build: func(c *mctx) request {
+		return patch(c.template("", true, "private"), map[string]any{"description": "updated by the matrix"}).h(rev1)
+	}},
+	"listTemplateVersions": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request {
+		return get(c.template("/versions", false, ""))
+	}},
+	"createTemplateVersion": {scope: scopeTeam, own: editors, build: func(c *mctx) request {
+		return post(c.template("/versions", true, "private"), map[string]any{"instructions": "Be brief."})
+	}},
+	"publishTemplate":   {scope: scopeTeam, own: admins, build: func(c *mctx) request { return post(c.template("/publish", true, "private"), nil) }},
+	"unpublishTemplate": {scope: scopeTeam, own: admins, build: func(c *mctx) request { return post(c.template("/unpublish", true, "published"), nil) }},
+	"reviewTemplate": {scope: scopeTeam, own: 0, foreign: padmin, build: func(c *mctx) request {
+		return post(c.template("/review", true, "pending"), map[string]any{"decision": "approve"})
+	}},
+
+	"listAgents": {own: signedIn, build: func(*mctx) request { return get("/v1/agents") }},
 	"createTeamAgent": {scope: scopeTeam, own: editors, build: func(c *mctx) request {
 		return post(c.team("/agents"), map[string]any{"name": fmt.Sprintf("new-agent-%d", c.e.next())})
 	}},

@@ -35,8 +35,9 @@ type teamFix struct {
 	auditID        string // an entry of the team's audit log
 	// serviceAccount is a service account with one key (saKey).
 	serviceAccount, saKey string
-	// owner is an owner of the team; agent a team agent with a thread.
-	owner, agent, thread string
+	// owner is an owner of the team; agent a team agent with a thread;
+	// template a private team template.
+	owner, agent, thread, template string
 }
 
 type matrixEnv struct {
@@ -147,8 +148,24 @@ func newMatrixEnv(t *testing.T) *matrixEnv {
 	for _, tf := range []*teamFix{&e.a, &e.b} {
 		tf.agent = e.newAgent(*tf)
 		tf.thread = e.newThread(*tf, tf.agent)
+		tf.template = e.newTemplate(*tf, "private")
 	}
 	return e
+}
+
+// newTemplate creates a team template, as the team's owner, in a status.
+func (e *matrixEnv) newTemplate(tf teamFix, status string) string {
+	e.t.Helper()
+	actor := authz.Actor{UserID: uuid.MustParse(tf.owner), PlatformRole: authz.PlatformNone}
+	v, err := e.app.Agents.CreateTemplate(context.Background(), actor, tf.slug, agents.TemplateInput{
+		Slug: fmt.Sprintf("tpl-%d", e.next()), Name: "Template", Instructions: "Be helpful."})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if status != "private" {
+		e.exec(`UPDATE agent_templates SET status = $2 WHERE id = $1 RETURNING status`, v.Template.ID, status)
+	}
+	return v.Template.ID.String()
 }
 
 // newAgent creates a team agent, as the team's owner.
@@ -192,6 +209,16 @@ func (c *mctx) agent(suffix string, fresh bool) string {
 		id = c.e.newAgent(*c.tf)
 	}
 	return "/v1/agents/" + id + suffix
+}
+
+// template is the team template's path, or a fresh one's (in status) for a
+// call expected to succeed.
+func (c *mctx) template(suffix string, fresh bool, status string) string {
+	id := c.tf.template
+	if fresh && c.allowed {
+		id = c.e.newTemplate(*c.tf, status)
+	}
+	return "/v1/agent-templates/" + id + suffix
 }
 
 // thread is the team agent's thread path, or a fresh thread's for a

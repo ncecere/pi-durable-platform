@@ -52,6 +52,7 @@ func New(l launcher.Launcher, idle time.Duration, log *slog.Logger) *Manager {
 		launcher: l, idle: idle, log: log,
 		client:  &http.Client{Timeout: 10 * time.Second},
 		streams: map[string]int{}, lastUsed: map[string]time.Time{},
+		closing: make(chan struct{}),
 	}
 }
 

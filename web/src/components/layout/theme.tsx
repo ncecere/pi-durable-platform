@@ -8,7 +8,11 @@
  * in this browser on this site).
  */
 import { Monitor, Moon, Sun } from "lucide-react";
-import { setColorMode, useColorMode, type ColorMode } from "@/components/ui/color-mode/color-mode";
+import {
+  setColorMode,
+  useColorMode,
+  type ColorMode,
+} from "@/components/ui/color-mode/color-mode";
 import type { CommandGroup } from "@/components/ui/command-palette/command-palette";
 import { MenuRadioGroup, MenuRadioItem } from "@/components/ui/menu/menu";
 import l from "./layout.module.css";
@@ -31,7 +35,11 @@ export function ColorModeSync() {
 export function ThemeMenuGroup() {
   const { mode, setMode } = useColorMode();
   return (
-    <MenuRadioGroup label="Theme" value={mode} onValueChange={(v) => isMode(v) && setMode(v)}>
+    <MenuRadioGroup
+      label="Theme"
+      value={mode}
+      onValueChange={(v) => isMode(v) && setMode(v)}
+    >
       {MODES.map((m) => (
         <MenuRadioItem key={m.value} value={m.value}>
           {/* An icon like the menu's other items (VI2-14). */}
@@ -52,7 +60,15 @@ export function themeCommands(current: ColorMode): CommandGroup["items"] {
     label: `Theme: ${m.label}`,
     icon: <m.icon aria-hidden />,
     hint: m.value === current ? "Current theme" : "Theme",
-    keywords: ["theme", "appearance", "dark mode", "light mode", "colour", "color", m.value === "system" ? "follow the system" : `${m.value} mode`],
+    keywords: [
+      "theme",
+      "appearance",
+      "dark mode",
+      "light mode",
+      "colour",
+      "color",
+      m.value === "system" ? "follow the system" : `${m.value} mode`,
+    ],
     onSelect: () => setColorMode(m.value),
   }));
 }

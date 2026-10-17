@@ -20,23 +20,24 @@ describe("navigation lists", () => {
     expect(workspaceNav.map((n) => [n.label, n.to])).toEqual([
       ["Home", "/"],
       ["All agents", "/agents"],
+      ["Catalog", "/catalog"],
     ]);
     expect(teamNavFor(meFor("none", "member"), team.slug).find((n) => n.label === "Service accounts")?.to).toBe("/teams/$team/service-accounts");
-    expect(adminNav.map((n) => n.to)).toEqual(["/admin/users", "/admin/teams", "/admin/audit"]);
+    expect(adminNav.map((n) => n.to)).toEqual(["/admin/users", "/admin/teams", "/admin/templates", "/admin/audit"]);
   });
 
   it("resolve the record routes the lists link to (API keys, service accounts, users, teams)", () => {
     const paths = routePaths();
-    const records = ["/settings/api-keys", "/settings/profile", "/teams/$team/service-accounts/$serviceAccountId", "/admin/users/$userId", "/admin/teams/$team", "/agents", "/teams/$team/agents", "/teams/$team/agents/$agentId"];
+    const records = ["/settings/api-keys", "/settings/profile", "/teams/$team/service-accounts/$serviceAccountId", "/admin/users/$userId", "/admin/teams/$team", "/agents", "/teams/$team/agents", "/teams/$team/agents/$agentId", "/catalog", "/templates/$templateId", "/teams/$team/templates", "/admin/templates"];
     for (const to of records) expect(paths, to).toContain(to);
   });
 
-  it("give every team role the overview, agents, service accounts and settings, and platform staff who aren't members all but agents", () => {
+  it("give every team role the overview, agents, templates, service accounts and settings, and platform staff who aren't members all but agents", () => {
     for (const role of ["owner", "admin", "editor", "member"] as const) {
-      expect(teamNavFor(meFor("none", role), team.slug).map((n) => n.label)).toEqual(["Overview", "Agents", "Service accounts", "Team settings"]);
+      expect(teamNavFor(meFor("none", role), team.slug).map((n) => n.label)).toEqual(["Overview", "Agents", "Templates", "Service accounts", "Team settings"]);
     }
-    // Agents and their conversations are the team's own.
-    expect(teamNavFor(meFor("platform_auditor", null), team.slug).map((n) => n.label)).toEqual(["Overview", "Service accounts", "Team settings"]);
+    // Agents and their conversations are the team's own; staff read templates (to review them).
+    expect(teamNavFor(meFor("platform_auditor", null), team.slug).map((n) => n.label)).toEqual(["Overview", "Templates", "Service accounts", "Team settings"]);
     // Neither a member nor staff: nothing (the team page says "Team not found").
     expect(teamNavFor(meFor("none", null), team.slug)).toEqual([]);
   });
@@ -83,7 +84,7 @@ describe("workspace sidebar", () => {
     renderApp(`/teams/${team.slug}`);
     const nav = await screen.findByRole("navigation", { name: "Main" });
     await waitFor(() => expect(within(nav).getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page"));
-    expect(within(nav).getAllByRole("link").map((l) => l.textContent)).toEqual(["Home", "All agents", "Overview", "Agents", "Service accounts", "Team settings"]);
+    expect(within(nav).getAllByRole("link").map((l) => l.textContent)).toEqual(["Home", "All agents", "Catalog", "Overview", "Agents", "Templates", "Service accounts", "Team settings"]);
     expect(within(nav).getByRole("link", { name: "All agents" })).toHaveAttribute("href", "/agents");
     expect(within(nav).getByRole("link", { name: "Agents" })).toHaveAttribute("href", `/teams/${team.slug}/agents`);
     expect(within(nav).getByRole("link", { name: "Service accounts" })).toHaveAttribute("href", `/teams/${team.slug}/service-accounts`);

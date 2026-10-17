@@ -9,7 +9,12 @@ import { RefreshCw } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Alert } from "@/components/ui/alert/alert";
 import { Button } from "@/components/ui/button/button";
-import { clearRateLimit, isRateLimited, rateLimitedUntil, subscribeRateLimit } from "../../lib/retry";
+import {
+  clearRateLimit,
+  isRateLimited,
+  rateLimitedUntil,
+  subscribeRateLimit,
+} from "../../lib/retry";
 import styles from "./banner.module.css";
 
 /** Seconds until `until` (ms since the epoch), ticking while it's ahead; 0 once it passed. */
@@ -36,7 +41,11 @@ export function RateLimitBanner() {
   const retryNow = () => {
     clearRateLimit();
     // Refetching a query that waits for its retry starts it now.
-    void qc.refetchQueries({ predicate: (q) => isRateLimited(q.state.fetchFailureReason) || isRateLimited(q.state.error) });
+    void qc.refetchQueries({
+      predicate: (q) =>
+        isRateLimited(q.state.fetchFailureReason) ||
+        isRateLimited(q.state.error),
+    });
     // The banner goes: keep focus on the page rather than the body.
     document.querySelector<HTMLElement>("main")?.focus({ preventScroll: true });
   };
@@ -51,11 +60,16 @@ export function RateLimitBanner() {
         </Button>
       }
     >
-      <p className={styles.reason}>Your account made more requests in the last minute than allowed, for example from several open tabs. Nothing is lost.</p>
+      <p className={styles.reason}>
+        Your account made more requests in the last minute than allowed, for
+        example from several open tabs. Nothing is lost.
+      </p>
       {/* The alert is a polite live region: a ticking countdown would be read out every second, so it says it once. */}
       <p className={styles.detail}>
         <span aria-hidden>Trying again in {left} s.</span>
-        <span className="sr-only">It tries again by itself in under a minute.</span>
+        <span className="sr-only">
+          It tries again by itself in under a minute.
+        </span>
       </p>
     </Alert>
   );

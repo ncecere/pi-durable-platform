@@ -158,9 +158,14 @@ export function TestChat({ agent }: { agent: Agent }) {
       <section className={s.pane} aria-label={agent.name}>
         <header className={s.paneHeader}>
           <span className={s.paneTitle}>
-            {exists ? (threads.data?.find((t) => t.threadId === threadId)?.title ?? "Conversation") : "New test conversation"}
+            {exists
+              ? (threads.data?.find((t) => t.threadId === threadId)?.title ??
+                "Conversation")
+              : "New test conversation"}
           </span>
-          {exists && !live.connected ? <span className={s.hint}>Connecting…</span> : null}
+          {exists && !live.connected ? (
+            <span className={s.hint}>Connecting…</span>
+          ) : null}
           <span className={s.hint}>Shared with the team</span>
         </header>
         <Conversation className={s.conversation}>

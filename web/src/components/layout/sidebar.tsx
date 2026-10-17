@@ -1,18 +1,46 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { KeyRound, LifeBuoy, LogOut, User } from "lucide-react";
 import { InstanceLogo, useInstance, useSignOut, type Me } from "../../session";
-import { Brand, Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarItem, SidebarNav, SidebarSection, SidebarUser } from "@/components/ui/app-shell/app-shell";
-import { MenuHeader, MenuItem, MenuLinkItem, MenuSeparator } from "@/components/ui/menu/menu";
+import {
+  Brand,
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarItem,
+  SidebarNav,
+  SidebarSection,
+  SidebarUser,
+} from "@/components/ui/app-shell/app-shell";
+import {
+  MenuHeader,
+  MenuItem,
+  MenuLinkItem,
+  MenuSeparator,
+} from "@/components/ui/menu/menu";
 import styles from "./layout.module.css";
 import { type ActiveTeam } from "./active-team";
 import { useCapabilities } from "./location";
 import { AdminHeader, ModeSwitch, type Mode } from "./mode-switch";
 import { TeamSwitcher } from "./team-switcher";
 import { ThemeMenuGroup } from "./theme";
-import { activeAdminGroup, adminSections, teamNavFor, workspaceNav } from "./nav";
+import {
+  activeAdminGroup,
+  adminSections,
+  teamNavFor,
+  workspaceNav,
+} from "./nav";
 import { useAdminGroups } from "./admin-groups";
 
-export function AppSidebar({ me, mode, active }: { me: Me; mode: Mode; active: ActiveTeam }) {
+export function AppSidebar({
+  me,
+  mode,
+  active,
+}: {
+  me: Me;
+  mode: Mode;
+  active: ActiveTeam;
+}) {
   const signOut = useSignOut();
   const instance = useInstance();
   const { canAdmin } = useCapabilities(me);
@@ -21,14 +49,31 @@ export function AppSidebar({ me, mode, active }: { me: Me; mode: Mode; active: A
       <SidebarHeader>
         <Brand
           name={instance.name}
-          logo={instance.logoUrl ? <InstanceLogo src={instance.logoUrl} className={styles.brandLogo} /> : undefined}
+          logo={
+            instance.logoUrl ? (
+              <InstanceLogo
+                src={instance.logoUrl}
+                className={styles.brandLogo}
+              />
+            ) : undefined
+          }
           render={<Link to="/" />}
         />
         {canAdmin && <ModeSwitch mode={mode} />}
-        {mode === "admin" ? <AdminHeader /> : <TeamSwitcher me={me} active={active} />}
+        {mode === "admin" ? (
+          <AdminHeader />
+        ) : (
+          <TeamSwitcher me={me} active={active} />
+        )}
       </SidebarHeader>
       <SidebarContent>
-        <SidebarNav aria-label="Main">{mode === "admin" ? <AdminNav /> : <WorkspaceNav me={me} active={active} />}</SidebarNav>
+        <SidebarNav aria-label="Main">
+          {mode === "admin" ? (
+            <AdminNav />
+          ) : (
+            <WorkspaceNav me={me} active={active} />
+          )}
+        </SidebarNav>
       </SidebarContent>
       <SidebarFooter>
         <SidebarUser name={me.user.displayName} email={me.user.email}>
@@ -37,21 +82,35 @@ export function AppSidebar({ me, mode, active }: { me: Me; mode: Mode; active: A
             {me.user.email}
           </MenuHeader>
           <MenuSeparator />
-          <MenuLinkItem icon={<User aria-hidden />} render={<Link to="/settings/profile" />}>
+          <MenuLinkItem
+            icon={<User aria-hidden />}
+            render={<Link to="/settings/profile" />}
+          >
             Profile
           </MenuLinkItem>
-          <MenuLinkItem icon={<KeyRound aria-hidden />} render={<Link to="/settings/api-keys" />}>
+          <MenuLinkItem
+            icon={<KeyRound aria-hidden />}
+            render={<Link to="/settings/api-keys" />}
+          >
             API keys
           </MenuLinkItem>
           <MenuSeparator />
           <ThemeMenuGroup />
           <MenuSeparator />
           {instance.supportUrl && (
-            <MenuLinkItem href={instance.supportUrl} target="_blank" rel="noreferrer" icon={<LifeBuoy aria-hidden />}>
+            <MenuLinkItem
+              href={instance.supportUrl}
+              target="_blank"
+              rel="noreferrer"
+              icon={<LifeBuoy aria-hidden />}
+            >
               Help
             </MenuLinkItem>
           )}
-          <MenuItem icon={<LogOut aria-hidden />} onClick={() => signOut.mutate()}>
+          <MenuItem
+            icon={<LogOut aria-hidden />}
+            onClick={() => signOut.mutate()}
+          >
             Sign out
           </MenuItem>
         </SidebarUser>
@@ -67,7 +126,17 @@ function WorkspaceNav({ me, active }: { me: Me; active: ActiveTeam }) {
     <>
       <SidebarSection label="Workspace">
         {workspaceNav.map((item) => (
-          <SidebarItem key={item.to} icon={item.icon} label={item.label} render={<Link to={item.to} activeOptions={{ exact: item.exact ?? false }} />} />
+          <SidebarItem
+            key={item.to}
+            icon={item.icon}
+            label={item.label}
+            render={
+              <Link
+                to={item.to}
+                activeOptions={{ exact: item.exact ?? false }}
+              />
+            }
+          />
         ))}
       </SidebarSection>
       {slug && (
@@ -77,7 +146,13 @@ function WorkspaceNav({ me, active }: { me: Me; active: ActiveTeam }) {
               key={item.to}
               icon={item.icon}
               label={item.label}
-              render={<Link to={item.to} params={{ team: slug }} activeOptions={{ exact: item.exact ?? false }} />}
+              render={
+                <Link
+                  to={item.to}
+                  params={{ team: slug }}
+                  activeOptions={{ exact: item.exact ?? false }}
+                />
+              }
             />
           ))}
         </SidebarSection>
@@ -96,14 +171,18 @@ function AdminNav() {
       label={section.label}
       collapsible={Boolean(section.label)}
       open={section.label ? groups.isOpen(section.label) : undefined}
-      onOpenChange={section.label ? (o) => groups.setOpen(section.label!, o) : undefined}
+      onOpenChange={
+        section.label ? (o) => groups.setOpen(section.label!, o) : undefined
+      }
     >
       {section.items.map((item) => (
         <SidebarItem
           key={item.to}
           icon={item.icon}
           label={item.label}
-          render={<Link to={item.to} activeOptions={{ exact: item.exact ?? false }} />}
+          render={
+            <Link to={item.to} activeOptions={{ exact: item.exact ?? false }} />
+          }
         />
       ))}
     </SidebarSection>

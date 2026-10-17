@@ -10,7 +10,8 @@ This repository holds:
 - **The platform** (Go 1.26 + PostgreSQL 17, with a React/Vite web UI embedded in one binary): sign-in (OIDC, plus
   local development personas), teams and their members, platform and team roles, personal API keys, team service
   accounts, an append-only audit log, a `doctor` command, and **agents**: team editors deploy agents from templates
-  and test them; the team's apps reach them with service account keys, and can give each of their users an agent
+  (the catalog: platform templates and team templates published after a platform admin's review; versioned, agents
+  pin a version) and test them; the team's apps reach them with service account keys, and can give each of their users an agent
   (service-managed agents). See [DESIGN.md](DESIGN.md).
 - **The agent runtime** in [`runtime/`](runtime) (TypeScript): one Pi Durable agent per process, its state in its own
   PostgreSQL schema and role. The platform starts runtimes on demand, relays conversations to them (server-sent

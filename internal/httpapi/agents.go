@@ -7,7 +7,6 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/agents"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
-	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 )
 
 // Agents (api/openapi.yaml, tag agents). internal/agents authorizes every
@@ -20,7 +19,6 @@ func (a *api) agentRoutes() []route {
 	// Every agent route takes a browser session or a key (sessionOrKey).
 	k := a.sessionOrKey
 	return []route{
-		{"GET", "/v1/agent-templates", k(a.listAgentTemplates)},
 		{"GET", "/v1/agents", k(a.listAgents)},
 		{"GET", "/v1/teams/{team}/agents", k(a.listTeamAgents)},
 		{"POST", "/v1/teams/{team}/agents", k(a.createTeamAgent)},
@@ -38,15 +36,12 @@ func (a *api) agentRoutes() []route {
 	}
 }
 
-func toAPIAgentTemplate(t dbgen.AgentTemplate) apitypes.AgentTemplate {
-	return apitypes.AgentTemplate{Id: t.ID, Slug: t.Slug, Name: t.Name, Description: t.Description}
-}
-
 func toAPIAgent(v agents.View) apitypes.Agent {
 	ag := v.Agent
 	return apitypes.Agent{
 		Id: ag.ID, Name: ag.Name, Description: ag.Description,
-		TeamId: ag.TeamID, TeamSlug: v.TeamSlug, TeamName: v.TeamName, TemplateSlug: v.TemplateSlug, TemplateName: v.TemplateName,
+		TeamId: ag.TeamID, TeamSlug: v.TeamSlug, TeamName: v.TeamName, TemplateId: ag.TemplateID, TemplateSlug: v.TemplateSlug,
+		TemplateName: v.TemplateName, TemplateVersion: ag.TemplateVersion, TemplateCurrentVersion: v.TemplateCurrentVersion,
 		Enabled: ag.Enabled, Running: v.Running, LastUsedAt: ag.LastUsedAt, Revision: ag.Revision,
 		CreatedAt: ag.CreatedAt, UpdatedAt: ag.UpdatedAt, ExternalKey: ag.ExternalKey,
 	}
@@ -57,11 +52,6 @@ func (a *api) writeAgent(w http.ResponseWriter, r *http.Request, status int, v a
 		return
 	}
 	writeRevised(w, status, v.Agent.Revision, toAPIAgent(v))
-}
-
-func (a *api) listAgentTemplates(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.Agents.Templates(r.Context())
-	writeList(w, r, rows, err, toAPIAgentTemplate)
 }
 
 // listAgents reads ?includeManaged=true.
@@ -75,7 +65,7 @@ func (a *api) createTeamAgent(w http.ResponseWriter, r *http.Request) {
 	if !httpx.Decode(w, r, &in) {
 		return
 	}
-	ci := agents.CreateInput{Name: in.Name}
+	ci := agents.CreateInput{Name: in.Name, TemplateID: in.TemplateId}
 	setIf(&ci.Description, in.Description)
 	setIf(&ci.Template, in.Template)
 	v, err := a.Agents.CreateTeamAgent(r.Context(), a.actor(r), r.PathValue("team"), ci)
@@ -96,7 +86,7 @@ func (a *api) ensureTeamAgentByKey(w http.ResponseWriter, r *http.Request) {
 	if r.ContentLength != 0 && !httpx.Decode(w, r, &in) {
 		return
 	}
-	ci := agents.CreateInput{}
+	ci := agents.CreateInput{TemplateID: in.TemplateId}
 	setIf(&ci.Name, in.Name)
 	setIf(&ci.Description, in.Description)
 	setIf(&ci.Template, in.Template)
@@ -126,7 +116,7 @@ func (a *api) updateAgent(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	v, err := a.Agents.Update(r.Context(), a.actor(r), id, agents.UpdateInput{Name: in.Name, Description: in.Description, Enabled: in.Enabled}, rev)
+	v, err := a.Agents.Update(r.Context(), a.actor(r), id, agents.UpdateInput{Name: in.Name, Description: in.Description, Enabled: in.Enabled, TemplateVersion: in.TemplateVersion}, rev)
 	a.writeAgent(w, r, http.StatusOK, v, err)
 }
 

@@ -2,7 +2,10 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useCurrentUser } from "../../session";
 import { LayoutDashboard, Shield } from "lucide-react";
 import { type ComponentPropsWithoutRef, useEffect } from "react";
-import { SidebarModeSwitch, useAppShell } from "@/components/ui/app-shell/app-shell";
+import {
+  SidebarModeSwitch,
+  useAppShell,
+} from "@/components/ui/app-shell/app-shell";
 import styles from "./layout.module.css";
 
 /*
@@ -14,19 +17,26 @@ import styles from "./layout.module.css";
 
 export type Mode = "workspace" | "admin";
 
-const lastHrefKey = (userId: string, mode: Mode) => `pdp.lastHref.${userId}.${mode}`;
+const lastHrefKey = (userId: string, mode: Mode) =>
+  `pdp.lastHref.${userId}.${mode}`;
 
 const defaultHref: Record<Mode, string> = { workspace: "/", admin: "/admin" };
 
 function readLastHref(userId: string, mode: Mode) {
   try {
-    return globalThis.sessionStorage?.getItem(lastHrefKey(userId, mode)) ?? defaultHref[mode];
+    return (
+      globalThis.sessionStorage?.getItem(lastHrefKey(userId, mode)) ??
+      defaultHref[mode]
+    );
   } catch {
     return defaultHref[mode];
   }
 }
 
-const modeOfPath = (pathname: string): Mode => (pathname === "/admin" || pathname.startsWith("/admin/") ? "admin" : "workspace");
+const modeOfPath = (pathname: string): Mode =>
+  pathname === "/admin" || pathname.startsWith("/admin/")
+    ? "admin"
+    : "workspace";
 
 /** Remembers the last page visited in each mode, so switching back returns to it.
  * The mode comes from the URL itself: during a navigation the location updates
@@ -47,7 +57,10 @@ export function useRememberHref() {
 }
 
 /** An in-app link to a stored href (not a typed route). Modified clicks open normally. */
-function HrefLink({ href, ...props }: ComponentPropsWithoutRef<"a"> & { href: string }) {
+function HrefLink({
+  href,
+  ...props
+}: ComponentPropsWithoutRef<"a"> & { href: string }) {
   const navigate = useNavigate();
   return (
     <a
@@ -55,7 +68,15 @@ function HrefLink({ href, ...props }: ComponentPropsWithoutRef<"a"> & { href: st
       href={href}
       onClick={(e) => {
         props.onClick?.(e);
-        if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        if (
+          e.defaultPrevented ||
+          e.button !== 0 ||
+          e.metaKey ||
+          e.ctrlKey ||
+          e.shiftKey ||
+          e.altKey
+        )
+          return;
         e.preventDefault();
         void navigate({ href });
       }}
@@ -73,13 +94,27 @@ export function ModeSwitch({ mode }: { mode: Mode }) {
           label: "Workspace",
           icon: <LayoutDashboard aria-hidden />,
           current: mode === "workspace",
-          render: <HrefLink href={mode === "workspace" ? "/" : readLastHref(userId, "workspace")} />,
+          render: (
+            <HrefLink
+              href={
+                mode === "workspace" ? "/" : readLastHref(userId, "workspace")
+              }
+            />
+          ),
         },
         {
           label: "Admin",
           icon: <Shield aria-hidden />,
           current: mode === "admin",
-          render: <HrefLink href={mode === "admin" ? defaultHref.admin : readLastHref(userId, "admin")} />,
+          render: (
+            <HrefLink
+              href={
+                mode === "admin"
+                  ? defaultHref.admin
+                  : readLastHref(userId, "admin")
+              }
+            />
+          ),
         },
       ]}
     />
@@ -97,8 +132,14 @@ export function AdminHeader() {
         <Shield />
       </span>
       <span className={styles.adminHeaderText}>
-        <span className={styles.adminHeaderName}>{auditor ? "Platform auditor" : "Platform admin"}</span>
-        <span className={styles.adminHeaderDescription}>{auditor ? "All teams and settings, read-only" : "All teams and settings"}</span>
+        <span className={styles.adminHeaderName}>
+          {auditor ? "Platform auditor" : "Platform admin"}
+        </span>
+        <span className={styles.adminHeaderDescription}>
+          {auditor
+            ? "All teams and settings, read-only"
+            : "All teams and settings"}
+        </span>
       </span>
     </div>
   );

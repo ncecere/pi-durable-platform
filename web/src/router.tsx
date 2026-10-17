@@ -1,8 +1,22 @@
-import { Outlet, createRootRoute, createRoute, createRouter, lazyRouteComponent, redirect } from "@tanstack/react-router";
+import {
+  Outlet,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  lazyRouteComponent,
+  redirect,
+} from "@tanstack/react-router";
 import { type ReactNode } from "react";
 import { AppLayout } from "./components/layout/shell";
 import { NotFoundState } from "./components/not-found";
-import { adminTeamTabs, agentTabs, serviceAccountTabs, tabSearch, teamSettingsTabs } from "./lib/tabs";
+import {
+  adminTeamTabs,
+  agentTabs,
+  serviceAccountTabs,
+  tabSearch,
+  teamSettingsTabs,
+  templateTabs,
+} from "./lib/tabs";
 import { InstanceSync, SignInPage, useCurrentUser, useMe } from "./session";
 import { useSessionUnavailable } from "./components/layout/session-unavailable";
 import { ColorModeSync } from "./components/layout/theme";
@@ -31,6 +45,7 @@ const pages = {
   teamSettings: () => import("./pages/team/settings/page"),
   serviceAccounts: () => import("./pages/team/service-accounts/routes"),
   teamAgents: () => import("./pages/team/agents/routes"),
+  templates: () => import("./pages/templates/routes"),
 };
 const lazy = lazyRouteComponent;
 type Page = ReturnType<typeof lazyRouteComponent>;
@@ -43,7 +58,10 @@ type Page = ReturnType<typeof lazyRouteComponent>;
 function SessionGate({ children }: { children: ReactNode }) {
   const me = useMe();
   const unavailable = useSessionUnavailable(me);
-  if (me.data === undefined) return unavailable ?? <Loading className={styles.fullPage} label="Loading…" />;
+  if (me.data === undefined)
+    return (
+      unavailable ?? <Loading className={styles.fullPage} label="Loading…" />
+    );
   if (!me.data) return <SignInPage />;
   return <>{children}</>;
 }
@@ -55,7 +73,8 @@ function SessionGate({ children }: { children: ReactNode }) {
  */
 function AdminGate() {
   const { capabilities } = useCurrentUser();
-  if (!capabilities.platformAdmin && !capabilities.platformAuditor) return <NotFoundState what="forbidden" />;
+  if (!capabilities.platformAdmin && !capabilities.platformAuditor)
+    return <NotFoundState what="forbidden" />;
   return <Outlet />;
 }
 
@@ -92,8 +111,16 @@ const appRoute = createRoute({
   ),
 });
 
-const homeRoute = createRoute({ getParentRoute: () => appRoute, path: "/", component: lazy(pages.home, "HomePage") });
-const profileRoute = createRoute({ getParentRoute: () => appRoute, path: "settings/profile", component: lazy(pages.account, "ProfilePage") });
+const homeRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/",
+  component: lazy(pages.home, "HomePage"),
+});
+const profileRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "settings/profile",
+  component: lazy(pages.account, "ProfilePage"),
+});
 /** The person's API keys; the status filter (?status=) passes through. */
 const apiKeysRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -111,11 +138,33 @@ const agentsRoute = createRoute({
   component: lazy(pages.agents, "AgentsPage"),
 });
 
+/** The catalog: platform templates and published team templates. */
+const catalogRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "catalog",
+  validateSearch: (s: Record<string, unknown>): Record<string, unknown> => s,
+  component: lazy(pages.templates, "CatalogPage"),
+});
+/** A template: Overview · Versions · Settings. */
+const templateRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "templates/$templateId",
+  validateSearch: tabSearch(templateTabs, { passthrough: true }),
+  component: lazy(pages.templates, "TemplatePage"),
+});
 
 /* ---------------- a team (workspace) ---------------- */
 
-const teamRoute = createRoute({ getParentRoute: () => appRoute, path: "teams/$team", component: lazy(pages.teamLayout, "TeamLayout") });
-const teamIndexRoute = createRoute({ getParentRoute: () => teamRoute, path: "/", component: lazy(pages.teamLayout, "TeamOverviewPage") });
+const teamRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "teams/$team",
+  component: lazy(pages.teamLayout, "TeamLayout"),
+});
+const teamIndexRoute = createRoute({
+  getParentRoute: () => teamRoute,
+  path: "/",
+  component: lazy(pages.teamLayout, "TeamOverviewPage"),
+});
 /** Members · Audit log · General; ?record= (an audit entry) and the log's filters pass through. */
 const teamSettingsRoute = createRoute({
   getParentRoute: () => teamRoute,
@@ -145,6 +194,13 @@ const teamAgentsRoute = createRoute({
   validateSearch: (s: Record<string, unknown>): Record<string, unknown> => s,
   component: lazy(pages.teamAgents, "TeamAgentsPage"),
 });
+/** The team's own templates; ?q= passes through. */
+const teamTemplatesRoute = createRoute({
+  getParentRoute: () => teamRoute,
+  path: "templates",
+  validateSearch: (s: Record<string, unknown>): Record<string, unknown> => s,
+  component: lazy(pages.templates, "TeamTemplatesPage"),
+});
 /** An agent: Overview · Test · Settings. */
 const teamAgentRoute = createRoute({
   getParentRoute: () => teamRoute,
@@ -155,7 +211,11 @@ const teamAgentRoute = createRoute({
 
 /* ---------------- admin ---------------- */
 
-const adminRoute = createRoute({ getParentRoute: () => appRoute, path: "admin", component: AdminGate });
+const adminRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "admin",
+  component: AdminGate,
+});
 /** The admin portal opens on its first page. */
 const adminIndexRoute = createRoute({
   getParentRoute: () => adminRoute,
@@ -166,24 +226,53 @@ const adminIndexRoute = createRoute({
 });
 /** An admin list page whose filters (?q=, ?status=…) and open record (?record=) live in the URL. */
 const adminList = <P extends string>(path: P, component: Page) =>
-  createRoute({ getParentRoute: () => adminRoute, path, validateSearch: (s: Record<string, unknown>): Record<string, unknown> => s, component });
+  createRoute({
+    getParentRoute: () => adminRoute,
+    path,
+    validateSearch: (s: Record<string, unknown>): Record<string, unknown> => s,
+    component,
+  });
 /** An admin page with tabs; list filters, ?q= and ?record= pass through. */
-const adminTabs = <P extends string, T extends string>(path: P, tabs: readonly T[], component: Page) =>
-  createRoute({ getParentRoute: () => adminRoute, path, validateSearch: tabSearch(tabs, { passthrough: true }), component });
+const adminTabs = <P extends string, T extends string>(
+  path: P,
+  tabs: readonly T[],
+  component: Page,
+) =>
+  createRoute({
+    getParentRoute: () => adminRoute,
+    path,
+    validateSearch: tabSearch(tabs, { passthrough: true }),
+    component,
+  });
 
 const appTree = appRoute.addChildren([
   homeRoute,
   profileRoute,
   apiKeysRoute,
   agentsRoute,
-  teamRoute.addChildren([teamIndexRoute, teamSettingsRoute, teamServiceAccountsRoute, teamServiceAccountRoute, teamAgentsRoute, teamAgentRoute]),
+  catalogRoute,
+  templateRoute,
+  teamRoute.addChildren([
+    teamIndexRoute,
+    teamSettingsRoute,
+    teamServiceAccountsRoute,
+    teamServiceAccountRoute,
+    teamAgentsRoute,
+    teamAgentRoute,
+    teamTemplatesRoute,
+  ]),
   adminRoute.addChildren([
     adminIndexRoute,
     adminList("users", lazy(pages.people, "AdminUsersPage")),
     adminList("users/$userId", lazy(pages.people, "AdminUserPage")),
     adminList("teams", lazy(pages.people, "AdminTeamsPage")),
-    adminTabs("teams/$team", adminTeamTabs, lazy(pages.people, "AdminTeamPage")),
+    adminTabs(
+      "teams/$team",
+      adminTeamTabs,
+      lazy(pages.people, "AdminTeamPage"),
+    ),
     adminList("audit", lazy(pages.adminAudit, "AdminAuditPage")),
+    adminList("templates", lazy(pages.templates, "AdminTemplatesPage")),
   ]),
 ]);
 
@@ -193,7 +282,9 @@ export const router = createRouter({
   routeTree,
   defaultPreload: "intent",
   // Shown while a page's chunk loads (after a short delay, so fast loads don't flash).
-  defaultPendingComponent: () => <Loading className={styles.pending} label="Loading…" />,
+  defaultPendingComponent: () => (
+    <Loading className={styles.pending} label="Loading…" />
+  ),
 });
 
 declare module "@tanstack/react-router" {

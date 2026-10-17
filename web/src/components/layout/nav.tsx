@@ -13,7 +13,17 @@
  *   3. add its breadcrumb in breadcrumbs.tsx.
  * Only list pages that exist.
  */
-import { Bot, FileClock, Home, LayoutDashboard, Settings, Sparkles, Users, UsersRound } from "lucide-react";
+import {
+  BookOpen,
+  Bot,
+  FileClock,
+  Home,
+  LayoutDashboard,
+  Settings,
+  Sparkles,
+  Users,
+  UsersRound,
+} from "lucide-react";
 import { type ReactNode } from "react";
 import { terms } from "../../lib/terms";
 import { type Me } from "../../session";
@@ -22,14 +32,44 @@ export const icon = (C: typeof Home) => <C aria-hidden />;
 
 /* ---------------- workspace ---------------- */
 
-export type WorkspacePath = "/" | "/agents";
+export type WorkspacePath = "/" | "/agents" | "/catalog";
 
-export type WorkspaceNavItem = { to: WorkspacePath; label: string; icon: ReactNode; exact?: boolean; keywords?: string[] };
+export type WorkspaceNavItem = {
+  to: WorkspacePath;
+  label: string;
+  icon: ReactNode;
+  exact?: boolean;
+  keywords?: string[];
+};
 
 /** Pages for everyone signed in, at the top of the workspace sidebar. */
 export const workspaceNav: WorkspaceNavItem[] = [
-  { to: "/", label: terms.home, icon: icon(Home), exact: true, keywords: ["start", "welcome", "teams"] },
-  { to: "/agents", label: "All agents", icon: icon(Sparkles), keywords: ["agent", "agents", "every team", "runtime", "deploy", "pi durable"] },
+  {
+    to: "/",
+    label: terms.home,
+    icon: icon(Home),
+    exact: true,
+    keywords: ["start", "welcome", "teams"],
+  },
+  {
+    to: "/agents",
+    label: "All agents",
+    icon: icon(Sparkles),
+    keywords: [
+      "agent",
+      "agents",
+      "every team",
+      "runtime",
+      "deploy",
+      "pi durable",
+    ],
+  },
+  {
+    to: "/catalog",
+    label: "Catalog",
+    icon: icon(BookOpen),
+    keywords: ["templates", "catalog", "deploy", "published"],
+  },
 ];
 
 /* ---------------- team ---------------- */
@@ -60,7 +100,12 @@ export function teamAccess(me: Me, mine: Membership | undefined): TeamAccess {
   };
 }
 
-export type TeamPath = "/teams/$team" | "/teams/$team/agents" | "/teams/$team/service-accounts" | "/teams/$team/settings";
+export type TeamPath =
+  | "/teams/$team"
+  | "/teams/$team/agents"
+  | "/teams/$team/templates"
+  | "/teams/$team/service-accounts"
+  | "/teams/$team/settings";
 
 export type TeamNavItem = {
   to: TeamPath;
@@ -74,21 +119,64 @@ export type TeamNavItem = {
 };
 
 const teamNav: TeamNavItem[] = [
-  { to: "/teams/$team", label: "Overview", icon: icon(LayoutDashboard), exact: true, access: (a) => a.member || a.staff, keywords: ["team", "dashboard"] },
+  {
+    to: "/teams/$team",
+    label: "Overview",
+    icon: icon(LayoutDashboard),
+    exact: true,
+    access: (a) => a.member || a.staff,
+    keywords: ["team", "dashboard"],
+  },
   {
     to: "/teams/$team/agents",
     label: terms.agents,
     icon: icon(Sparkles),
     // Agents and their conversations are the team's own: platform staff don't get them.
     access: (a) => a.member,
-    keywords: ["agent", "agents", "deploy", "test", "chat", "runtime", "pi durable", "hibernate"],
+    keywords: [
+      "agent",
+      "agents",
+      "deploy",
+      "test",
+      "chat",
+      "runtime",
+      "pi durable",
+      "hibernate",
+    ],
+  },
+  {
+    to: "/teams/$team/templates",
+    label: "Templates",
+    icon: icon(BookOpen),
+    access: (a) => a.member || a.staff,
+    keywords: [
+      "template",
+      "templates",
+      "instructions",
+      "version",
+      "publish",
+      "catalog",
+    ],
   },
   {
     to: "/teams/$team/service-accounts",
     label: terms.serviceAccounts,
     icon: icon(Bot),
     access: (a) => a.member || a.staff,
-    keywords: ["service account", "bot", "robot", "automation", "ci", "headless", "service", "script", "key", "keys", "rotate", "pdp_sa"],
+    keywords: [
+      "service account",
+      "bot",
+      "robot",
+      "automation",
+      "ci",
+      "headless",
+      "service",
+      "script",
+      "key",
+      "keys",
+      "rotate",
+      "pdp_sa",
+    ],
   },
   {
     to: "/teams/$team/settings",
@@ -110,15 +198,25 @@ export function teamNavFor(me: Me, slug: string): TeamNavItem[] {
 
 /* ---------------- admin ---------------- */
 
-export type AdminPath = "/admin/users" | "/admin/teams" | "/admin/audit";
+export type AdminPath =
+  "/admin/users" | "/admin/teams" | "/admin/templates" | "/admin/audit";
 
-export type AdminNavItem = { to: AdminPath; label: string; icon: ReactNode; exact?: boolean };
+export type AdminNavItem = {
+  to: AdminPath;
+  label: string;
+  icon: ReactNode;
+  exact?: boolean;
+};
 
 /**
  * Admin sidebar groups, each with the pages it holds. New areas (agents, settings) add groups here.
  * `defaultOpen`: shown open until the person closes it (see admin-groups.ts).
  */
-export const adminSections: { label?: string; defaultOpen?: boolean; items: AdminNavItem[] }[] = [
+export const adminSections: {
+  label?: string;
+  defaultOpen?: boolean;
+  items: AdminNavItem[];
+}[] = [
   {
     label: "People",
     items: [
@@ -129,7 +227,10 @@ export const adminSections: { label?: string; defaultOpen?: boolean; items: Admi
   {
     label: "Records",
     defaultOpen: true,
-    items: [{ to: "/admin/audit", label: terms.auditLog, icon: icon(FileClock) }],
+    items: [
+      { to: "/admin/templates", label: "Templates", icon: icon(BookOpen) },
+      { to: "/admin/audit", label: terms.auditLog, icon: icon(FileClock) },
+    ],
   },
 ];
 
@@ -137,13 +238,40 @@ export const adminNav = adminSections.flatMap((section) => section.items);
 
 /** The label of the admin group holding the page at `pathname`. */
 export function activeAdminGroup(pathname: string): string | undefined {
-  const inside = (to: string, exact?: boolean) => pathname === to || (!exact && pathname.startsWith(to + "/"));
-  return adminSections.find((s) => s.items.some((i) => inside(i.to, i.exact)))?.label;
+  const inside = (to: string, exact?: boolean) =>
+    pathname === to || (!exact && pathname.startsWith(to + "/"));
+  return adminSections.find((s) => s.items.some((i) => inside(i.to, i.exact)))
+    ?.label;
 }
 
 /** Extra command-palette search words for admin pages. */
 export const adminKeywords: Partial<Record<AdminPath, string[]>> = {
-  "/admin/users": ["people", "person", "suspend", "reactivate", "platform role", "platform admin", "auditor"],
+  "/admin/users": [
+    "people",
+    "person",
+    "suspend",
+    "reactivate",
+    "platform role",
+    "platform admin",
+    "auditor",
+  ],
   "/admin/teams": ["team", "create team", "archive", "owner", "assign owner"],
-  "/admin/audit": ["audit log", "history", "changes", "who changed", "sign-ins", "export", "csv"],
+  "/admin/templates": [
+    "templates",
+    "review",
+    "approve",
+    "reject",
+    "catalog",
+    "publish",
+    "platform template",
+  ],
+  "/admin/audit": [
+    "audit log",
+    "history",
+    "changes",
+    "who changed",
+    "sign-ins",
+    "export",
+    "csv",
+  ],
 };

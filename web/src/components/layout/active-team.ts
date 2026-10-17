@@ -48,8 +48,19 @@ export function useActiveTeam(me: Me, loc: Location): ActiveTeam {
   }, [pageMembership]);
 
   if (pageTeamOk) {
-    return { slug: pageSlug, name: pageMembership?.name ?? view.data?.team.name, membership: pageMembership, fromPage: true };
+    return {
+      slug: pageSlug,
+      name: pageMembership?.name ?? view.data?.team.name,
+      membership: pageMembership,
+      fromPage: true,
+    };
   }
-  const fallback = me.teams.find((t) => t.slug === readLastTeam()) ?? me.teams[0];
-  return { slug: fallback?.slug, name: fallback?.name, membership: fallback, fromPage: false };
+  const fallback =
+    me.teams.find((t) => t.slug === readLastTeam()) ?? me.teams[0];
+  return {
+    slug: fallback?.slug,
+    name: fallback?.name,
+    membership: fallback,
+    fromPage: false,
+  };
 }
