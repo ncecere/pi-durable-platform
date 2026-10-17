@@ -1,0 +1,195 @@
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  height: var(--control-height-md);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+
+  &[data-size="sm"] {
+    height: var(--control-height-sm);
+    padding-inline-start: var(--space-2);
+    font-size: var(--font-size-sm);
+  }
+
+  @media (hover: hover) {
+    &:hover {
+      background-color: var(--color-surface-hover);
+    }
+  }
+
+  &[data-popup-open] {
+    background-color: var(--color-surface-active);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  &[data-disabled] {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+}
+
+.logo,
+.itemLogo {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+
+  & > * {
+    width: 100%;
+    height: 100%;
+  }
+}
+
+.value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &[data-placeholder] {
+    color: var(--color-text-muted);
+  }
+}
+
+.chevron {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.popup {
+  display: flex;
+  flex-direction: column;
+  width: min(26rem, calc(100vw - 2 * var(--space-4)));
+  max-height: min(28rem, var(--available-height));
+  padding: 0;
+  overflow: hidden;
+}
+
+.search {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.searchIcon {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  color: var(--color-text-muted);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 2.75rem;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  outline: 0;
+
+  &::placeholder {
+    color: var(--color-text-subtle);
+  }
+}
+
+.search:has(.input:focus-visible) {
+  box-shadow: inset 0 -2px 0 var(--color-focus-ring);
+}
+
+.empty {
+  padding: var(--space-6) var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  text-align: center;
+
+  &:empty {
+    display: none;
+  }
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-1);
+  overscroll-behavior: contain;
+  outline: 0;
+
+  &:empty {
+    display: none;
+  }
+}
+
+.group + .group {
+  margin-top: var(--space-1);
+}
+
+.item {
+  gap: var(--space-3);
+  min-height: 2.75rem;
+  padding-block: var(--space-2);
+  padding-inline-end: var(--space-3);
+}
+
+.itemText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  line-height: var(--line-height-snug);
+}
+
+.itemName {
+  font-weight: var(--font-weight-medium);
+}
+
+.itemMeta {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badges {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  max-width: 45%;
+}
+
+.check {
+  display: inline-flex;
+  flex: none;
+  width: 1rem;
+
+  /* Not --color-primary: in dark that's under 3:1 on a highlighted option. */
+  & svg {
+    color: var(--color-primary-subtle-text);
+  }
+}

@@ -1,0 +1,215 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background-color: var(--color-surface);
+  box-shadow: var(--shadow-2);
+}
+
+.navigation {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.urlForm {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  margin: 0 var(--space-1);
+}
+
+.url {
+  width: 100%;
+}
+
+.body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 12rem;
+  background-color: var(--color-surface);
+}
+
+.frame {
+  flex: 1;
+  width: 100%;
+  min-height: 100%;
+  border: 0;
+  background-color: var(--color-surface);
+}
+
+.loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.empty {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: var(--space-6);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+.console {
+  flex: none;
+  border-top: 1px solid var(--color-border);
+  background-color: var(--color-surface-sunken);
+}
+
+.consoleTrigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--control-height-md);
+  padding: 0 var(--space-3);
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-align: start;
+  cursor: pointer;
+
+  @media (hover: hover) {
+    &:hover {
+      background-color: var(--color-surface-hover);
+    }
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+}
+
+.chevron {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  color: var(--color-text-muted);
+  transform: rotate(-90deg);
+  transition: transform var(--motion-duration-fast) var(--motion-ease-out);
+
+  .consoleTrigger[data-panel-open] & {
+    transform: none;
+  }
+}
+
+.counts {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-regular);
+}
+
+.consolePanel {
+  height: var(--collapsible-panel-height);
+  overflow: hidden;
+  transition: height var(--motion-duration-normal) var(--motion-ease-out);
+
+  &[hidden]:not([hidden="until-found"]) {
+    display: none;
+  }
+
+  &[data-starting-style],
+  &[data-ending-style] {
+    height: 0;
+  }
+}
+
+.consoleBody {
+  max-height: 12rem;
+  overflow-y: auto;
+  padding: 0 var(--space-3) var(--space-3);
+  outline: 0;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+
+  & .empty {
+    justify-content: flex-start;
+    padding: var(--space-1) 0;
+  }
+}
+
+.logs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-normal);
+}
+
+.log {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 0.125rem var(--space-2);
+  border-radius: var(--radius-1);
+  color: var(--color-text);
+
+  &[data-level="warn"] {
+    background-color: var(--color-warning-subtle);
+    color: var(--color-warning-text);
+  }
+
+  &[data-level="error"] {
+    background-color: var(--color-danger-subtle);
+    color: var(--color-danger-text);
+  }
+}
+
+/* The level is spelled out, so it never depends on colour alone. */
+.level {
+  flex: none;
+  min-width: 4rem;
+  font-weight: var(--font-weight-semibold);
+}
+
+.timestamp {
+  flex: none;
+  color: inherit;
+}
+
+.log[data-level="log"] .timestamp,
+.log[data-level="info"] .timestamp {
+  color: var(--color-text-muted);
+}
+
+.message {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .consolePanel,
+  .chevron {
+    transition: none;
+  }
+}

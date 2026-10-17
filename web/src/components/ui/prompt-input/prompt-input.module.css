@@ -1,0 +1,120 @@
+/*
+ * The composer card: the text field's visible boundary, so it uses
+ * --color-border-strong (>= 3:1, WCAG 1.4.11) like other controls. Its focus
+ * ring shows while the textarea has focus.
+ */
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-2);
+  border-radius: 1.375rem;
+  background-color: var(--color-surface-raised);
+  box-shadow:
+    0 0 0 1px var(--color-border-strong),
+    var(--shadow-2);
+  transition: box-shadow var(--motion-duration-fast) var(--motion-ease-out);
+
+  &:has(.textarea:focus-visible) {
+    box-shadow:
+      0 0 0 1px var(--color-focus-ring),
+      var(--shadow-2),
+      var(--shadow-focus);
+  }
+
+  &[data-dragging] {
+    box-shadow: var(--shadow-2), 0 0 0 2px var(--color-focus-ring);
+    background-color: var(--color-primary-subtle);
+  }
+
+  &[data-disabled] {
+    opacity: 0.7;
+  }
+}
+
+.attachments {
+  padding: var(--space-1) var(--space-1) 0;
+}
+
+.textareaWrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 2.75rem;
+  max-height: 14rem;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-normal);
+  resize: none;
+  overflow-y: auto;
+  outline: 0;
+  field-sizing: content;
+
+  &::placeholder {
+    color: var(--color-text-subtle);
+    opacity: 1;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+  }
+}
+
+.counter {
+  align-self: flex-end;
+  padding: 0 var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+
+  &[data-limit] {
+    color: var(--color-danger-text);
+    font-weight: var(--font-weight-medium);
+  }
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.toolButton {
+  border-radius: var(--radius-pill);
+
+  &[data-pressed] {
+    background-color: var(--color-primary-subtle);
+    color: var(--color-primary-subtle-text);
+  }
+}
+
+.submit {
+  margin-inline-start: auto;
+  border-radius: var(--radius-full);
+
+  &[data-labelled] {
+    padding-inline: var(--space-3) var(--space-4);
+  }
+}
+
+.stopIcon {
+  fill: currentColor;
+}

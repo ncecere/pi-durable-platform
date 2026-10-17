@@ -1,0 +1,53 @@
+/* Home: the team rows and the admin links. Semantic tokens only. */
+
+.teamRow {
+  flex-wrap: wrap;
+}
+
+/* The name and badges keep room for a line; the quick links wrap under them before they squeeze it. */
+.teamContent {
+  flex: 1 1 12rem;
+}
+
+.teamLink {
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    border-radius: var(--radius-1);
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+.teamBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+/* Overview · Team settings: wrap under the team's name on a narrow screen. */
+.quickLinks {
+  flex-wrap: wrap;
+  margin-inline-start: auto;
+}
+
+@media (max-width: 37.5rem) {
+  .quickLinks {
+    flex-basis: 100%;
+    margin-inline-start: 0;
+  }
+}
+
+.adminLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

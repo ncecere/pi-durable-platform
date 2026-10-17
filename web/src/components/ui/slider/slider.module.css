@@ -1,0 +1,139 @@
+/*
+ * Slider. The unfilled track uses --color-border-strong and the thumb has a
+ * --color-primary ring, both >= 3:1 against the surface (WCAG 1.4.11).
+ */
+.root {
+  --slider-track: 0.375rem;
+  --slider-thumb: 1.125rem;
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+
+  &[data-size="sm"] {
+    --slider-track: 0.25rem;
+    --slider-thumb: 0.875rem;
+  }
+
+  &[data-orientation="vertical"] {
+    width: auto;
+    height: 100%;
+    min-height: 8rem;
+    align-items: center;
+  }
+
+  &[data-disabled] {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+
+  &[data-hidden-label] {
+    display: contents;
+  }
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-snug);
+  color: var(--color-text);
+}
+
+.value {
+  margin-inline-start: auto;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--line-height-snug);
+  color: var(--color-text-muted);
+}
+
+.control {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  width: 100%;
+  min-height: var(--control-height-sm);
+  touch-action: none;
+  user-select: none;
+
+  &[data-orientation="vertical"] {
+    flex-direction: column;
+    align-items: center;
+    width: var(--control-height-sm);
+    min-height: 8rem;
+  }
+
+  &:not([data-disabled]) {
+    cursor: pointer;
+  }
+}
+
+.track {
+  position: relative;
+  width: 100%;
+  height: var(--slider-track);
+  border-radius: var(--radius-pill);
+  background-color: var(--color-border-strong);
+  user-select: none;
+
+  /* flex (not height: 100%) so it fills a control that only has a min-height */
+  &[data-orientation="vertical"] {
+    flex: 1 1 auto;
+    width: var(--slider-track);
+    height: auto;
+  }
+}
+
+.indicator {
+  border-radius: inherit;
+  background-color: var(--color-primary);
+  user-select: none;
+
+  &[data-orientation="horizontal"] {
+    height: 100%;
+  }
+
+  &[data-orientation="vertical"] {
+    width: 100%;
+  }
+}
+
+.thumb {
+  width: var(--slider-thumb);
+  height: var(--slider-thumb);
+  border-radius: var(--radius-full);
+  background-color: var(--color-thumb);
+  box-shadow:
+    0 0 0 2px var(--color-primary),
+    var(--shadow-1);
+  transition: box-shadow var(--motion-duration-fast) var(--motion-ease-out);
+  user-select: none;
+
+  &:has(:focus-visible) {
+    box-shadow:
+      0 0 0 2px var(--color-primary),
+      0 0 0 5px var(--color-focus-halo),
+      0 0 0 6px var(--color-focus-ring);
+  }
+
+  &[data-dragging] {
+    box-shadow:
+      0 0 0 2px var(--color-primary),
+      0 0 0 5px var(--color-focus-halo);
+  }
+
+  &[data-disabled] {
+    background-color: var(--color-control-disabled);
+    box-shadow: 0 0 0 2px var(--color-border-strong);
+  }
+}

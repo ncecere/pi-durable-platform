@@ -1,0 +1,53 @@
+/* Admin users and teams. Semantic tokens only. */
+
+.overview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: var(--space-4);
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.meters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.muted {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.row {
+  border-radius: 0;
+  padding-inline: var(--space-5);
+}
+
+.row + .row {
+  border-top: 1px solid var(--color-border-muted);
+}
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}

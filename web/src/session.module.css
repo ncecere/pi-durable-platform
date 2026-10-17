@@ -1,0 +1,164 @@
+.page {
+  display: grid;
+  /* One column no wider than the window: an account's email can't push the card off a phone's screen. */
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  min-height: 100dvh;
+  padding: var(--space-8) var(--space-4);
+  background:
+    radial-gradient(60rem 30rem at 50% -10%, var(--color-primary-subtle), transparent 70%),
+    var(--color-bg);
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  width: 100%;
+  min-width: 0;
+  max-width: 26rem;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  text-align: center;
+}
+
+.logo {
+  display: block;
+  max-width: 12rem;
+  height: 2.5rem;
+  margin-bottom: var(--space-2);
+  object-fit: contain;
+}
+
+.help {
+  display: flex;
+  justify-content: center;
+  font-size: var(--font-size-sm);
+
+  & a {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  & svg {
+    width: 1rem;
+    height: 1rem;
+  }
+}
+
+
+.title {
+  font-size: var(--font-size-2xl);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.subtitle {
+  font-size: var(--font-size-md);
+  color: var(--color-text-muted);
+}
+
+.card {
+  box-shadow: var(--shadow-3);
+}
+
+.body {
+  padding: var(--space-6);
+}
+
+.heading {
+  font-size: var(--font-size-lg);
+}
+
+.lead {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.dev {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.devHeading {
+  font-size: var(--font-size-md);
+}
+
+.devHint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.accounts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background-color: var(--color-control);
+  box-shadow: var(--shadow-control);
+  text-align: start;
+  cursor: pointer;
+  transition:
+    box-shadow var(--motion-duration-fast) var(--motion-ease-out),
+    background-color var(--motion-duration-fast) var(--motion-ease-out);
+
+  &:hover:not(:disabled) {
+    background-color: var(--color-control-hover);
+    box-shadow: var(--shadow-control-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: progress;
+  }
+}
+
+.accountText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  line-height: var(--line-height-snug);
+}
+
+.accountName {
+  font-weight: var(--font-weight-medium);
+}
+
+.accountMeta {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.chevron {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  color: var(--color-text-subtle);
+}

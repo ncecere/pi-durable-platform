@@ -1,0 +1,57 @@
+/* The session couldn't load: a centred card on the sign-in page's background. */
+.page {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: var(--space-8) var(--space-4);
+  background:
+    radial-gradient(60rem 30rem at 50% -10%, var(--color-primary-subtle), transparent 70%),
+    var(--color-bg);
+}
+
+.card {
+  width: 100%;
+  max-width: 28rem;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+}
+
+.logo {
+  display: block;
+  max-width: 12rem;
+  height: 2.5rem;
+  object-fit: contain;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.text {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.countdown {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}

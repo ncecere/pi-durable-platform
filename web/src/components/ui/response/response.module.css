@@ -1,0 +1,252 @@
+/* Prose for assistant answers: comfortable measure, tight rhythm. */
+.response {
+  min-width: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-lg);
+  line-height: 1.65;
+  overflow-wrap: break-word;
+
+  & > :first-child {
+    margin-top: 0;
+  }
+
+  & > :last-child {
+    margin-bottom: 0;
+  }
+
+  & p,
+  & ul,
+  & ol,
+  & blockquote,
+  & hr,
+  & .codeBlock,
+  & .tableWrap {
+    margin-block: 0.85em;
+  }
+
+  & ul,
+  & ol {
+    padding-inline-start: 1.5em;
+  }
+
+  & li {
+    margin-block: 0.3em;
+    padding-inline-start: 0.15em;
+  }
+
+  & li > ul,
+  & li > ol {
+    margin-block: 0.3em;
+  }
+
+  & li::marker {
+    color: var(--color-text-muted);
+  }
+
+  /* GFM task lists */
+  & li:has(> .taskBox) {
+    list-style: none;
+    margin-inline-start: -1.35em;
+  }
+
+  & strong {
+    font-weight: var(--font-weight-semibold);
+  }
+
+  & blockquote {
+    padding-inline-start: 1em;
+    border-inline-start: 3px solid var(--color-border-emphasis);
+    color: var(--color-text-muted);
+  }
+
+  & hr {
+    border: 0;
+    border-top: 1px solid var(--color-border);
+    margin-block: 1.5em;
+  }
+
+  & del {
+    color: var(--color-text-muted);
+  }
+}
+
+.taskBox {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-inline-end: 0.5em;
+  border-radius: var(--radius-1);
+  box-shadow: inset 0 0 0 1.5px var(--color-border-strong);
+  vertical-align: -0.1em;
+
+  &[data-checked] {
+    background-color: var(--color-primary);
+    box-shadow: none;
+  }
+
+  /* A check mark drawn with two borders. */
+  &[data-checked]::after {
+    content: "";
+    display: block;
+    width: 0.3em;
+    height: 0.55em;
+    margin: 0.08em auto 0;
+    border: solid var(--color-primary-contrast);
+    border-width: 0 0.12em 0.12em 0;
+    transform: rotate(45deg);
+  }
+}
+
+.heading {
+  margin-block: 1.4em 0.5em;
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  letter-spacing: var(--letter-spacing-snug);
+
+  &[data-level="1"] {
+    font-size: var(--font-size-2xl);
+  }
+
+  &[data-level="2"] {
+    font-size: var(--font-size-xl);
+  }
+
+  &[data-level="3"] {
+    font-size: 1.125rem;
+  }
+
+  &[data-level="4"],
+  &[data-level="5"],
+  &[data-level="6"] {
+    font-size: var(--font-size-lg);
+  }
+}
+
+.inlineCode {
+  padding: 0.1em 0.35em;
+  border-radius: var(--radius-1);
+  background-color: var(--color-neutral-subtle);
+  color: var(--color-text);
+  font-family: var(--font-family-mono);
+  font-size: 0.85em;
+}
+
+/* Inline-code styling must not leak into fenced blocks. */
+.codeBlock code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+
+.tableWrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: var(--radius-3);
+  box-shadow: var(--shadow-ring);
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+.table {
+  width: 100%;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  font-variant-numeric: tabular-nums;
+
+  & th,
+  & td {
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--color-border);
+    text-align: start;
+    vertical-align: top;
+  }
+
+  & th {
+    background-color: var(--color-surface-sunken);
+    color: var(--color-text);
+    font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+  }
+
+  & tr:last-child td {
+    border-bottom: 0;
+  }
+
+  & [align="right"] {
+    text-align: end;
+  }
+
+  & [align="center"] {
+    text-align: center;
+  }
+}
+
+.imageAlt {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* LazyResponse's placeholder until the Markdown engine has loaded: plain text. */
+.fallback {
+  white-space: pre-wrap;
+}
+
+.image {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-3);
+}
+
+/* images="click": a cross-origin image waits behind this button. */
+.imageLoad {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  max-width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+
+  &:hover {
+    border-style: solid;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+.imageLoadAlt {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* Takes focus once the image loads, so focus isn't lost with the button. */
+.imageFrame {
+  display: inline-block;
+  max-width: 100%;
+  border-radius: var(--radius-3);
+
+  &:focus {
+    outline: none;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+}

@@ -1,0 +1,10 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 20rem;
+  max-width: calc(100vw - var(--space-8));
+  padding: var(--space-4);
+  border-radius: var(--radius-card);
+  line-height: var(--line-height-normal);
+}

@@ -1,0 +1,93 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height-sm);
+  padding: 0 var(--space-2);
+  margin-inline-start: calc(var(--space-2) * -1);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-ease-out),
+    color var(--motion-duration-fast) var(--motion-ease-out);
+
+  @media (hover: hover) {
+    &:hover {
+      background-color: var(--color-surface-hover);
+      color: var(--color-text);
+    }
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+.icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.chevron {
+  width: 0.875rem;
+  height: 0.875rem;
+  transition: transform var(--motion-duration-fast) var(--motion-ease-out);
+
+  .trigger[data-panel-open] & {
+    transform: rotate(180deg);
+  }
+}
+
+.panel {
+  width: 100%;
+  height: var(--collapsible-panel-height);
+  overflow: hidden;
+  transition: height var(--motion-duration-normal) var(--motion-ease-out);
+
+  &[hidden]:not([hidden="until-found"]) {
+    display: none;
+  }
+
+  &[data-starting-style],
+  &[data-ending-style] {
+    height: 0;
+  }
+}
+
+/* Thinking text: muted, smaller, with a guide line. */
+.content {
+  margin-top: var(--space-2);
+  padding-inline-start: var(--space-4);
+  border-inline-start: 2px solid var(--color-border-emphasis);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+
+}
+
+/* Two classes so a nested Response's own colour/size (one class) loses. */
+.root .content > * {
+  color: inherit;
+  font-size: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .chevron {
+    transition: none;
+  }
+}

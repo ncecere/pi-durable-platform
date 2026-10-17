@@ -1,0 +1,71 @@
+.zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-6);
+  border: 1.5px dashed var(--color-border-strong);
+  border-radius: var(--radius-card);
+  background-color: var(--color-surface);
+  text-align: center;
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-out),
+    background-color var(--motion-duration-fast) var(--motion-ease-out),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-out);
+
+  &[data-dragging] {
+    border-color: var(--color-primary);
+    background-color: var(--color-primary-subtle);
+    box-shadow: 0 0 0 4px var(--color-focus-halo);
+  }
+
+  &[data-disabled] {
+    background-color: var(--color-surface-sunken);
+  }
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-full);
+  background-color: var(--color-primary-subtle);
+  color: var(--color-primary-subtle-text);
+  transition: transform var(--motion-duration-normal) var(--motion-ease-out);
+
+  & svg {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+}
+
+.zone[data-dragging] .icon {
+  transform: translateY(-2px) scale(1.06);
+}
+
+.label {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text);
+}
+
+.description {
+  max-width: 34rem;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-muted);
+}
+
+/* Rejected files: a polite live region, always in the DOM; takes no space while empty. */
+.rejected {
+  max-width: 34rem;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  color: var(--color-danger-text);
+
+  &[data-empty] {
+    position: absolute;
+  }
+}

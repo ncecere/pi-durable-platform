@@ -1,0 +1,33 @@
+/* The role badge's trigger (a plain button around the badge) and its explanation. */
+.trigger {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  font: inherit;
+  cursor: help;
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+}
+
+.heading {
+  margin: 0;
+  font-weight: var(--font-weight-semibold);
+}
+
+.list {
+  margin: 0 0 var(--space-2);
+  padding-inline-start: var(--space-5);
+  color: var(--color-text-muted);
+}

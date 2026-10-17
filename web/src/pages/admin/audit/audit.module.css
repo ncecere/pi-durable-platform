@@ -1,0 +1,14 @@
+/* Admin → Audit log. Semantic tokens only. */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.target {
+  display: block;
+  min-width: 10rem;
+  overflow-wrap: anywhere;
+}

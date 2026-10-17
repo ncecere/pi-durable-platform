@@ -1,0 +1,197 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  min-height: 100dvh;
+  background-color: var(--color-overlay);
+  transition: opacity var(--motion-duration-slow) var(--motion-ease-out);
+
+  &[data-starting-style],
+  &[data-ending-style] {
+    opacity: 0;
+  }
+}
+
+.popup {
+  --sheet-width: 24rem;
+  --sheet-duration: 260ms;
+
+  position: fixed;
+  z-index: var(--z-modal);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-surface-raised);
+  --table-background: var(--color-surface-raised);
+  color: var(--color-text);
+  box-shadow: var(--shadow-4);
+  font-family: var(--font-family-sans);
+  font-feature-settings: var(--font-features);
+  font-size: var(--font-size-md);
+  outline: 0;
+  transition: transform var(--sheet-duration) var(--motion-ease-out);
+
+  &[data-ending-style] {
+    transition-timing-function: var(--motion-ease-in-out);
+  }
+
+  &[data-size="sm"] {
+    --sheet-width: 20rem;
+  }
+
+  &[data-size="lg"] {
+    --sheet-width: 32rem;
+  }
+
+  &[data-size="xl"] {
+    --sheet-width: 42rem;
+  }
+
+  &[data-side="right"],
+  &[data-side="left"] {
+    inset-block: 0;
+    width: min(var(--sheet-width), calc(100vw - var(--space-10)));
+  }
+
+  &[data-side="right"] {
+    right: 0;
+    border-left: 1px solid var(--color-border);
+
+    &[data-starting-style],
+    &[data-ending-style] {
+      transform: translateX(100%);
+    }
+  }
+
+  &[data-side="left"] {
+    left: 0;
+    border-right: 1px solid var(--color-border);
+
+    &[data-starting-style],
+    &[data-ending-style] {
+      transform: translateX(-100%);
+    }
+  }
+
+  &[data-side="top"],
+  &[data-side="bottom"] {
+    inset-inline: 0;
+    max-height: 85dvh;
+  }
+
+  /* Full screen from any side: a side panel's stand-in on a phone. */
+  &[data-size="full"][data-side] {
+    inset: 0;
+    width: 100vw;
+    max-height: none;
+    height: 100dvh;
+    border: 0;
+    box-shadow: none;
+  }
+
+  &[data-side="top"] {
+    top: 0;
+    border-bottom: 1px solid var(--color-border);
+
+    &[data-starting-style],
+    &[data-ending-style] {
+      transform: translateY(-100%);
+    }
+  }
+
+  &[data-side="bottom"] {
+    bottom: 0;
+    border-top: 1px solid var(--color-border);
+    padding-bottom: env(safe-area-inset-bottom);
+
+    &[data-starting-style],
+    &[data-ending-style] {
+      transform: translateY(100%);
+    }
+  }
+}
+
+.header {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-5) var(--space-6) 0;
+}
+
+.popup[data-closable] .header {
+  padding-inline-end: 3.5rem;
+}
+
+/* Full screen: the close button sits at the start, like a page's back button. */
+.popup[data-closable][data-size="full"] .header {
+  padding-inline: 3.5rem var(--space-6);
+}
+
+.title {
+  margin: 0;
+  outline: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  letter-spacing: var(--letter-spacing-snug);
+  color: var(--color-text);
+}
+
+/* A title that takes focus (initialFocus="title") is marked by an underline, not a box around the heading. */
+.title:focus-visible {
+  text-decoration: underline;
+  text-decoration-color: var(--color-focus-ring);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
+}
+
+.description {
+  margin: 0;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-muted);
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  padding: var(--space-5) var(--space-6);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.header + .footer {
+  margin-top: var(--space-5);
+}
+
+.footer {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: auto;
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--color-border);
+  background-color: var(--color-surface-sunken);
+}
+
+.close {
+  position: absolute;
+  top: var(--space-4);
+  inset-inline-end: var(--space-4);
+}
+
+.popup[data-size="full"] .close {
+  inset-inline: var(--space-4) auto;
+}
+
+/* The body takes focus only when it scrolls with nothing focusable in it. */
+.body:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}

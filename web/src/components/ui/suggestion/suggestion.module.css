@@ -1,0 +1,62 @@
+.suggestions {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+
+  &[data-layout="wrap"] {
+    flex-wrap: wrap;
+    justify-content: center;
+
+    &[data-align="start"] {
+      justify-content: flex-start;
+    }
+  }
+
+  &[data-layout="scroll"] {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-block: var(--space-1);
+    scrollbar-width: none;
+    /* Fade the clipped edge so it reads as scrollable (masks only use alpha). */
+    mask-image: linear-gradient(to right, currentColor calc(100% - var(--space-8)), transparent);
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+}
+
+.suggestion {
+  border-radius: var(--radius-pill);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text);
+
+  .suggestions[data-layout="scroll"] & {
+    flex: none;
+  }
+
+  /* Wrapping: a chip is never wider than the group; a long suggestion wraps onto more lines inside its chip. */
+  .suggestions[data-layout="wrap"] & {
+    max-width: 100%;
+    height: auto;
+    min-height: var(--control-height-sm);
+    padding-block: var(--space-1);
+    white-space: normal;
+    line-height: var(--line-height-snug);
+    text-align: start;
+  }
+
+  & svg {
+    color: var(--color-text-muted);
+  }
+}
+
+.text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  .suggestions[data-layout="wrap"] & {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}

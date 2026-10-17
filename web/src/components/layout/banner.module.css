@@ -1,0 +1,13 @@
+.banner {
+  margin-bottom: var(--space-4);
+}
+
+.reason {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.detail {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+}

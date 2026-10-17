@@ -1,0 +1,5 @@
+/* The create form: fields that span the whole form grid. */
+
+.wide {
+  grid-column: 1 / -1;
+}

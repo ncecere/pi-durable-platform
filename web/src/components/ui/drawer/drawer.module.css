@@ -1,0 +1,286 @@
+/*
+ * Drawer. Base UI sets --drawer-swipe-movement-x/y while dragging,
+ * --drawer-swipe-progress (0–1) for the backdrop, --drawer-swipe-strength to
+ * scale the release duration, --drawer-snap-point-offset for snap points and
+ * --nested-drawers for stacking. Every read has a fallback so the drawer
+ * also renders sensibly before Base UI has measured anything.
+ */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  min-height: 100dvh;
+  background-color: var(--color-overlay);
+  opacity: calc(1 - var(--drawer-swipe-progress, 0));
+  transition: opacity 450ms cubic-bezier(0.32, 0.72, 0, 1);
+
+  &[data-starting-style],
+  &[data-ending-style] {
+    opacity: 0;
+  }
+
+  &[data-swiping] {
+    transition-duration: 0ms;
+  }
+
+  &[data-ending-style] {
+    pointer-events: none;
+    transition-duration: calc(var(--drawer-swipe-strength, 1) * 400ms);
+  }
+}
+
+.viewport {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  pointer-events: none;
+
+  &[data-modal] {
+    pointer-events: auto;
+  }
+}
+
+.popup {
+  --drawer-bleed: 3rem;
+  --drawer-tx: 0px;
+  --drawer-ty: 0px;
+  --drawer-closed: none;
+
+  position: fixed;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background-color: var(--color-surface-raised);
+  color: var(--color-text);
+  box-shadow: var(--shadow-4);
+  font-family: var(--font-family-sans);
+  font-feature-settings: var(--font-features);
+  font-size: var(--font-size-md);
+  outline: 0;
+  pointer-events: auto;
+  transform: translate3d(var(--drawer-tx), var(--drawer-ty), 0);
+  /* Drawers behind a nested drawer shrink slightly (no opacity change: their
+     text stays in the accessibility tree and must keep its contrast). */
+  scale: calc(1 - var(--nested-drawers, 0) * 0.05);
+  transition:
+    transform 450ms cubic-bezier(0.32, 0.72, 0, 1),
+    scale 450ms cubic-bezier(0.32, 0.72, 0, 1),
+    height 450ms cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform;
+
+  /* Bleed: extends the surface past the attached edge so over-dragging never
+     shows a gap. */
+  &::after {
+    content: "";
+    position: absolute;
+    background-color: inherit;
+    pointer-events: none;
+  }
+
+  &[data-starting-style],
+  &[data-ending-style] {
+    transform: var(--drawer-closed);
+  }
+
+  &[data-swiping] {
+    transition-duration: 0ms;
+  }
+
+  &[data-ending-style] {
+    transition-duration: calc(var(--drawer-swipe-strength, 1) * 400ms);
+  }
+}
+
+.popup[data-side="bottom"] {
+  --drawer-ty: calc(var(--drawer-snap-point-offset, 0px) + var(--drawer-swipe-movement-y, 0px));
+  --drawer-closed: translate3d(0, calc(100% + 2px), 0);
+
+  inset-inline: 0;
+  bottom: 0;
+  max-height: calc(100dvh - var(--space-11));
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  transform-origin: 50% 0;
+
+  &[data-snap-points] {
+    height: calc(100dvh - var(--space-11));
+  }
+
+  &::after {
+    inset-inline: 0;
+    top: 100%;
+    height: var(--drawer-bleed);
+  }
+}
+
+.popup[data-side="top"] {
+  --drawer-ty: calc(var(--drawer-snap-point-offset, 0px) + var(--drawer-swipe-movement-y, 0px));
+  --drawer-closed: translate3d(0, calc(-100% - 2px), 0);
+
+  inset-inline: 0;
+  top: 0;
+  max-height: calc(100dvh - var(--space-11));
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  transform-origin: 50% 100%;
+
+  &::after {
+    inset-inline: 0;
+    bottom: 100%;
+    height: var(--drawer-bleed);
+  }
+}
+
+.popup[data-side="left"],
+.popup[data-side="right"] {
+  --drawer-tx: var(--drawer-swipe-movement-x, 0px);
+
+  inset-block: 0;
+  width: min(24rem, calc(100vw - var(--space-10)));
+
+  &::after {
+    inset-block: 0;
+    width: var(--drawer-bleed);
+  }
+}
+
+.popup[data-side="left"] {
+  --drawer-closed: translate3d(calc(-100% - 2px), 0, 0);
+
+  left: 0;
+  border-radius: 0 var(--radius-card) var(--radius-card) 0;
+  transform-origin: 100% 50%;
+
+  &::after {
+    right: 100%;
+  }
+}
+
+.popup[data-side="right"] {
+  --drawer-closed: translate3d(calc(100% + 2px), 0, 0);
+
+  right: 0;
+  border-radius: var(--radius-card) 0 0 var(--radius-card);
+  transform-origin: 0 50%;
+
+  &::after {
+    left: 100%;
+  }
+}
+
+/* Grab handle (decorative). */
+.handle {
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 0.3125rem;
+  margin: var(--space-3) auto 0;
+  border-radius: var(--radius-full);
+  background-color: var(--color-border-strong);
+  cursor: grab;
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+.popup[data-side="top"] .handle {
+  order: 1;
+  margin: 0 auto var(--space-3);
+}
+
+.popup[data-side="left"] .handle,
+.popup[data-side="right"] .handle {
+  position: absolute;
+  top: 50%;
+  width: 0.3125rem;
+  height: 2.5rem;
+  margin: 0;
+  transform: translateY(-50%);
+}
+
+.popup[data-side="left"] .handle {
+  right: var(--space-2);
+}
+
+.popup[data-side="right"] .handle {
+  left: var(--space-2);
+}
+
+.content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  border-radius: inherit;
+}
+
+.header {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-5) var(--space-6) var(--space-2);
+}
+
+.popup[data-side="bottom"] .header,
+.popup[data-side="top"] .header {
+  text-align: center;
+}
+
+.popup[data-closable] .header {
+  padding-inline-end: 3.5rem;
+}
+
+.popup[data-closable][data-side="bottom"] .header,
+.popup[data-closable][data-side="top"] .header {
+  padding-inline-start: 3.5rem;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  letter-spacing: var(--letter-spacing-snug);
+  color: var(--color-text);
+}
+
+.description {
+  margin: 0;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-muted);
+  text-wrap: balance;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  padding: var(--space-3) var(--space-6);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.footer {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: auto;
+  padding: var(--space-4) var(--space-6) max(var(--space-6), env(safe-area-inset-bottom));
+}
+
+.close {
+  position: absolute;
+  top: var(--space-4);
+  inset-inline-end: var(--space-4);
+}
+
+.popup[data-side="bottom"] .close {
+  top: var(--space-5);
+}

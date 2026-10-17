@@ -1,0 +1,117 @@
+.message {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  column-gap: var(--space-3);
+  row-gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+
+  &[data-from="user"] {
+    justify-items: end;
+  }
+
+  /* With an avatar: avatar column + body column (mirrored for the user). */
+  &:has(> .avatar) {
+    grid-template-columns: auto minmax(0, 1fr);
+
+    & > :not(.avatar) {
+      grid-column: 2;
+    }
+  }
+
+  &[data-from="user"]:has(> .avatar) {
+    grid-template-columns: minmax(0, 1fr) auto;
+
+    & > :not(.avatar) {
+      grid-column: 1;
+    }
+
+    & > .avatar {
+      grid-column: 2;
+    }
+  }
+}
+
+.avatar {
+  display: inline-flex;
+  grid-row: 1 / span 3;
+  margin-top: 0.125rem;
+
+  /* A custom tile colour (the `color` prop) with contrast-colour initials. */
+  &[data-color] > [data-hue] {
+    --avatar-bg: var(--message-avatar-color, var(--color-primary));
+    --avatar-fg: var(--color-primary-contrast);
+
+    box-shadow: none;
+  }
+}
+
+.content {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--color-text);
+  font-size: var(--font-size-lg);
+  line-height: 1.6;
+  overflow-wrap: break-word;
+
+  /* User bubble: neutral tint, text 4.5:1+ (see tests/contrast.test.ts). */
+  &[data-variant="bubble"] {
+    max-width: min(36rem, 85%);
+    padding: 0.625rem var(--space-4);
+    border-radius: 1.25rem;
+    background-color: var(--color-neutral-subtle);
+    white-space: pre-wrap;
+  }
+
+  &[data-variant="plain"] {
+    width: 100%;
+  }
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.125rem;
+  margin-inline-start: calc(var(--space-2) * -1);
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-out);
+
+  .message[data-from="user"] & {
+    margin-inline: 0 calc(var(--space-2) * -1);
+  }
+
+  /* Hover reveal only where hover exists; keyboard focus always reveals. */
+  @media (hover: hover) {
+    &[data-visibility="hover"] {
+      opacity: 0;
+    }
+
+    .message:hover &[data-visibility="hover"],
+    &[data-visibility="hover"]:focus-within,
+    &[data-visibility="hover"]:has([data-popup-open]) {
+      opacity: 1;
+    }
+  }
+}
+
+.action {
+  &[data-pressed] {
+    background-color: var(--color-surface-active);
+    color: var(--color-text);
+  }
+}
+
+.branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.branchPage {
+  min-width: 2.5rem;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

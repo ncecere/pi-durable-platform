@@ -1,0 +1,204 @@
+/*
+ * The group draws the control boundary (--color-border-strong, >= 3:1), the
+ * focus ring and the error border; the inner Input/Textarea is made
+ * borderless. The :is(*, …) selector below lifts specificity above every
+ * state rule in input.module.css, so the reset holds on hover, focus,
+ * invalid and read-only, whatever order the stylesheets load in.
+ */
+.group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-height-md);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--color-control);
+  box-shadow: var(--shadow-0);
+  color: var(--color-text);
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-out),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-out);
+
+  @media (hover: hover) {
+    &:hover:not(:focus-within, :has([data-group-control]:disabled)) {
+      border-color: var(--color-border-hover);
+    }
+  }
+
+  &:has([data-group-control]:focus) {
+    border-color: var(--color-focus-ring);
+    box-shadow: var(--shadow-focus);
+  }
+
+  &:has([data-group-control][aria-invalid="true"], [data-group-control][data-invalid]) {
+    border-color: var(--color-danger);
+
+    &:has([data-group-control]:focus) {
+      box-shadow:
+        0 0 0 1px var(--color-danger),
+        0 0 0 4px color-mix(in srgb, var(--color-danger) 18%, transparent);
+    }
+  }
+
+  &:has([data-group-control]:disabled) {
+    background-color: var(--color-control-disabled);
+    color: var(--color-text-subtle);
+    cursor: not-allowed;
+  }
+
+  &:has([data-group-control]:read-only:not(:disabled)) {
+    background-color: var(--color-surface-sunken);
+  }
+
+  &:has(> .addon[data-align^="block"]) {
+    flex-wrap: wrap;
+  }
+
+  &:has(> .textarea) {
+    align-items: stretch;
+  }
+
+  &[data-size="sm"] {
+    min-height: var(--control-height-sm);
+  }
+}
+
+.group .control[data-group-control]:is(
+    *,
+    :hover,
+    :focus,
+    :focus-visible,
+    :disabled,
+    :read-only,
+    [aria-invalid="true"],
+    [data-invalid]
+  ) {
+  flex: 1 1 0;
+  min-width: 0;
+  height: calc(var(--control-height-md) - 2px);
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.group[data-size="sm"] .control[data-group-control] {
+  height: calc(var(--control-height-sm) - 2px);
+  padding-inline: 0.625rem;
+  font-size: var(--font-size-sm);
+}
+
+.group .textarea[data-group-control]:is(*, :focus) {
+  height: auto;
+  min-height: 4.5rem;
+  padding-block: var(--space-2);
+  resize: none;
+}
+
+/* Tighten the control's padding next to an inline addon. */
+.group:has(> .addon[data-align="start"]) .control[data-group-control] {
+  padding-inline-start: var(--space-2);
+}
+
+.group:has(> .addon[data-align="end"]) .control[data-group-control] {
+  padding-inline-end: var(--space-2);
+}
+
+.addon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-md);
+  cursor: text;
+  user-select: none;
+
+  & > svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  &[data-align="start"] {
+    order: -1;
+    padding-inline-start: var(--space-3);
+  }
+
+  &[data-align="end"] {
+    order: 1;
+    padding-inline-end: var(--space-3);
+  }
+
+  &[data-align="block-start"],
+  &[data-align="block-end"] {
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+  }
+
+  &[data-align="block-start"] {
+    order: -1;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  &[data-align="block-end"] {
+    order: 1;
+    border-top: 1px solid var(--color-border);
+  }
+
+  /* A button flush with the group edge gets a smaller inset. */
+  &[data-align="start"]:has(> .button:first-child) {
+    padding-inline-start: var(--space-1);
+  }
+
+  &[data-align="end"]:has(> .button:last-child) {
+    padding-inline-end: var(--space-1);
+  }
+
+  .group[data-size="sm"] & {
+    font-size: var(--font-size-sm);
+
+    &[data-align="start"] {
+      padding-inline-start: 0.625rem;
+    }
+
+    &[data-align="end"] {
+      padding-inline-end: 0.625rem;
+    }
+  }
+}
+
+.text {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+
+  & svg {
+    width: 1rem;
+    height: 1rem;
+  }
+}
+
+/* Addon buttons: shorter than the group so they sit inside its boundary. */
+.addon > .button[data-size] {
+  height: calc(var(--control-height-md) - 0.5rem);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-2);
+}
+
+.addon > .button[data-size][data-icon-only] {
+  width: calc(var(--control-height-md) - 0.5rem);
+  padding: 0;
+}
+
+.group[data-size="sm"] .addon > .button[data-size] {
+  height: calc(var(--control-height-sm) - 0.5rem);
+}
+
+.group[data-size="sm"] .addon > .button[data-size][data-icon-only] {
+  width: calc(var(--control-height-sm) - 0.5rem);
+}

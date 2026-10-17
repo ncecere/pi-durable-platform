@@ -1,0 +1,141 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-5);
+  border-radius: var(--radius-card);
+  background-color: var(--color-surface);
+  box-shadow: var(--shadow-2);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  color: var(--color-text);
+}
+
+.description,
+.summary {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.dismiss {
+  flex: none;
+  margin: calc(var(--space-1) * -1) calc(var(--space-1) * -1) 0 0;
+}
+
+.complete {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-2) var(--space-3);
+  padding-block: var(--space-3);
+  border-top: 1px solid var(--color-border-muted);
+
+  &:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  &:last-child {
+    padding-bottom: 0;
+  }
+}
+
+/* Step number, or a check once done (the state is also spelled out for screen readers). */
+.marker {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+
+  & svg {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+
+  .step[data-current] & {
+    border-color: var(--color-primary);
+    color: var(--color-primary-subtle-text);
+    background-color: var(--color-primary-subtle);
+  }
+
+  .step[data-done] & {
+    border-color: var(--color-success);
+    background-color: var(--color-success-subtle);
+    color: var(--color-success-text);
+  }
+}
+
+.body {
+  display: flex;
+  flex: 1 1 14rem;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+  padding-top: 0.125rem;
+}
+
+.stepTitle {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text);
+
+  .step[data-done] & {
+    color: var(--color-text-muted);
+  }
+}
+
+.stepDescription {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.action {
+  display: flex;
+  flex: none;
+  gap: var(--space-2);
+  margin-inline-start: auto;
+}

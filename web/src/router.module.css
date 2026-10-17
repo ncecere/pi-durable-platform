@@ -1,0 +1,14 @@
+.fullPage {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: var(--space-6);
+}
+
+.error {
+  max-width: 32rem;
+}
+
+.pending {
+  padding-block: var(--space-8);
+}

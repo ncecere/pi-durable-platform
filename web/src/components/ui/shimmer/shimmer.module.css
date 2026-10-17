@@ -1,0 +1,49 @@
+.shimmer {
+  --shimmer-duration: 2s;
+
+  color: var(--color-text-muted);
+
+  &[data-active] {
+    /* The text colour is the gradient; the base stays muted between sweeps. */
+    background-image: linear-gradient(
+      90deg,
+      var(--color-text-muted) 0%,
+      var(--color-text-muted) 35%,
+      var(--color-text) 50%,
+      var(--color-text-muted) 65%,
+      var(--color-text-muted) 100%
+    );
+    background-size: 250% 100%;
+    background-repeat: no-repeat;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    animation: shimmer var(--shimmer-duration) linear infinite;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer[data-active] {
+    animation: none;
+    background-image: none;
+    color: var(--color-text-muted);
+  }
+}
+
+/* Forced colours can't render gradient text: fall back to plain text. */
+@media (forced-colors: active) {
+  .shimmer[data-active] {
+    animation: none;
+    background-image: none;
+    color: CanvasText;
+  }
+}

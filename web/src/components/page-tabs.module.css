@@ -1,0 +1,16 @@
+/* Page tabs: pills above the active section, whose cards stack with the page's gap. */
+.tabs {
+  gap: var(--space-5);
+}
+
+.list {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+}
