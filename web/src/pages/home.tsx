@@ -108,12 +108,12 @@ function YourTeams({ me }: { me: Me }) {
   );
 }
 
-/** Where agents will live (the Agents page). */
+/** Agents across the person's teams. */
 function AgentsCard() {
   return (
     <Card
       title={terms.agents}
-      description="Each agent runs in its own isolated Pi Durable runtime, for example one assistant per user of a chat app."
+      description="Deploy Pi Durable agents from templates, test them, and manage the ones your teams' apps use. Each runs in its own runtime and hibernates when idle."
       actions={
         <Button size="sm" variant="ghost" render={<Link to="/agents" />}>
           <Sparkles aria-hidden /> Open {terms.agents} <ArrowRight aria-hidden />

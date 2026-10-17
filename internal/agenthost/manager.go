@@ -35,7 +35,15 @@ type Manager struct {
 	mu       sync.Mutex
 	streams  map[string]int       // open event streams per agent
 	lastUsed map[string]time.Time // last proxied request per agent
+
+	// closing ends every open event stream when the platform shuts down
+	// (clients reconnect to another replica, or after the restart).
+	closing     chan struct{}
+	closingOnce sync.Once
 }
+
+// CloseStreams ends every open event stream now (http.Server.RegisterOnShutdown).
+func (m *Manager) CloseStreams() { m.closingOnce.Do(func() { close(m.closing) }) }
 
 // New returns a manager. idle is how long an agent may sit with no work, no
 // requests and no open streams before it hibernates.
@@ -89,6 +97,16 @@ func (m *Manager) Proxy(w http.ResponseWriter, r *http.Request, spec launcher.Sp
 	}
 	stream := r.Method == http.MethodGet && isEventStream(path)
 	if stream {
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		go func() {
+			select {
+			case <-m.closing:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		r = r.WithContext(ctx)
 		m.mu.Lock()
 		m.streams[spec.AgentID]++
 		m.mu.Unlock()

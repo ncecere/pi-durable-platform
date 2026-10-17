@@ -102,6 +102,7 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 		// bound their own work with contexts.
 		BaseContext: func(net.Listener) context.Context { return context.WithoutCancel(ctx) },
 	}
+	srv.RegisterOnShutdown(deps.Agents.Host().CloseStreams)
 	loopCtx, stopLoops := context.WithCancel(ctx)
 	defer stopLoops()
 	go cleanupLoop(loopCtx, deps.Auth, log)
@@ -334,4 +335,24 @@ func ensureAgentsDatabase(ctx context.Context, pool *pgxpool.Pool, agentsURL str
 	}
 	log.Info("created agents database", "database", name)
 	return nil
+}
+
+// PruneAgentStorage removes agent storage that no agent owns (the
+// prune-agent-storage command).
+func PruneAgentStorage(ctx context.Context, cfg config.Config, log *slog.Logger, dryRun bool) ([]string, error) {
+	pool, err := store.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, err
+	}
+	defer pool.Close()
+	box, err := secretBox(cfg)
+	if err != nil {
+		return nil, err
+	}
+	svc, err := newAgents(cfg, pool, box, log)
+	if err != nil {
+		return nil, err
+	}
+	defer svc.Close()
+	return svc.PruneStorage(ctx, dryRun)
 }

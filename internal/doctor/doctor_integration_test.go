@@ -37,7 +37,7 @@ func TestDoctorHealthyInstall(t *testing.T) {
 	if !rep.OK {
 		t.Fatalf("report not ok: %+v", rep.Checks)
 	}
-	if c, _ := find(rep, "postgres", "migrations"); c.Status != doctor.OK || !strings.Contains(c.Detail, "current (version 5)") {
+	if c, _ := find(rep, "postgres", "migrations"); c.Status != doctor.OK || !strings.Contains(c.Detail, "current (version 6)") {
 		t.Errorf("migrations = %+v", c)
 	}
 	if c, _ := find(rep, "safety", "production"); c.Status != doctor.Info {
@@ -60,7 +60,7 @@ func TestDoctorHealthyInstall(t *testing.T) {
 
 func TestDoctorPendingMigrations(t *testing.T) {
 	pool, dbURL := testutil.NewDB(t)
-	if _, err := pool.Exec(context.Background(), "DELETE FROM goose_db_version WHERE version_id = 5"); err != nil {
+	if _, err := pool.Exec(context.Background(), "DELETE FROM goose_db_version WHERE version_id = 6"); err != nil {
 		t.Fatal(err)
 	}
 	rep := doctor.Run(context.Background(), devConfig(dbURL), doctor.Options{})

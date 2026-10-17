@@ -14,9 +14,19 @@ export type AgentThread = Schemas["AgentThread"];
 
 export const agentsKey = ["agents"];
 
-/** The agents the person may use: their assistant, then their teams' agents. */
+/** The agents of the person's teams (with service-managed ones where they are an owner or admin). */
 export const agentsQuery = () =>
-  queryOptions({ queryKey: [...agentsKey, "list"], queryFn: async () => unwrap(await api.GET("/v1/agents")) });
+  queryOptions({
+    queryKey: [...agentsKey, "list"],
+    queryFn: async () => unwrap(await api.GET("/v1/agents", { params: { query: { includeManaged: true } } })),
+  });
+
+/** A team's agents (service-managed ones too, for its owners and admins). */
+export const teamAgentsQuery = (team: string) =>
+  queryOptions({
+    queryKey: [...agentsKey, "team", team],
+    queryFn: async () => unwrap(await api.GET("/v1/teams/{team}/agents", { params: { path: { team }, query: { includeManaged: true } } })),
+  });
 
 export const agentQuery = (agentId: string) =>
   queryOptions({
@@ -32,11 +42,6 @@ export const threadsQuery = (agentId: string) =>
     queryKey: [...agentsKey, agentId, "threads"],
     queryFn: async () => unwrap(await api.GET("/v1/agents/{agentId}/threads", { params: { path: { agentId } } })),
   });
-
-/** The person's assistant, created on first use. */
-export async function ensureAssistant(): Promise<Agent> {
-  return unwrap(await api.POST("/v1/me/assistant"));
-}
 
 export async function sendMessage(agentId: string, threadId: string, text: string): Promise<void> {
   unwrap(

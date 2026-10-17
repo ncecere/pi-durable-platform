@@ -1,11 +1,11 @@
 /* Agents: the list and the chat. Semantic tokens only. */
 
-/* The chat fills the viewport below the top bar: threads beside the conversation. */
+/* The test chat: threads beside the conversation, most of the viewport tall. */
 .chat {
   display: grid;
   grid-template-columns: 15rem minmax(0, 1fr);
   gap: var(--space-4);
-  height: calc(100dvh - var(--topbar-height) - var(--space-8));
+  height: 70dvh;
   min-height: 24rem;
 }
 
@@ -88,7 +88,12 @@
 }
 
 .paneTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
   font-weight: var(--font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .conversation {
@@ -115,25 +120,4 @@
 .hint {
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
-}
-
-/* The agents list. */
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
-  gap: var(--space-4);
-}
-
-.cardMeta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-
-.description {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
 }

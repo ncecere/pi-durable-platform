@@ -186,12 +186,11 @@ var matrixPolicies = map[string]policy{
 		return del(c.team("/service-accounts/" + sa + "/keys/" + key))
 	}},
 
-	// Agents. Everyone signed in has an assistant (theirs alone) and sees
-	// the templates. A team's agents and their conversations are its
-	// members' only: platform roles never reach them (admins may delete).
+	// Agents. Everyone signed in sees the templates and their teams' agents.
+	// A team's agents and their conversations are its members' only:
+	// platform roles never reach them (platform admins may delete).
 	"listAgentTemplates": {own: signedIn, build: func(*mctx) request { return get("/v1/agent-templates") }},
 	"listAgents":         {own: signedIn, build: func(*mctx) request { return get("/v1/agents") }},
-	"ensureMyAssistant":  {own: signedIn, build: func(*mctx) request { return post("/v1/me/assistant", nil) }},
 	"createTeamAgent": {scope: scopeTeam, own: editors, build: func(c *mctx) request {
 		return post(c.team("/agents"), map[string]any{"name": fmt.Sprintf("new-agent-%d", c.e.next())})
 	}},

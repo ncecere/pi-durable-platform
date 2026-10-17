@@ -13,7 +13,7 @@
  *   3. add its breadcrumb in breadcrumbs.tsx.
  * Only list pages that exist.
  */
-import { Bot, FileClock, Home, LayoutDashboard, MessageCircle, Settings, Sparkles, Users, UsersRound } from "lucide-react";
+import { Bot, FileClock, Home, LayoutDashboard, Settings, Sparkles, Users, UsersRound } from "lucide-react";
 import { type ReactNode } from "react";
 import { terms } from "../../lib/terms";
 import { type Me } from "../../session";
@@ -22,15 +22,14 @@ export const icon = (C: typeof Home) => <C aria-hidden />;
 
 /* ---------------- workspace ---------------- */
 
-export type WorkspacePath = "/" | "/assistant" | "/agents";
+export type WorkspacePath = "/" | "/agents";
 
 export type WorkspaceNavItem = { to: WorkspacePath; label: string; icon: ReactNode; exact?: boolean; keywords?: string[] };
 
 /** Pages for everyone signed in, at the top of the workspace sidebar. */
 export const workspaceNav: WorkspaceNavItem[] = [
   { to: "/", label: terms.home, icon: icon(Home), exact: true, keywords: ["start", "welcome", "teams"] },
-  { to: "/assistant", label: "My assistant", icon: icon(MessageCircle), keywords: ["chat", "assistant", "talk", "ask"] },
-  { to: "/agents", label: terms.agents, icon: icon(Sparkles), keywords: ["agent", "agents", "team agents", "runtime", "deploy", "pi durable"] },
+  { to: "/agents", label: "All agents", icon: icon(Sparkles), keywords: ["agent", "agents", "every team", "runtime", "deploy", "pi durable"] },
 ];
 
 /* ---------------- team ---------------- */
@@ -61,7 +60,7 @@ export function teamAccess(me: Me, mine: Membership | undefined): TeamAccess {
   };
 }
 
-export type TeamPath = "/teams/$team" | "/teams/$team/service-accounts" | "/teams/$team/settings";
+export type TeamPath = "/teams/$team" | "/teams/$team/agents" | "/teams/$team/service-accounts" | "/teams/$team/settings";
 
 export type TeamNavItem = {
   to: TeamPath;
@@ -76,6 +75,14 @@ export type TeamNavItem = {
 
 const teamNav: TeamNavItem[] = [
   { to: "/teams/$team", label: "Overview", icon: icon(LayoutDashboard), exact: true, access: (a) => a.member || a.staff, keywords: ["team", "dashboard"] },
+  {
+    to: "/teams/$team/agents",
+    label: terms.agents,
+    icon: icon(Sparkles),
+    // Agents and their conversations are the team's own: platform staff don't get them.
+    access: (a) => a.member,
+    keywords: ["agent", "agents", "deploy", "test", "chat", "runtime", "pi durable", "hibernate"],
+  },
   {
     to: "/teams/$team/service-accounts",
     label: terms.serviceAccounts,

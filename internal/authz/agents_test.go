@@ -3,46 +3,41 @@ package authz
 import "testing"
 
 func TestAgentRules(t *testing.T) {
-	team := func(role string) AgentSubject { return AgentSubject{Kind: AgentTeam, Role: role} }
+	person := func(role string, managed bool) AgentSubject { return AgentSubject{Role: role, ServiceManaged: managed} }
 	svc := func(role string, managed bool) AgentSubject {
-		return AgentSubject{Kind: AgentTeam, Role: role, IsService: true, ServiceManaged: managed}
+		return AgentSubject{Role: role, IsService: true, ServiceManaged: managed}
 	}
-	managedFor := func(role string) AgentSubject { return AgentSubject{Kind: AgentTeam, Role: role, ServiceManaged: true} }
 	cases := []struct {
-		name                       string
-		s                          AgentSubject
-		use, edit, del, delAsAdmin bool
+		name                            string
+		s                               AgentSubject
+		see, use, edit, del, delAsAdmin bool
 	}{
-		{"personal owner", AgentSubject{Kind: AgentPersonal, IsOwner: true}, true, true, true, true},
-		{"someone else's assistant", AgentSubject{Kind: AgentPersonal}, false, false, false, true},
-		{"a service account and a personal agent", AgentSubject{Kind: AgentPersonal, IsOwner: true, IsService: true}, false, false, false, true},
-		{"team member", team(RoleMember), true, false, false, true},
-		{"team editor", team(RoleEditor), true, true, false, true},
-		{"team admin", team(RoleAdmin), true, true, true, true},
-		{"team owner", team(RoleOwner), true, true, true, true},
-		{"not a member", team(""), false, false, false, true},
-		{"member service account", svc(RoleMember, false), true, false, false, true},
-		{"editor service account", svc(RoleEditor, false), true, true, false, true},
-		{"another team's service account", svc("", false), false, false, false, true},
-		{"service-managed, member service account", svc(RoleMember, true), true, false, false, true},
-		{"service-managed, editor service account", svc(RoleEditor, true), true, true, true, true},
-		{"service-managed, team owner (a person)", managedFor(RoleOwner), false, false, true, true},
-		{"service-managed, team editor (a person)", managedFor(RoleEditor), false, false, false, true},
-		{"service-managed, not on the team", managedFor(""), false, false, false, true},
+		{"member", person(RoleMember, false), true, true, false, false, true},
+		{"editor", person(RoleEditor, false), true, true, true, false, true},
+		{"admin", person(RoleAdmin, false), true, true, true, true, true},
+		{"owner", person(RoleOwner, false), true, true, true, true, true},
+		{"not on the team", person("", false), false, false, false, false, true},
+		{"member service account", svc(RoleMember, false), true, true, false, false, true},
+		{"editor service account", svc(RoleEditor, false), true, true, true, false, true},
+		{"another team's service account", svc("", false), false, false, false, false, true},
+		{"service-managed: member service account", svc(RoleMember, true), true, true, false, false, true},
+		{"service-managed: editor service account", svc(RoleEditor, true), true, true, true, true, true},
+		{"service-managed: owner (a person)", person(RoleOwner, true), true, false, false, true, true},
+		{"service-managed: admin (a person)", person(RoleAdmin, true), true, false, false, true, true},
+		{"service-managed: editor (a person)", person(RoleEditor, true), false, false, false, false, true},
+		{"service-managed: not on the team", person("", true), false, false, false, false, true},
 	}
 	for _, c := range cases {
-		if got := CheckAgentUse(c.s) == nil; got != c.use {
-			t.Errorf("%s: use = %v, want %v", c.name, got, c.use)
+		check := func(what string, got, want bool) {
+			if got != want {
+				t.Errorf("%s: %s = %v, want %v", c.name, what, got, want)
+			}
 		}
-		if got := CheckAgentEdit(c.s) == nil; got != c.edit {
-			t.Errorf("%s: edit = %v, want %v", c.name, got, c.edit)
-		}
-		if got := CheckAgentDelete(c.s, false) == nil; got != c.del {
-			t.Errorf("%s: delete = %v, want %v", c.name, got, c.del)
-		}
-		if got := CheckAgentDelete(c.s, true) == nil; got != c.delAsAdmin {
-			t.Errorf("%s: delete as platform admin = %v, want %v", c.name, got, c.delAsAdmin)
-		}
+		check("see", CheckAgentSee(c.s) == nil, c.see)
+		check("use", CheckAgentUse(c.s) == nil, c.use)
+		check("edit", CheckAgentEdit(c.s) == nil, c.edit)
+		check("delete", CheckAgentDelete(c.s, false) == nil, c.del)
+		check("delete as platform admin", CheckAgentDelete(c.s, true) == nil, c.delAsAdmin)
 	}
 	if CheckTeamAgentCreate(RoleMember) == nil || CheckTeamAgentCreate(RoleEditor) != nil {
 		t.Error("team agent creation: editors and above only")

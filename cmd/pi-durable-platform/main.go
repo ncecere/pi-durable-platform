@@ -31,6 +31,8 @@ commands:
   serve     HTTP API, embedded UI and background loops
   migrate   apply database migrations and exit
   doctor    check the configuration, Postgres and migrations (--json, --help)
+  prune-agent-storage
+            remove agent storage no agent owns (--dry-run, --help)
   version   print the version
 
 Configuration comes from environment variables and the optional YAML file
@@ -61,6 +63,8 @@ func run(args []string) error {
 		return nil
 	case "doctor":
 		return runDoctor(args[1:], os.Stdout)
+	case "prune-agent-storage":
+		return runPrune(args[1:], os.Stdout)
 	case app.ModeServe, app.ModeMigrate:
 	default:
 		fmt.Fprint(os.Stderr, usage)
@@ -131,5 +135,42 @@ func runDoctor(args []string, stdout io.Writer) error {
 	if !rep.OK {
 		return errChecksFailed
 	}
+	return nil
+}
+
+// runPrune implements `pi-durable-platform prune-agent-storage [--dry-run]`.
+func runPrune(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("prune-agent-storage", flag.ContinueOnError)
+	dryRun := fs.Bool("dry-run", false, "list what would be removed without removing it")
+	fs.Usage = func() {
+		fmt.Fprint(fs.Output(), "usage: pi-durable-platform prune-agent-storage [--dry-run]\n\n"+
+			"Removes agent storage (schema and role in the agents database) that no agent owns,\n"+
+			"left by a failed deletion or a migration. Run it while no agents are being created.\n\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); errors.Is(err, flag.ErrHelp) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("configuration:\n%w", err)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	log := newLogger(io.Discard, cfg.LogLevel, cfg.LogFormat)
+	names, err := app.PruneAgentStorage(ctx, cfg, log, *dryRun)
+	for _, n := range names {
+		fmt.Fprintln(stdout, n)
+	}
+	if err != nil {
+		return err
+	}
+	verb := "removed"
+	if *dryRun {
+		verb = "would remove"
+	}
+	fmt.Fprintf(stdout, "%s %d unowned agent storage name(s)\n", verb, len(names))
 	return nil
 }

@@ -8,8 +8,8 @@ SELECT * FROM agent_templates WHERE slug = $1;
 SELECT * FROM agent_templates WHERE id = $1;
 
 -- name: InsertAgent :one
-INSERT INTO agents (id, kind, owner_user_id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, created_by, external_key)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+INSERT INTO agents (id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, created_by, external_key)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING *;
 
 -- name: GetAgentByExternalKey :one
@@ -21,19 +21,20 @@ SELECT * FROM agents WHERE id = $1;
 -- name: LockAgent :one
 SELECT * FROM agents WHERE id = $1 FOR UPDATE;
 
--- name: GetPersonalAgent :one
-SELECT * FROM agents WHERE kind = 'personal' AND owner_user_id = $1;
-
 -- name: ListAgentsForUser :many
--- The person's own assistant and the agents of teams they belong to.
+-- The agents of the teams the person belongs to (service-managed ones only
+-- for teams where they are an owner or admin, and only when asked).
 SELECT a.*, t.slug AS team_slug, t.name AS team_name, tpl.slug AS template_slug, tpl.name AS template_name
 FROM agents a
 JOIN agent_templates tpl ON tpl.id = a.template_id
-LEFT JOIN teams t ON t.id = a.team_id
-WHERE (a.kind = 'personal' AND a.owner_user_id = sqlc.arg(user_id))
-   OR (a.kind = 'team' AND a.external_key IS NULL AND t.status = 'active' AND EXISTS (
-        SELECT 1 FROM team_members m WHERE m.team_id = a.team_id AND m.user_id = sqlc.arg(user_id)))
-ORDER BY a.kind DESC, t.slug NULLS FIRST, lower(a.name), a.id;
+JOIN teams t ON t.id = a.team_id
+JOIN team_members m ON m.team_id = a.team_id AND m.user_id = sqlc.arg(user_id)
+WHERE t.status = 'active'
+  AND (a.external_key IS NULL OR (sqlc.arg(include_managed)::boolean AND m.role IN ('owner', 'admin')))
+ORDER BY t.slug, lower(a.name), a.id;
+
+-- name: AgentIDs :many
+SELECT id FROM agents;
 
 -- name: ListTeamAgents :many
 -- A team's agents; service-managed ones (with an external key) only when asked.

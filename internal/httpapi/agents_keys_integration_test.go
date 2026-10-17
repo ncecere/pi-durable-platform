@@ -45,7 +45,7 @@ func (k keyClient) call(method, path string, body, out any) (int, string) {
 }
 
 // Services reach agents with keys: a chat app's service account gives each
-// of its users an agent; people reach their own assistant with API keys.
+// of its users an agent; people reach their teams' agents with API keys.
 func TestAgentsWithKeys(t *testing.T) {
 	e := newTeamEnv(t)
 	app := e.app
@@ -78,14 +78,29 @@ func TestAgentsWithKeys(t *testing.T) {
 	code, ec = reader.call("PUT", toolsTeam+"/agents/by-key/user-43", nil, nil)
 	mustCode(t, "member service account ensures", code, ec, 403, "forbidden")
 
-	// The team's people don't see service-managed conversations; owners can delete.
+	// The team's people don't reach service-managed conversations. Owners and
+	// admins see the agents (to manage them), not what's in them.
 	for _, s := range []*session{e.owner, e.editor, e.member} {
-		code, ec = s.call("GET", base, nil, nil, nil)
-		mustCode(t, "a person reads a service-managed agent", code, ec, 404, "agent_not_found")
+		code, ec = s.call("GET", base+"/threads/c1", nil, nil, nil)
+		mustCode(t, "a person reads a service-managed conversation", code, ec, 404, "agent_not_found")
 	}
-	var humanList, serviceList []apitypes.Agent
-	if code := e.owner.get(toolsTeam+"/agents?includeManaged=true", &humanList); code != 200 || len(humanList) != 0 {
-		t.Fatalf("people see service-managed agents: %d %+v", code, humanList)
+	if code := e.owner.get(base, nil); code != 200 {
+		t.Fatalf("owner sees the agent: %d", code)
+	}
+	code, ec = e.editor.call("GET", base, nil, nil, nil)
+	mustCode(t, "an editor sees a service-managed agent", code, ec, 404, "agent_not_found")
+	var ownerList, editorList, plainList, serviceList []apitypes.Agent
+	if code := e.owner.get(toolsTeam+"/agents?includeManaged=true", &ownerList); code != 200 || len(ownerList) != 1 {
+		t.Fatalf("owner's managed list = %d %+v", code, ownerList)
+	}
+	if code := e.owner.get("/v1/agents?includeManaged=true", &ownerList); code != 200 || len(ownerList) != 1 {
+		t.Fatalf("owner's agents with managed = %d %+v", code, ownerList)
+	}
+	if code := e.owner.get("/v1/agents", &plainList); code != 200 || len(plainList) != 0 {
+		t.Fatalf("owner's agents = %d %+v", code, plainList)
+	}
+	if code := e.editor.get(toolsTeam+"/agents?includeManaged=true", &editorList); code != 200 || len(editorList) != 0 {
+		t.Fatalf("editor's managed list = %d %+v", code, editorList)
 	}
 	if code, _ := chatApp.call("GET", toolsTeam+"/agents?includeManaged=true", nil, &serviceList); code != 200 || len(serviceList) != 1 {
 		t.Fatalf("service list = %d %+v", code, serviceList)
@@ -93,18 +108,23 @@ func TestAgentsWithKeys(t *testing.T) {
 	code, ec = e.editor.call("PUT", toolsTeam+"/agents/by-key/user-44", nil, nil, nil)
 	mustCode(t, "a person ensures by key", code, ec, 403, "forbidden")
 
-	// Service accounts have no assistant and never reach people's.
-	code, ec = chatApp.call("POST", "/v1/me/assistant", nil, nil)
-	mustCode(t, "service account assistant", code, ec, 403, "forbidden")
+	// People reach their teams' agents with personal API keys; service
+	// accounts never reach another team's agents.
 	var keyOut apitypes.ApiKeyCreated
 	code, ec = e.editor.call("POST", "/v1/me/api-keys", map[string]any{"name": "script"}, &keyOut, nil)
 	mustCode(t, "create API key", code, ec, 201, "")
 	alexKey := keyClient{t, app.URL, keyOut.Secret}
-	var mine apitypes.Agent
-	code, ec = alexKey.call("POST", "/v1/me/assistant", nil, &mine)
-	mustCode(t, "assistant with an API key", code, ec, 201, "")
-	code, ec = chatApp.call("GET", "/v1/agents/"+mine.Id.String(), nil, nil)
-	mustCode(t, "service account reads a person's assistant", code, ec, 404, "agent_not_found")
+	var deployed apitypes.Agent
+	code, ec = alexKey.call("POST", toolsTeam+"/agents", map[string]any{"name": "Scripted"}, &deployed)
+	mustCode(t, "deploy with an API key", code, ec, 201, "")
+	code, ec = alexKey.call("POST", "/v1/agents/"+deployed.Id.String()+"/threads/s1/messages", map[string]any{"text": "hi"}, nil)
+	mustCode(t, "test with an API key", code, ec, 202, "")
+	casey := keyClient{t, app.URL, ""}
+	code, ec = e.outsider.call("POST", "/v1/me/api-keys", map[string]any{"name": "other"}, &keyOut, nil)
+	mustCode(t, "outsider API key", code, ec, 201, "")
+	casey.key = keyOut.Secret
+	code, ec = casey.call("GET", "/v1/agents/"+deployed.Id.String(), nil, nil)
+	mustCode(t, "another team's person", code, ec, 404, "agent_not_found")
 
 	// Bad keys are refused.
 	code, ec = keyClient{t, app.URL, "pdp_sa_" + "x"}.call("GET", "/v1/agents", nil, nil)

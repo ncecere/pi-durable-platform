@@ -1,3 +1,2 @@
-/* The lazy route module for agents (router.tsx): the list, the assistant and a team agent's chat in one chunk. */
+/* The lazy route module for Agents (router.tsx): the list across the person's teams. */
 export { AgentsPage } from "./page";
-export { AgentPage, AssistantPage } from "./assistant";

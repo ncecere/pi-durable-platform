@@ -1,5 +1,6 @@
-// Package agents manages agents: durable Pi agents made from templates,
-// either a person's own assistant or a team's.
+// Package agents manages agents: durable Pi agents that teams deploy from
+// templates, test here, and reach from their own apps with service account
+// keys.
 //
 // An agent's conversations live in its own schema in the agents database,
 // reached with its own database role (internal/agenthost/provision). The
@@ -33,7 +34,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/teams"
 )
 
-// DefaultTemplate is the template personal assistants are made from.
+// DefaultTemplate is the template used when none is named.
 const DefaultTemplate = "assistant"
 
 // MaxPerTeam is how many agents a team may create by hand (service-managed
@@ -51,7 +52,6 @@ var (
 	errBadName          = apperr.Invalid("invalid_name", "Name must be 1-100 characters on one line")
 	errBadDesc          = apperr.Invalid("invalid_description", "Description must be at most 2000 characters")
 	errBadKey           = apperr.Invalid("invalid_external_key", "External keys are 1-200 letters, digits or . _ : @ -")
-	errPeopleOnly       = apperr.Forbidden("Personal assistants belong to people; service accounts use team agents")
 	externalKeyRE       = regexp.MustCompile(`^[A-Za-z0-9._:@-]{1,200}$`)
 )
 
@@ -90,8 +90,8 @@ func (s *Service) Host() *agenthost.Manager { return s.host }
 // View is an agent with the names it is shown with and whether it runs now.
 type View struct {
 	Agent        dbgen.Agent
-	TeamSlug     *string
-	TeamName     *string
+	TeamSlug     string
+	TeamName     string
 	TemplateSlug string
 	TemplateName string
 	Running      bool
@@ -102,22 +102,23 @@ func (s *Service) Templates(ctx context.Context) ([]dbgen.AgentTemplate, error) 
 	return s.q.ListAgentTemplates(ctx)
 }
 
-// List returns the agents the actor may use: their assistant and their
-// teams' agents.
-func (s *Service) List(ctx context.Context, a authz.Actor) ([]View, error) {
+// List returns the agents of the actor's teams (for a service account, its
+// team's). Service-managed agents are included only when asked, and only
+// for teams where the person is an owner or admin.
+func (s *Service) List(ctx context.Context, a authz.Actor, includeManaged bool) ([]View, error) {
 	if a.Service != nil {
-		return s.ListTeam(ctx, a, a.Service.TeamID.String(), false)
+		return s.ListTeam(ctx, a, a.Service.TeamID.String(), includeManaged)
 	}
-	rows, err := s.q.ListAgentsForUser(ctx, uuid.NullUUID{UUID: a.UserID, Valid: true})
+	rows, err := s.q.ListAgentsForUser(ctx, dbgen.ListAgentsForUserParams{UserID: a.UserID, IncludeManaged: includeManaged})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]View, len(rows))
 	for i, r := range rows {
 		out[i] = View{
-			Agent: dbgen.Agent{ID: r.ID, Kind: r.Kind, OwnerUserID: r.OwnerUserID, TeamID: r.TeamID, TemplateID: r.TemplateID,
-				Name: r.Name, Description: r.Description, Enabled: r.Enabled, Revision: r.Revision, CreatedBy: r.CreatedBy,
-				CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, LastUsedAt: r.LastUsedAt},
+			Agent: dbgen.Agent{ID: r.ID, TeamID: r.TeamID, TemplateID: r.TemplateID, Name: r.Name, Description: r.Description,
+				Enabled: r.Enabled, Revision: r.Revision, CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+				LastUsedAt: r.LastUsedAt, ExternalKey: r.ExternalKey},
 			TeamSlug: r.TeamSlug, TeamName: r.TeamName, TemplateSlug: r.TemplateSlug, TemplateName: r.TemplateName,
 			Running: s.host.Running(r.ID.String()),
 		}
@@ -139,18 +140,8 @@ func roleIn(ctx context.Context, q *dbgen.Queries, a authz.Actor, teamID uuid.UU
 
 // subject resolves the actor's relationship to an agent.
 func subject(ctx context.Context, q *dbgen.Queries, a authz.Actor, ag dbgen.Agent) (authz.AgentSubject, error) {
-	sub := authz.AgentSubject{Kind: ag.Kind, IsService: a.Service != nil, ServiceManaged: ag.ExternalKey != nil}
-	switch ag.Kind {
-	case authz.AgentPersonal:
-		sub.IsOwner = a.Service == nil && ag.OwnerUserID.Valid && ag.OwnerUserID.UUID == a.UserID
-	case authz.AgentTeam:
-		role, err := roleIn(ctx, q, a, ag.TeamID.UUID)
-		if err != nil {
-			return sub, err
-		}
-		sub.Role = role
-	}
-	return sub, nil
+	role, err := roleIn(ctx, q, a, ag.TeamID)
+	return authz.AgentSubject{Role: role, IsService: a.Service != nil, ServiceManaged: ag.ExternalKey != nil}, err
 }
 
 func (s *Service) view(ctx context.Context, q *dbgen.Queries, ag dbgen.Agent) (View, error) {
@@ -158,15 +149,12 @@ func (s *Service) view(ctx context.Context, q *dbgen.Queries, ag dbgen.Agent) (V
 	if err != nil {
 		return View{}, err
 	}
-	v := View{Agent: ag, TemplateSlug: tpl.Slug, TemplateName: tpl.Name, Running: s.host.Running(ag.ID.String())}
-	if ag.TeamID.Valid {
-		t, err := q.GetTeamByID(ctx, ag.TeamID.UUID)
-		if err != nil {
-			return View{}, err
-		}
-		v.TeamSlug, v.TeamName = &t.Slug, &t.Name
+	t, err := q.GetTeamByID(ctx, ag.TeamID)
+	if err != nil {
+		return View{}, err
 	}
-	return v, nil
+	return View{Agent: ag, TeamSlug: t.Slug, TeamName: t.Name, TemplateSlug: tpl.Slug, TemplateName: tpl.Name,
+		Running: s.host.Running(ag.ID.String())}, nil
 }
 
 func (s *Service) load(ctx context.Context, q *dbgen.Queries, id uuid.UUID) (dbgen.Agent, error) {
@@ -177,7 +165,7 @@ func (s *Service) load(ctx context.Context, q *dbgen.Queries, id uuid.UUID) (dbg
 	return ag, err
 }
 
-// Get returns an agent the actor may use.
+// Get returns an agent the actor may see (its settings and status).
 func (s *Service) Get(ctx context.Context, a authz.Actor, id uuid.UUID) (View, error) {
 	ag, err := s.load(ctx, s.q, id)
 	if err != nil {
@@ -187,55 +175,10 @@ func (s *Service) Get(ctx context.Context, a authz.Actor, id uuid.UUID) (View, e
 	if err != nil {
 		return View{}, err
 	}
-	if err := authz.CheckAgentUse(sub); err != nil {
+	if err := authz.CheckAgentSee(sub); err != nil {
 		return View{}, err
 	}
 	return s.view(ctx, s.q, ag)
-}
-
-// Personal returns the actor's assistant, creating it from the default
-// template the first time (idempotent; concurrent calls create one).
-func (s *Service) Personal(ctx context.Context, a authz.Actor) (View, bool, error) {
-	if a.Service != nil {
-		return View{}, false, errPeopleOnly
-	}
-	if ag, err := s.q.GetPersonalAgent(ctx, uuid.NullUUID{UUID: a.UserID, Valid: true}); err == nil {
-		v, err := s.view(ctx, s.q, ag)
-		return v, false, err
-	} else if !errors.Is(store.NotFound(err), store.ErrNotFound) {
-		return View{}, false, err
-	}
-	var out View
-	created := false
-	err := store.InTx(ctx, s.pool, func(q *dbgen.Queries, tx pgx.Tx) error {
-		// Serialize creation per person.
-		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended('pdp-personal-agent:' || $1::text, 0))", a.UserID.String()); err != nil {
-			return err
-		}
-		if ag, err := q.GetPersonalAgent(ctx, uuid.NullUUID{UUID: a.UserID, Valid: true}); err == nil {
-			out, err = s.view(ctx, q, ag)
-			return err
-		} else if !errors.Is(store.NotFound(err), store.ErrNotFound) {
-			return err
-		}
-		tpl, err := q.GetAgentTemplateBySlug(ctx, DefaultTemplate)
-		if errors.Is(store.NotFound(err), store.ErrNotFound) {
-			return errTemplateNotFound
-		} else if err != nil {
-			return err
-		}
-		ag, err := s.insert(ctx, q, a, dbgen.InsertAgentParams{
-			Kind: authz.AgentPersonal, OwnerUserID: uuid.NullUUID{UUID: a.UserID, Valid: true},
-			TemplateID: tpl.ID, Name: "My assistant", Description: tpl.Description,
-		})
-		if err != nil {
-			return err
-		}
-		created = true
-		out, err = s.view(ctx, q, ag)
-		return err
-	})
-	return out, created, err
 }
 
 // CreateInput is a new team agent.
@@ -305,14 +248,14 @@ func (s *Service) createInTeam(ctx context.Context, a authz.Actor, teamRef strin
 			return errTeamArchived
 		}
 		if key != nil {
-			ag, err := q.GetAgentByExternalKey(ctx, dbgen.GetAgentByExternalKeyParams{TeamID: uuid.NullUUID{UUID: t.ID, Valid: true}, ExternalKey: key})
+			ag, err := q.GetAgentByExternalKey(ctx, dbgen.GetAgentByExternalKeyParams{TeamID: t.ID, ExternalKey: key})
 			if err == nil {
 				out, err = s.view(ctx, q, ag)
 				return err
 			} else if !errors.Is(store.NotFound(err), store.ErrNotFound) {
 				return err
 			}
-		} else if n, err := q.CountTeamAgents(ctx, uuid.NullUUID{UUID: t.ID, Valid: true}); err != nil {
+		} else if n, err := q.CountTeamAgents(ctx, t.ID); err != nil {
 			return err
 		} else if n >= MaxPerTeam {
 			return errTooMany
@@ -328,8 +271,7 @@ func (s *Service) createInTeam(ctx context.Context, a authz.Actor, teamRef strin
 			desc = tpl.Description
 		}
 		ag, err := s.insert(ctx, q, a, dbgen.InsertAgentParams{
-			Kind: authz.AgentTeam, TeamID: uuid.NullUUID{UUID: t.ID, Valid: true},
-			TemplateID: tpl.ID, Name: in.Name, Description: desc, ExternalKey: key,
+			TeamID: t.ID, TemplateID: tpl.ID, Name: in.Name, Description: desc, ExternalKey: key,
 		})
 		if err != nil {
 			return err
@@ -341,8 +283,10 @@ func (s *Service) createInTeam(ctx context.Context, a authz.Actor, teamRef strin
 	return out, created, err
 }
 
-// ListTeam lists a team's agents for its members and service accounts;
-// service-managed agents only for its service accounts, when asked.
+// ListTeam lists a team's agents for its members and service accounts.
+// Service-managed agents are included when asked, for the team's service
+// accounts and its owners and admins (who see them, not their
+// conversations).
 func (s *Service) ListTeam(ctx context.Context, a authz.Actor, teamRef string, includeManaged bool) ([]View, error) {
 	t, err := teams.Resolve(ctx, s.q, teamRef)
 	if err != nil {
@@ -355,7 +299,8 @@ func (s *Service) ListTeam(ctx context.Context, a authz.Actor, teamRef string, i
 	if role == "" {
 		return nil, errTeamNotFound
 	}
-	rows, err := s.q.ListTeamAgents(ctx, dbgen.ListTeamAgentsParams{TeamID: uuid.NullUUID{UUID: t.ID, Valid: true}, IncludeManaged: includeManaged && a.Service != nil})
+	managed := includeManaged && (a.Service != nil || authz.RoleAtLeast(role, authz.RoleAdmin))
+	rows, err := s.q.ListTeamAgents(ctx, dbgen.ListTeamAgentsParams{TeamID: t.ID, IncludeManaged: managed})
 	if err != nil {
 		return nil, err
 	}
@@ -399,10 +344,7 @@ func (s *Service) insert(ctx context.Context, q *dbgen.Queries, a authz.Actor, p
 		return dbgen.Agent{}, err
 	}
 	e := a.Audit("agent.create", "agent", ag.ID.String())
-	e.After = snapshot(ag)
-	if ag.TeamID.Valid {
-		e.TeamID = ag.TeamID.UUID
-	}
+	e.After, e.TeamID = snapshot(ag), ag.TeamID
 	if err := audit.Record(ctx, q, e); err != nil {
 		return dbgen.Agent{}, err
 	}
@@ -411,7 +353,11 @@ func (s *Service) insert(ctx context.Context, q *dbgen.Queries, a authz.Actor, p
 }
 
 func snapshot(ag dbgen.Agent) map[string]any {
-	return map[string]any{"kind": ag.Kind, "name": ag.Name, "description": ag.Description, "enabled": ag.Enabled}
+	m := map[string]any{"name": ag.Name, "description": ag.Description, "enabled": ag.Enabled}
+	if ag.ExternalKey != nil {
+		m["externalKey"] = *ag.ExternalKey
+	}
+	return m
 }
 
 // UpdateInput holds optional changes.
@@ -464,10 +410,7 @@ func (s *Service) Update(ctx context.Context, a authz.Actor, id uuid.UUID, in Up
 			return err
 		}
 		e := a.Audit("agent.update", "agent", id.String())
-		e.Before, e.After = snapshot(ag), snapshot(updated)
-		if ag.TeamID.Valid {
-			e.TeamID = ag.TeamID.UUID
-		}
+		e.Before, e.After, e.TeamID = snapshot(ag), snapshot(updated), ag.TeamID
 		if err := audit.Record(ctx, q, e); err != nil {
 			return err
 		}
@@ -507,13 +450,50 @@ func (s *Service) Delete(ctx context.Context, a authz.Actor, id uuid.UUID) error
 			return err
 		}
 		e := a.Audit("agent.delete", "agent", id.String())
-		e.Before = snapshot(ag)
-		if ag.TeamID.Valid {
-			e.TeamID = ag.TeamID.UUID
-		}
+		e.Before, e.TeamID = snapshot(ag), ag.TeamID
 		return audit.Record(ctx, q, e)
 	})
 }
+
+// PruneStorage removes agent storage (schema and role) that no agent owns:
+// left by a failed deletion, or by agents removed in a migration. Run it
+// when no agents are being created: storage is made just before its agent is
+// recorded. Returns the names removed (or, with dryRun, that would be).
+func (s *Service) PruneStorage(ctx context.Context, dryRun bool) ([]string, error) {
+	ids, err := s.q.AgentIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	keep := map[string]bool{}
+	for _, id := range ids {
+		n, err := provision.NameFor(id.String())
+		if err != nil {
+			return nil, err
+		}
+		keep[n] = true
+	}
+	names, err := s.prov.Names(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, n := range names {
+		if keep[n] {
+			continue
+		}
+		if !dryRun {
+			if err := s.prov.DeleteName(ctx, n); err != nil {
+				return out, err
+			}
+		}
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+// DeleteAllStorage removes every agent's storage (tests, before dropping the
+// agents database: database roles outlive it).
+func (s *Service) DeleteAllStorage(ctx context.Context) error { return s.prov.DeleteAll(ctx) }
 
 // Hibernate stops the agent's runtime now (anyone who may use it).
 func (s *Service) Hibernate(ctx context.Context, a authz.Actor, id uuid.UUID) error {

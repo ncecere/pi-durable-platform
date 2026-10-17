@@ -22,7 +22,8 @@ tags:
   description: Team-owned identities for services, agents, CI and scripts
 - name: agents
   description: >-
-    Durable Pi agents, their conversations (threads) and templates. Every agent operation also accepts
+    Durable Pi agents that teams deploy from templates, their conversations (threads) and templates. Every agent
+    operation also accepts
     `Authorization: Bearer <key>`: a personal API key acts as its person; a team service account key acts in its
     team with the account's role.
 paths:
@@ -1103,10 +1104,18 @@ paths:
       tags:
       - agents
       operationId: listAgents
-      summary: Agents the caller may use (their assistant and their teams' agents)
+      summary: The agents of the caller's teams (a service account's own team)
+      description: >-
+        Service-managed agents (one per user of a team's app) are included with includeManaged=true, for teams where
+        the caller is an owner or admin, and for service accounts.
+      parameters:
+      - name: includeManaged
+        in: query
+        schema:
+          type: boolean
       responses:
         '200':
-          description: The assistant first, then team agents by team and name
+          description: Agents by team and name
           content:
             application/json:
               schema:
@@ -1120,44 +1129,6 @@ paths:
                       $ref: '#/components/schemas/Agent'
         '401':
           $ref: '#/components/responses/ErrorReply'
-  /v1/me/assistant:
-    post:
-      tags:
-      - agents
-      operationId: ensureMyAssistant
-      summary: The caller's personal assistant, created from the default template on first use
-      description: Idempotent; concurrent calls create one assistant. 201 when it was created.
-      responses:
-        '200':
-          description: The existing assistant
-          headers:
-            ETag:
-              $ref: '#/components/headers/ETag'
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                - data
-                properties:
-                  data:
-                    $ref: '#/components/schemas/Agent'
-        '201':
-          description: Created
-          headers:
-            ETag:
-              $ref: '#/components/headers/ETag'
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                - data
-                properties:
-                  data:
-                    $ref: '#/components/schemas/Agent'
-        '401':
-          $ref: '#/components/responses/ErrorReply'
   /v1/teams/{team}/agents:
     parameters:
     - $ref: '#/components/parameters/TeamParam'
@@ -1166,7 +1137,7 @@ paths:
       - agents
       operationId: listTeamAgents
       summary: The team's agents (members and the team's service accounts)
-      description: Service-managed agents (with an external key) are listed only for service accounts, with includeManaged=true.
+      description: Service-managed agents (with an external key) are included with includeManaged=true, for the team's owners, admins and service accounts.
       parameters:
       - name: includeManaged
         in: query
@@ -1762,14 +1733,11 @@ components:
           type: string
     Agent:
       type: object
-      required: [id, kind, name, description, templateSlug, templateName, enabled, running, revision, createdAt, updatedAt]
+      required: [id, name, description, teamId, teamSlug, teamName, templateSlug, templateName, enabled, running, revision, createdAt, updatedAt]
       properties:
         id:
           type: string
           format: uuid
-        kind:
-          type: string
-          enum: [personal, team]
         name:
           type: string
         description:
@@ -1777,13 +1745,10 @@ components:
         teamId:
           type: string
           format: uuid
-          nullable: true
         teamSlug:
           type: string
-          nullable: true
         teamName:
           type: string
-          nullable: true
         templateSlug:
           type: string
         templateName:

@@ -2,7 +2,7 @@ import { Outlet, createRootRoute, createRoute, createRouter, lazyRouteComponent,
 import { type ReactNode } from "react";
 import { AppLayout } from "./components/layout/shell";
 import { NotFoundState } from "./components/not-found";
-import { adminTeamTabs, serviceAccountTabs, tabSearch, teamSettingsTabs } from "./lib/tabs";
+import { adminTeamTabs, agentTabs, serviceAccountTabs, tabSearch, teamSettingsTabs } from "./lib/tabs";
 import { InstanceSync, SignInPage, useCurrentUser, useMe } from "./session";
 import { useSessionUnavailable } from "./components/layout/session-unavailable";
 import { ColorModeSync } from "./components/layout/theme";
@@ -30,6 +30,7 @@ const pages = {
   teamLayout: () => import("./pages/team/layout"),
   teamSettings: () => import("./pages/team/settings/page"),
   serviceAccounts: () => import("./pages/team/service-accounts/routes"),
+  teamAgents: () => import("./pages/team/agents/routes"),
 };
 const lazy = lazyRouteComponent;
 type Page = ReturnType<typeof lazyRouteComponent>;
@@ -102,17 +103,14 @@ const apiKeysRoute = createRoute({
 });
 /* ---------------- agents (everyone signed in) ---------------- */
 
-/** Agents: the person's assistant and their teams' agents. */
+/** Agents across the person's teams; filters (?q=…) pass through. */
 const agentsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "agents",
   validateSearch: (s: Record<string, unknown>): Record<string, unknown> => s,
   component: lazy(pages.agents, "AgentsPage"),
 });
-/** A team agent's chat. */
-const agentRoute = createRoute({ getParentRoute: () => appRoute, path: "agents/$agentId", component: lazy(pages.agents, "AgentPage") });
-/** The person's own assistant (created on the first visit). */
-const assistantRoute = createRoute({ getParentRoute: () => appRoute, path: "assistant", component: lazy(pages.agents, "AssistantPage") });
+
 
 /* ---------------- a team (workspace) ---------------- */
 
@@ -140,6 +138,21 @@ const teamServiceAccountRoute = createRoute({
   component: lazy(pages.serviceAccounts, "ServiceAccountPage"),
 });
 
+/** The team's agents; ?q= passes through. */
+const teamAgentsRoute = createRoute({
+  getParentRoute: () => teamRoute,
+  path: "agents",
+  validateSearch: (s: Record<string, unknown>): Record<string, unknown> => s,
+  component: lazy(pages.teamAgents, "TeamAgentsPage"),
+});
+/** An agent: Overview · Test · Settings. */
+const teamAgentRoute = createRoute({
+  getParentRoute: () => teamRoute,
+  path: "agents/$agentId",
+  validateSearch: tabSearch(agentTabs, { passthrough: true }),
+  component: lazy(pages.teamAgents, "TeamAgentPage"),
+});
+
 /* ---------------- admin ---------------- */
 
 const adminRoute = createRoute({ getParentRoute: () => appRoute, path: "admin", component: AdminGate });
@@ -163,9 +176,7 @@ const appTree = appRoute.addChildren([
   profileRoute,
   apiKeysRoute,
   agentsRoute,
-  agentRoute,
-  assistantRoute,
-  teamRoute.addChildren([teamIndexRoute, teamSettingsRoute, teamServiceAccountsRoute, teamServiceAccountRoute]),
+  teamRoute.addChildren([teamIndexRoute, teamSettingsRoute, teamServiceAccountsRoute, teamServiceAccountRoute, teamAgentsRoute, teamAgentRoute]),
   adminRoute.addChildren([
     adminIndexRoute,
     adminList("users", lazy(pages.people, "AdminUsersPage")),

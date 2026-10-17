@@ -1,14 +1,17 @@
 # Pi Durable Platform
 
-An enterprise platform where teams and services deploy and manage Pi Durable agents (one isolated runtime per agent,
-for example one assistant per user of a chat app).
+The console and API where teams deploy, test and manage [Pi Durable](https://github.com/earendil-works/pi/tree/main/packages/durable)
+agents. People don't chat with agents here: a team's own apps (a chat app, a support tool) reach its agents through
+the platform API with service account keys, for example one agent per user of the app. This console is where service
+owners and platform admins deploy agents from templates, test them, and see and manage the agents their apps use.
 
 This repository holds:
 
 - **The platform** (Go 1.26 + PostgreSQL 17, with a React/Vite web UI embedded in one binary): sign-in (OIDC, plus
   local development personas), teams and their members, platform and team roles, personal API keys, team service
-  accounts, an append-only audit log, a `doctor` command, and **agents**: every person gets their own assistant, and
-  team editors create team agents from approved templates. See [DESIGN.md](DESIGN.md).
+  accounts, an append-only audit log, a `doctor` command, and **agents**: team editors deploy agents from templates
+  and test them; the team's apps reach them with service account keys, and can give each of their users an agent
+  (service-managed agents). See [DESIGN.md](DESIGN.md).
 - **The agent runtime** in [`runtime/`](runtime) (TypeScript): one Pi Durable agent per process, its state in its own
   PostgreSQL schema and role. The platform starts runtimes on demand, relays conversations to them (server-sent
   events), and hibernates idle ones.
@@ -26,7 +29,8 @@ make web                         # build the web UI into web/dist (embedded by t
 make run                         # creates .env from .env.example if needed, serves http://localhost:8098
 ```
 
-Open **My assistant** to create and talk to your assistant. Agents use a scripted demo model until you set
+Sign in as **Dev Platform Admin**, create a team under Admin › Teams (with yourself or **Alex Dev** as its owner),
+then open the team's **Agents**, deploy one and use its **Test** tab. Agents use a scripted demo model until you set
 `AGENTS_MODEL_PROVIDER=openai-compatible` with `AGENTS_MODEL_BASE_URL`, `AGENTS_MODEL_API_KEY` and `AGENTS_MODEL_ID`
 (LiteLLM, vLLM, …). Agent state goes to the `pdp_agents` database (created on start in development).
 
@@ -56,12 +60,31 @@ Integration tests create one database per test on the server in `PDP_TEST_DATABA
 Postgres, `postgres://pdp:pdp-local-only@127.0.0.1:55432/postgres`), never in database `pdp` itself.
 `PDP_TEST_REQUIRE_DB=1` makes them fail instead of skip, and `PDP_TEST_LOG=1` shows the server's logs.
 
+## Reaching agents from an app
+
+Create a service account in the team (role **editor** to create agents), give it a key, and call the platform with
+`Authorization: Bearer pdp_sa_…`:
+
+```sh
+# One agent per user of your app: created the first time, returned after that.
+curl -X PUT $PLATFORM/v1/teams/support/agents/by-key/user-42 -H "Authorization: Bearer $KEY" -d '{"name": "Assistant for user 42"}'
+# Send a message (202), then follow the conversation (server-sent events, the whole view on every change).
+curl -X POST $PLATFORM/v1/agents/$AGENT/threads/conv-1/messages -H "Authorization: Bearer $KEY" -d '{"text": "Hello", "requestId": "m1"}'
+curl -N $PLATFORM/v1/agents/$AGENT/threads/conv-1/events -H "Authorization: Bearer $KEY"
+```
+
+Agents made this way are service-managed: only the team's service accounts talk to them. The team's owners and
+admins see them in the console (status, last use) but not their conversations, and can delete them. Personal API
+keys (`pdp_…`) work too, acting as their person.
+
 ## Commands
 
 ```
 pi-durable-platform serve     HTTP API, embedded UI and background loops
 pi-durable-platform migrate   apply database migrations and exit
 pi-durable-platform doctor    check the configuration, Postgres and migrations
+pi-durable-platform prune-agent-storage [--dry-run]
+                              remove agent storage no agent owns
 pi-durable-platform version   print the version
 ```
 

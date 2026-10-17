@@ -1,7 +1,8 @@
 /*
- * A chat with one agent: its threads beside the open conversation. Messages
- * go through the platform, which wakes a hibernated agent first; the
- * conversation follows the agent's own transcript over server-sent events.
+ * Test: chat with the agent the way an app would. Its threads beside the open
+ * conversation; messages go through the platform, which wakes a hibernated
+ * agent first, and the conversation follows the agent's own transcript over
+ * server-sent events. Test threads are shared with the team.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageSquarePlus, Trash2 } from "lucide-react";
@@ -15,10 +16,9 @@ import {
   stopThread,
   threadsQuery,
   useLiveThread,
-} from "../../api/agents";
-import { errorMessage } from "../../api/client";
+} from "../../../api/agents";
+import { errorMessage } from "../../../api/client";
 import { ChatMessages } from "./messages";
-import { Badge } from "@/components/ui/badge/badge";
 import { Button, IconButton } from "@/components/ui/button/button";
 import {
   type ChatStatus,
@@ -45,7 +45,7 @@ const SUGGESTIONS = [
   "Summarize what we talked about",
 ];
 
-export function AgentChat({ agent }: { agent: Agent }) {
+export function TestChat({ agent }: { agent: Agent }) {
   const queryClient = useQueryClient();
   const threads = useQuery({
     ...threadsQuery(agent.id),
@@ -77,7 +77,7 @@ export function AgentChat({ agent }: { agent: Agent }) {
     queryClient.invalidateQueries({
       queryKey: threadsQuery(agent.id).queryKey,
     });
-  // Sending wakes the agent: refresh its status (and the assistant's) right away.
+  // Sending wakes the agent: refresh its status right away.
   const refreshAgent = () =>
     queryClient.invalidateQueries({ queryKey: agentsKey });
 
@@ -157,13 +157,11 @@ export function AgentChat({ agent }: { agent: Agent }) {
 
       <section className={s.pane} aria-label={agent.name}>
         <header className={s.paneHeader}>
-          <span className={s.paneTitle}>{agent.name}</span>
-          <Badge tone={agent.running ? "success" : "neutral"} dot size="sm">
-            {agent.running ? "Awake" : "Hibernating"}
-          </Badge>
-          {exists && !live.connected ? (
-            <span className={s.hint}>Connecting…</span>
-          ) : null}
+          <span className={s.paneTitle}>
+            {exists ? (threads.data?.find((t) => t.threadId === threadId)?.title ?? "Conversation") : "New test conversation"}
+          </span>
+          {exists && !live.connected ? <span className={s.hint}>Connecting…</span> : null}
+          <span className={s.hint}>Shared with the team</span>
         </header>
         <Conversation className={s.conversation}>
           <ConversationContent>
@@ -171,8 +169,8 @@ export function AgentChat({ agent }: { agent: Agent }) {
               <ChatMessages view={view} />
             ) : (
               <ConversationEmptyState
-                title={`Hi, I'm ${agent.name}.`}
-                description="Our conversations are durable: they survive reloads, restarts and my hibernation."
+                title={`Test ${agent.name}`}
+                description="Send a message as an app would. Conversations are durable: they survive reloads, restarts and hibernation."
               >
                 <Suggestions>
                   {SUGGESTIONS.map((text) => (

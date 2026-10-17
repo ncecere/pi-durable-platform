@@ -97,6 +97,10 @@ func newTestAppDeps(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 		if l, ok := deps.Agents.Host().Launcher().(*launcher.Local); ok {
 			l.StopAll(context.Background())
 		}
+		// Agent roles are server-wide: remove them before the database goes.
+		if err := deps.Agents.DeleteAllStorage(context.Background()); err != nil {
+			t.Errorf("remove agent storage: %v", err)
+		}
 		deps.Agents.Close()
 	})
 	deps.Health = httpapi.NewHealth(map[string]func(context.Context) error{"postgres": pool.Ping})

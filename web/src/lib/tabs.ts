@@ -11,6 +11,10 @@ export type AdminTeamTab = (typeof adminTeamTabs)[number];
 export const serviceAccountTabs = ["overview", "keys", "settings"] as const;
 export type ServiceAccountTab = (typeof serviceAccountTabs)[number];
 
+/** A team's agent: Overview (status, how to call it) · Test (chat with it) · Settings. */
+export const agentTabs = ["overview", "test", "settings"] as const;
+export type AgentTab = (typeof agentTabs)[number];
+
 /** Team settings: Members (with open invites) · Audit log · General. */
 export const teamSettingsTabs = ["members", "audit", "general"] as const;
 export type TeamSettingsTab = (typeof teamSettingsTabs)[number];

@@ -46,32 +46,51 @@ const agentBase = {
   revision: 1,
   createdAt: "2026-10-17T12:00:00Z",
   updatedAt: "2026-10-17T12:00:00Z",
+  teamId: team.id,
+  teamSlug: team.slug,
+  teamName: team.name,
 };
-const assistant = { ...agentBase, id: "a1", kind: "personal", name: "My assistant", running: false };
-const teamAgent = { ...agentBase, id: "a2", kind: "team", name: "Triage", running: true, teamId: team.id, teamSlug: team.slug, teamName: team.name };
+const triage = { ...agentBase, id: "a1", name: "Triage", running: true };
+const perUser = { ...agentBase, id: "a2", name: "Assistant for user 42", running: false, externalKey: "user-42" };
 
 describe("agents", () => {
-  it("lists the person's assistant and their teams' agents, in the sidebar for everyone", async () => {
-    mockApi({ ...shellRoutes("none", "member"), "GET /v1/agents": () => [assistant, teamAgent] });
+  it("lists the agents of the person's teams, linking to each team's agent page", async () => {
+    mockApi({ ...shellRoutes("none", "owner"), "GET /v1/agents": () => [triage, perUser] });
     const { container } = renderApp("/agents");
     expect(await screen.findByRole("heading", { level: 1, name: "Agents" })).toBeInTheDocument();
-    expect(await screen.findByRole("link", { name: "My assistant", current: false })).toHaveAttribute("href", "/assistant");
-    expect(screen.getByRole("link", { name: "Triage" })).toHaveAttribute("href", "/agents/a2");
-    expect(screen.getByText("Hibernating")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Triage" })).toHaveAttribute("href", `/teams/${team.slug}/agents/a1`);
+    expect(screen.getByText("user-42")).toBeInTheDocument();
     expect(screen.getByText("Awake")).toBeInTheDocument();
-    // Plain members can't create team agents.
-    expect(screen.queryByRole("button", { name: /New team agent/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Hibernating")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Deploy agent/ })).toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: "Main" });
-    expect(within(nav).getByRole("link", { name: "Agents" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "All agents" })).toHaveAttribute("aria-current", "page");
     expect(await axe(container)).toHaveNoViolations();
   });
 
-  it("opens the person's assistant, creating it on the first visit", async () => {
-    const calls = mockApi({ ...shellRoutes("none", "member"), "POST /v1/me/assistant": () => assistant, "GET /v1/agents/a1/threads": () => [] });
-    renderApp("/assistant");
-    expect(await screen.findByText("Hi, I'm My assistant.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "What time is it?" })).toBeInTheDocument();
-    expect(calls.some((c) => c.method === "POST" && c.url === "/v1/me/assistant")).toBe(true);
+  it("doesn't offer deploying to plain members", async () => {
+    mockApi({ ...shellRoutes("none", "member"), "GET /v1/agents": () => [] });
+    renderApp("/agents");
+    expect(await screen.findByText("No agents yet.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Deploy agent/ })).not.toBeInTheDocument();
+  });
+
+  it("opens an agent with its overview, test chat and settings", async () => {
+    mockApi({ ...shellRoutes("none", "editor"), "GET /v1/agents/a1": () => triage, "GET /v1/agents/a1/threads": () => [] });
+    renderApp(`/teams/${team.slug}/agents/a1?tab=test`);
+    expect(await screen.findByRole("heading", { level: 1, name: "Triage" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Overview/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Settings/ })).toBeInTheDocument();
+    expect(await screen.findByText("Test Triage")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Triage");
+  });
+
+  it("shows a service-managed agent to the team's owners without a test chat", async () => {
+    mockApi({ ...shellRoutes("none", "owner"), "GET /v1/agents/a2": () => perUser });
+    renderApp(`/teams/${team.slug}/agents/a2`);
+    expect(await screen.findByRole("heading", { level: 1, name: "Assistant for user 42" })).toBeInTheDocument();
+    expect(screen.getByText("Service-managed")).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /Test/ })).not.toBeInTheDocument();
   });
 });
 

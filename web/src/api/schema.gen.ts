@@ -621,30 +621,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Agents the caller may use (their assistant and their teams' agents) */
+        /**
+         * The agents of the caller's teams (a service account's own team)
+         * @description Service-managed agents (one per user of a team's app) are included with includeManaged=true, for teams where the caller is an owner or admin, and for service accounts.
+         */
         get: operations["listAgents"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/me/assistant": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * The caller's personal assistant, created from the default template on first use
-         * @description Idempotent; concurrent calls create one assistant. 201 when it was created.
-         */
-        post: operations["ensureMyAssistant"];
         delete?: never;
         options?: never;
         head?: never;
@@ -661,13 +644,42 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /**
+         * The team's agents (members and the team's service accounts)
+         * @description Service-managed agents (with an external key) are included with includeManaged=true, for the team's owners, admins and service accounts.
+         */
+        get: operations["listTeamAgents"];
         put?: never;
         /**
          * Create a team agent from a template (team editors and above)
          * @description 409 name_taken (names are unique within the team, ignoring case); 409 team_archived; 404 template_not_found. At most 50 per team.
          */
         post: operations["createTeamAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/teams/{team}/agents/by-key/{externalKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                /** @description The service's own key for the agent, for example its user's ID */
+                externalKey: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * The team's service-managed agent with this key, created the first time (editor service accounts)
+         * @description Idempotent; 201 when it was created. For services that give each of their users an agent, such as a chat app. Service-managed agents are used only by the team's service accounts: the team's people don't see their conversations, though its owners and admins can delete them. The body names a new agent and is ignored for an existing one.
+         */
+        put: operations["ensureTeamAgentByKey"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -842,16 +854,16 @@ export interface components {
         Agent: {
             /** Format: uuid */
             id: string;
-            /** @enum {string} */
-            kind: "personal" | "team";
             name: string;
             description: string;
             /** Format: uuid */
-            teamId?: string | null;
-            teamSlug?: string | null;
-            teamName?: string | null;
+            teamId: string;
+            teamSlug: string;
+            teamName: string;
             templateSlug: string;
             templateName: string;
+            /** @description Set for service-managed agents (created by a service account with its own key) */
+            externalKey?: string | null;
             enabled: boolean;
             /** @description Whether its runtime is up now (it hibernates when idle and wakes on the next request) */
             running: boolean;
@@ -866,6 +878,13 @@ export interface components {
         };
         AgentCreate: {
             name: string;
+            description?: string;
+            /** @description Template slug (default assistant) */
+            template?: string;
+        };
+        AgentEnsure: {
+            /** @description Defaults to the external key */
+            name?: string;
             description?: string;
             /** @description Template slug (default assistant) */
             template?: string;
@@ -938,7 +957,7 @@ export interface components {
         /** @description Who made the change, resolved when the log is read */
         AuditActor: {
             /** @enum {string} */
-            kind: "user" | "api_key" | "system";
+            kind: "user" | "api_key" | "service_account" | "system";
             /** Format: uuid */
             userId?: string;
             displayName?: string;
@@ -2510,14 +2529,16 @@ export interface operations {
     };
     listAgents: {
         parameters: {
-            query?: never;
+            query?: {
+                includeManaged?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description The assistant first, then team agents by team and name */
+            /** @description Agents by team and name */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2531,40 +2552,33 @@ export interface operations {
             401: components["responses"]["ErrorReply"];
         };
     };
-    ensureMyAssistant: {
+    listTeamAgents: {
         parameters: {
-            query?: never;
+            query?: {
+                includeManaged?: boolean;
+            };
             header?: never;
-            path?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description The existing assistant */
+            /** @description Agents by name */
             200: {
                 headers: {
-                    ETag: components["headers"]["ETag"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["Agent"];
-                    };
-                };
-            };
-            /** @description Created */
-            201: {
-                headers: {
-                    ETag: components["headers"]["ETag"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["Agent"];
+                        data: components["schemas"]["Agent"][];
                     };
                 };
             };
             401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
         };
     };
     createTeamAgent: {
@@ -2596,6 +2610,55 @@ export interface operations {
                 };
             };
             400: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    ensureTeamAgentByKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                /** @description The service's own key for the agent, for example its user's ID */
+                externalKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AgentEnsure"];
+            };
+        };
+        responses: {
+            /** @description The existing agent */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Agent"];
+                    };
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Agent"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
             403: components["responses"]["ErrorReply"];
             404: components["responses"]["ErrorReply"];
             409: components["responses"]["ErrorReply"];

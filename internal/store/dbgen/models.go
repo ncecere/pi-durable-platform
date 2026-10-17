@@ -13,9 +13,7 @@ import (
 
 type Agent struct {
 	ID              uuid.UUID
-	Kind            string
-	OwnerUserID     uuid.NullUUID
-	TeamID          uuid.NullUUID
+	TeamID          uuid.UUID
 	TemplateID      uuid.UUID
 	Name            string
 	Description     string

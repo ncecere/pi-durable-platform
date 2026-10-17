@@ -5,12 +5,14 @@ Status: **development spike**. Decisions here were made with the product owner o
 
 ## Goal
 
-An enterprise-style, self-hosted platform where teams and services deploy and manage
+An enterprise-style, self-hosted platform where teams deploy, test and manage
 [Pi Durable](https://github.com/earendil-works/pi/tree/main/packages/durable) agents, each in its own isolated runtime
-on Kubernetes. Examples:
+on Kubernetes. It is the **console and API**, not the end-user product: people use agents through the teams' own apps.
 
-- A chat application gives **every person who signs in their own assistant**: one durable agent per user.
-- A team deploys an agent from a template and reaches it through its own integration (API, service account).
+- A chat application (for example `pi-d-ui`) gives **every person who signs in to it their own assistant**: its
+  service account asks the platform for one agent per user (`PUT /v1/teams/{team}/agents/by-key/{userId}`) and relays
+  their chats through the platform API.
+- A team deploys an agent from a template, tests it in the console, and reaches it from its own integration.
 
 Later: teams build and upload their own agents (self-service). That requires stronger isolation first (below).
 
@@ -25,6 +27,9 @@ Later: teams build and upload their own agents (self-service). That requires str
 | 5 | **Single owner per agent** via a session advisory lock on the agent's only connection, never re-established. | A stale pod that loses its connection loses its ability to write at the same moment its lock is released. |
 | 6 | **One runtime per active agent; idle agents hibernate** (no pod, no connection). Requests wake them. | Thousands of per-user agents cannot all hold pods. |
 | 7 | Clients reach agents **only through the platform API**, which authenticates, authorizes and proxies. Runtimes require a per-agent bearer token. | One enforcement point; runtimes are never exposed. |
+| 11 | **Agents belong to teams.** The console is for service owners and platform admins; end users use the teams' apps. | Ownership, data and cost follow the team. |
+| 12 | **Service-managed agents** (created by a service account with its own key) hold the app's users' conversations: only the team's service accounts use them; owners and admins see and delete them, never read them. | End users' chats aren't readable by every team member. A future support-access feature must be explicit and audited. |
+| 13 | **Templates are the governance unit** (next): platform-curated catalog templates and team templates, versioned, agents pinned to a version, team templates published to the catalog with platform-admin approval. Org-wide agents are per-person instances of a template, not one shared agent. | One agent shares one store: shared agents would mix teams' data. |
 | 8 | Agents come from **admin-approved templates** first. Self-service upload is later and gated on sandboxed runtimes (gVisor/Kata). | Template code is trusted; uploaded code is not. |
 | 9 | Files and artifacts go to **object storage** with per-agent prefixes; working filesystems are ephemeral unless a template needs one. *(proposed, not built)* | Object storage isolates by prefix; NFS is unsuitable for workspaces. |
 | 10 | Model credentials are injected into runtimes by the platform; browsers never see them. | |
@@ -55,6 +60,8 @@ Browser / chat app / service ──► Platform (Go)
 
 ## Known limits and open items
 
+- Database roles are server-wide: agent roles outlive a dropped agents database (tests remove theirs);
+  `prune-agent-storage` only considers schemas in its own database.
 - **Advisory locks are database-wide**: any role in the agents database can take another agent's lock key and block
   it from starting. Acceptable for trusted templates; uploaded agents must not get direct database credentials (a
   storage proxy instead).

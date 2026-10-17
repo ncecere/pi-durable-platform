@@ -22,7 +22,6 @@ func (a *api) agentRoutes() []route {
 	return []route{
 		{"GET", "/v1/agent-templates", k(a.listAgentTemplates)},
 		{"GET", "/v1/agents", k(a.listAgents)},
-		{"POST", "/v1/me/assistant", k(a.ensureMyAssistant)},
 		{"GET", "/v1/teams/{team}/agents", k(a.listTeamAgents)},
 		{"POST", "/v1/teams/{team}/agents", k(a.createTeamAgent)},
 		{"PUT", "/v1/teams/{team}/agents/by-key/{externalKey}", k(a.ensureTeamAgentByKey)},
@@ -45,17 +44,12 @@ func toAPIAgentTemplate(t dbgen.AgentTemplate) apitypes.AgentTemplate {
 
 func toAPIAgent(v agents.View) apitypes.Agent {
 	ag := v.Agent
-	out := apitypes.Agent{
-		Id: ag.ID, Kind: apitypes.AgentKind(ag.Kind), Name: ag.Name, Description: ag.Description,
-		TeamSlug: v.TeamSlug, TeamName: v.TeamName, TemplateSlug: v.TemplateSlug, TemplateName: v.TemplateName,
+	return apitypes.Agent{
+		Id: ag.ID, Name: ag.Name, Description: ag.Description,
+		TeamId: ag.TeamID, TeamSlug: v.TeamSlug, TeamName: v.TeamName, TemplateSlug: v.TemplateSlug, TemplateName: v.TemplateName,
 		Enabled: ag.Enabled, Running: v.Running, LastUsedAt: ag.LastUsedAt, Revision: ag.Revision,
 		CreatedAt: ag.CreatedAt, UpdatedAt: ag.UpdatedAt, ExternalKey: ag.ExternalKey,
 	}
-	if ag.TeamID.Valid {
-		id := ag.TeamID.UUID
-		out.TeamId = &id
-	}
-	return out
 }
 
 func (a *api) writeAgent(w http.ResponseWriter, r *http.Request, status int, v agents.View, err error) {
@@ -70,18 +64,10 @@ func (a *api) listAgentTemplates(w http.ResponseWriter, r *http.Request) {
 	writeList(w, r, rows, err, toAPIAgentTemplate)
 }
 
+// listAgents reads ?includeManaged=true.
 func (a *api) listAgents(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.Agents.List(r.Context(), a.actor(r))
+	rows, err := a.Agents.List(r.Context(), a.actor(r), r.URL.Query().Get("includeManaged") == "true")
 	writeList(w, r, rows, err, toAPIAgent)
-}
-
-func (a *api) ensureMyAssistant(w http.ResponseWriter, r *http.Request) {
-	v, created, err := a.Agents.Personal(r.Context(), a.actor(r))
-	status := http.StatusOK
-	if created {
-		status = http.StatusCreated
-	}
-	a.writeAgent(w, r, status, v, err)
 }
 
 func (a *api) createTeamAgent(w http.ResponseWriter, r *http.Request) {

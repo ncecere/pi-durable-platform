@@ -9,24 +9,6 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
-// Defines values for AgentKind.
-const (
-	AgentKindPersonal AgentKind = "personal"
-	AgentKindTeam     AgentKind = "team"
-)
-
-// Valid indicates whether the value is a known member of the AgentKind enum.
-func (e AgentKind) Valid() bool {
-	switch e {
-	case AgentKindPersonal:
-		return true
-	case AgentKindTeam:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ApiKeyStatus.
 const (
 	ApiKeyStatusActive  ApiKeyStatus = "active"
@@ -360,23 +342,19 @@ type Agent struct {
 	// ExternalKey Set for service-managed agents (created by a service account with its own key)
 	ExternalKey *string            `json:"externalKey,omitempty"`
 	Id          openapi_types.UUID `json:"id"`
-	Kind        AgentKind          `json:"kind"`
 	LastUsedAt  *time.Time         `json:"lastUsedAt,omitempty"`
 	Name        string             `json:"name"`
 	Revision    int64              `json:"revision"`
 
 	// Running Whether its runtime is up now (it hibernates when idle and wakes on the next request)
-	Running      bool                `json:"running"`
-	TeamId       *openapi_types.UUID `json:"teamId,omitempty"`
-	TeamName     *string             `json:"teamName,omitempty"`
-	TeamSlug     *string             `json:"teamSlug,omitempty"`
-	TemplateName string              `json:"templateName"`
-	TemplateSlug string              `json:"templateSlug"`
-	UpdatedAt    time.Time           `json:"updatedAt"`
+	Running      bool               `json:"running"`
+	TeamId       openapi_types.UUID `json:"teamId"`
+	TeamName     string             `json:"teamName"`
+	TeamSlug     string             `json:"teamSlug"`
+	TemplateName string             `json:"templateName"`
+	TemplateSlug string             `json:"templateSlug"`
+	UpdatedAt    time.Time          `json:"updatedAt"`
 }
-
-// AgentKind defines model for Agent.Kind.
-type AgentKind string
 
 // AgentCreate defines model for AgentCreate.
 type AgentCreate struct {
@@ -1101,6 +1079,11 @@ type AdminListUsersParams struct {
 type AdminUpdateUserParams struct {
 	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
 	IfMatch IfMatchHeader `json:"If-Match"`
+}
+
+// ListAgentsParams defines parameters for ListAgents.
+type ListAgentsParams struct {
+	IncludeManaged *bool `form:"includeManaged,omitempty" json:"includeManaged,omitempty"`
 }
 
 // UpdateAgentParams defines parameters for UpdateAgent.

@@ -132,6 +132,55 @@ func (p *Provisioner) Delete(ctx context.Context, agentID string) error {
 	if err != nil {
 		return err
 	}
+	return p.deleteName(ctx, name)
+}
+
+// Names lists the agent schemas in the agents database. Roles are
+// server-wide (shared by every database on the server), so they are never
+// listed on their own: a role is only removed with its schema.
+func (p *Provisioner) Names(ctx context.Context) ([]string, error) {
+	rows, err := p.admin.Query(ctx, `SELECT nspname FROM pg_namespace WHERE nspname LIKE 'agent\_%' ORDER BY 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		if namePattern.MatchString(n) {
+			out = append(out, n)
+		}
+	}
+	return out, rows.Err()
+}
+
+// DeleteAll removes every agent's schema and role in the agents database.
+// For tests that drop the database afterwards: roles outlive databases.
+func (p *Provisioner) DeleteAll(ctx context.Context) error {
+	names, err := p.Names(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range names {
+		if err := p.deleteName(ctx, n); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DeleteName removes an agent schema and role by name (see Names).
+func (p *Provisioner) DeleteName(ctx context.Context, name string) error {
+	if !namePattern.MatchString(name) {
+		return fmt.Errorf("%q is not an agent storage name", name)
+	}
+	return p.deleteName(ctx, name)
+}
+
+func (p *Provisioner) deleteName(ctx context.Context, name string) error {
 	if _, err := p.admin.Exec(ctx, "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = $1", name); err != nil {
 		return err
 	}

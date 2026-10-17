@@ -2,53 +2,44 @@ package authz
 
 import "github.com/ncecere/pi-durable-platform/internal/apperr"
 
-// Rules of agents.
+// Rules of agents. Every agent belongs to a team.
 //
-//   - A personal agent (a person's assistant) is used and managed only by its
-//     owner. Platform admins and auditors cannot read its conversations; a
-//     platform admin can turn it off or delete it. Service accounts never
-//     reach personal agents.
-//   - A team agent is used by the team's members and service accounts.
-//     Editors and above (people or editor service accounts) create and change
-//     team agents; owners and admins delete them.
-//   - A service-managed team agent (created by a service account with its own
-//     key, such as one per user of a chat app) holds conversations of people
-//     outside the platform: only the team's service accounts use it. Editor
-//     service accounts change it; they, the team's owners and admins, and
-//     platform admins delete it.
-//
-// Admin roles never imply access to conversations.
-
-// Agent kinds.
-const (
-	AgentPersonal = "personal"
-	AgentTeam     = "team"
-)
+//   - The team's members and service accounts use its agents (talk to them,
+//     read and test their conversations). Editors and above (people or
+//     editor service accounts) create and change agents; owners and admins
+//     delete them.
+//   - A service-managed agent (created by a service account with its own
+//     key, such as one per user of a chat app) holds conversations of the
+//     service's users: only the team's service accounts use it. The team's
+//     owners and admins see that it exists and can delete it; editor service
+//     accounts change and delete it.
+//   - Platform admins may delete any agent. Platform roles never grant
+//     access to conversations.
 
 var errAgentNotFound = apperr.NotFound("agent_not_found", "Agent not found")
 
 // AgentSubject is an agent as seen by an actor.
 type AgentSubject struct {
-	Kind           string
-	IsOwner        bool   // personal: the actor owns it
-	Role           string // team: the actor's team role ("" when not on the team)
+	Role           string // the actor's role in the agent's team ("" when not on it)
 	IsService      bool   // the actor is a service account
-	ServiceManaged bool   // team: the agent is service-managed
+	ServiceManaged bool   // the agent is service-managed
+}
+
+// CheckAgentSee decides whether the actor may see the agent's settings and
+// status (not its conversations). Not allowed reads as not found.
+func CheckAgentSee(s AgentSubject) error {
+	if CheckAgentUse(s) == nil || (s.ServiceManaged && !s.IsService && RoleAtLeast(s.Role, RoleAdmin)) {
+		return nil
+	}
+	return errAgentNotFound
 }
 
 // CheckAgentUse decides whether the actor may talk to the agent and read its
 // conversations. Not allowed reads as not found, so an agent's existence is
 // not revealed.
 func CheckAgentUse(s AgentSubject) error {
-	switch s.Kind {
-	case AgentPersonal:
-		if s.IsOwner && !s.IsService {
-			return nil
-		}
-	case AgentTeam:
-		if RoleAtLeast(s.Role, RoleMember) && (!s.ServiceManaged || s.IsService) {
-			return nil
-		}
+	if RoleAtLeast(s.Role, RoleMember) && (!s.ServiceManaged || s.IsService) {
+		return nil
 	}
 	return errAgentNotFound
 }
@@ -58,7 +49,7 @@ func CheckAgentEdit(s AgentSubject) error {
 	if err := CheckAgentUse(s); err != nil {
 		return err
 	}
-	if s.Kind == AgentTeam && !RoleAtLeast(s.Role, RoleEditor) {
+	if !RoleAtLeast(s.Role, RoleEditor) {
 		return apperr.Forbidden("Only team editors, admins and owners can change the team's agents")
 	}
 	return nil
@@ -70,21 +61,16 @@ func CheckAgentDelete(s AgentSubject, platformAdmin bool) error {
 	if platformAdmin {
 		return nil
 	}
-	if s.Kind == AgentTeam && s.ServiceManaged && !s.IsService && RoleAtLeast(s.Role, RoleAdmin) {
-		return nil // team owners and admins clean up service-managed agents
-	}
-	if err := CheckAgentUse(s); err != nil {
+	if err := CheckAgentSee(s); err != nil {
 		return err
 	}
-	if s.Kind == AgentTeam {
-		if s.ServiceManaged && s.IsService && RoleAtLeast(s.Role, RoleEditor) {
-			return nil
-		}
-		if !RoleAtLeast(s.Role, RoleAdmin) {
-			return apperr.Forbidden("Only team owners and admins can delete the team's agents")
-		}
+	switch {
+	case !s.IsService && RoleAtLeast(s.Role, RoleAdmin):
+		return nil
+	case s.ServiceManaged && s.IsService && RoleAtLeast(s.Role, RoleEditor):
+		return nil
 	}
-	return nil
+	return apperr.Forbidden("Only team owners and admins can delete the team's agents")
 }
 
 // CheckTeamAgentCreate decides whether a team member (or service account)
