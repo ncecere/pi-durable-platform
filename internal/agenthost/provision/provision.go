@@ -101,21 +101,28 @@ func (p *Provisioner) Create(ctx context.Context, agentID string) (Credentials, 
 	if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)", name).Scan(&exists); err != nil {
 		return Credentials{}, err
 	}
-	verb := "CREATE"
-	if exists {
-		verb = "ALTER"
-	}
 	// Identifiers and the password literal are quoted by the server (format %I/%L),
 	// since DDL cannot take bind parameters. Two connections: the runtime holds
-	// one; a replacement may briefly connect while the old one is closing.
+	// one; a replacement may briefly connect while the old one is closing. An
+	// existing role only gets a new password (a CREATEROLE role may not
+	// restate attributes it doesn't hold itself, such as NOCREATEDB).
+	statement := "CREATE ROLE %I LOGIN NOINHERIT NOCREATEDB NOCREATEROLE CONNECTION LIMIT 2 PASSWORD %L"
+	if exists {
+		statement = "ALTER ROLE %I PASSWORD %L"
+	}
 	var ddl string
-	if err := tx.QueryRow(ctx,
-		"SELECT format('"+verb+" ROLE %I LOGIN NOINHERIT NOCREATEDB NOCREATEROLE CONNECTION LIMIT 2 PASSWORD %L', $1::text, $2::text)",
-		name, password).Scan(&ddl); err != nil {
+	if err := tx.QueryRow(ctx, "SELECT format($3::text, $1::text, $2::text)", name, password, statement).Scan(&ddl); err != nil {
 		return Credentials{}, err
 	}
 	if _, err := tx.Exec(ctx, ddl); err != nil {
 		return Credentials{}, fmt.Errorf("agent role: %w", err)
+	}
+	// A CREATEROLE role (not a superuser) gets only the ADMIN option on roles
+	// it creates (PostgreSQL 16+). Membership with SET lets it create the
+	// agent's schema owned by the role; INHERIT lets it end the agent's
+	// sessions (Evict, Delete).
+	if _, err := tx.Exec(ctx, fmt.Sprintf("GRANT %s TO CURRENT_USER WITH INHERIT TRUE, SET TRUE", quoteIdent(name))); err != nil {
+		return Credentials{}, fmt.Errorf("agent role membership: %w", err)
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s AUTHORIZATION %s", quoteIdent(name), quoteIdent(name))); err != nil {
 		return Credentials{}, fmt.Errorf("agent schema: %w", err)
