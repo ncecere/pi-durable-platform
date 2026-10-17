@@ -1,0 +1,22 @@
+# Development dependencies only. Ports bind to loopback; never expose these.
+# `make deps-up` starts Postgres; it restarts with Docker (restart:
+# unless-stopped) until `make deps-down`. Integration tests create their own
+# databases on this server (never in database pdp).
+name: pi-durable-platform
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: pdp
+      POSTGRES_PASSWORD: pdp-local-only
+      POSTGRES_DB: pdp
+    ports: ["127.0.0.1:55432:5432"]
+    volumes: [postgres:/var/lib/postgresql/data]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdp -d pdp"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+volumes:
+  postgres: {}
