@@ -1,0 +1,9 @@
+allowBuilds:
+  esbuild: true
+  '@google/genai': false
+  protobufjs: false
+minimumReleaseAgeExclude:
+  - '@earendil-works/chord@1.3.0'
+  - '@earendil-works/pi-ai@1.3.0'
+  - '@earendil-works/pi-codemode@1.3.0'
+  - '@earendil-works/pi-durable@1.3.0'
