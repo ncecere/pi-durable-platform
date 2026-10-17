@@ -2,6 +2,7 @@ package launcher
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -89,6 +90,7 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"sandbox":    map[string]any{"name": "pool-abc12", "podIPs": []string{"127.0.0.1"}},
 			}
 		}
+		storeSecretData(resource, body)
 		f.objects[resource+"/"+name] = body
 		w.WriteHeader(http.StatusCreated)
 	case r.Method == http.MethodPut:
@@ -96,6 +98,7 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		storeSecretData(resource, body)
 		f.objects[key] = body
 	case r.Method == http.MethodPatch:
 		f.patches = append(f.patches, r.Header.Get("Content-Type"))
@@ -117,6 +120,18 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		delete(f.objects, key)
 	}
+}
+
+// storeSecretData turns a Secret's stringData into data, as the API server does.
+func storeSecretData(resource string, body map[string]any) {
+	if resource != "secrets" || body["stringData"] == nil {
+		return
+	}
+	data := map[string]any{}
+	for k, v := range body["stringData"].(map[string]any) {
+		data[k] = base64.StdEncoding.EncodeToString([]byte(v.(string)))
+	}
+	body["data"] = data
 }
 
 func readyStatus() map[string]any {
@@ -186,7 +201,7 @@ func newTestSandbox(t *testing.T, warmPool string, runtime http.Handler) (*Agent
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		api: srv.URL, tokenFile: tokenFile, client: srv.Client(), port: port, locks: map[string]*sync.Mutex{},
 	}
-	return NewAgentSandbox(k, warmPool, "activation-token-0123456789-0123456789"), api
+	return NewAgentSandbox(k, warmPool, "activation-token-0123456789-0123456789", ""), api
 }
 
 func testSpec() Spec {
@@ -272,6 +287,37 @@ func TestAgentSandboxWarmPoolRefusesAnotherAgentsRuntime(t *testing.T) {
 	s, _ := newTestSandbox(t, "pdp-runtimes", rt)
 	if _, err := s.Ensure(context.Background(), testSpec()); err == nil || !strings.Contains(err.Error(), "another agent") {
 		t.Fatalf("Ensure = %v, want a refusal", err)
+	}
+}
+
+func TestAgentSandboxActivationSecret(t *testing.T) {
+	rt := &fakeRuntime{}
+	s, api := newTestSandbox(t, "pdp-runtimes", rt)
+	s.ActivationToken, s.ActivationSecret = "", "pdp-runtime-activation"
+	ctx := context.Background()
+
+	if err := s.Prepare(ctx); err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	secret := api.get("secrets/pdp-runtime-activation")
+	if secret == nil {
+		t.Fatal("Prepare did not create the activation Secret")
+	}
+	raw, _ := base64.StdEncoding.DecodeString(secret["data"].(map[string]any)[activationKey].(string))
+	if len(raw) != 64 {
+		t.Fatalf("generated token length = %d", len(raw))
+	}
+	if err := s.Prepare(ctx); err != nil { // idempotent: reads the existing Secret
+		t.Fatalf("second Prepare: %v", err)
+	}
+	if got := api.get("secrets/pdp-runtime-activation")["data"].(map[string]any)[activationKey]; got != secret["data"].(map[string]any)[activationKey] {
+		t.Fatal("Prepare replaced an existing token")
+	}
+	if _, err := s.Ensure(ctx, testSpec()); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if rt.auth[0] != "Bearer "+string(raw) {
+		t.Fatal("activation did not use the Secret's token")
 	}
 }
 

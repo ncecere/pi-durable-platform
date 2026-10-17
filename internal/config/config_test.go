@@ -137,7 +137,11 @@ func TestValidate(t *testing.T) {
 		{"warm pool needs activation token", func(c *Config) {
 			c.AppURL, c.DevAuth, c.Agents.Launcher, c.Agents.SandboxWarmPool = "http://localhost:8098", true, LauncherAgentSandbox, "pool"
 			c.Agents.SandboxActivationToken = "short"
-		}, "serve", "AGENTS_SANDBOX_ACTIVATION_TOKEN"},
+		}, "serve", "AGENTS_SANDBOX_ACTIVATION_SECRET"},
+		{"warm pool with activation secret", func(c *Config) {
+			c.AppURL, c.DevAuth, c.Agents.Launcher, c.Agents.SandboxWarmPool = "http://localhost:8098", true, LauncherAgentSandbox, "pool"
+			c.Agents.SandboxActivationSecret = "pdp-runtime-activation"
+		}, "serve", ""},
 		{"warm pool", func(c *Config) {
 			c.AppURL, c.DevAuth, c.Agents.Launcher, c.Agents.SandboxWarmPool = "http://localhost:8098", true, LauncherAgentSandbox, "pool"
 			c.Agents.SandboxActivationToken = strings.Repeat("x", 32)

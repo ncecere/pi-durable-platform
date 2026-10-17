@@ -3,12 +3,16 @@ package launcher
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 )
 
@@ -34,11 +38,22 @@ type AgentSandbox struct {
 	*Kubernetes
 	// WarmPool names the SandboxWarmPool to claim runtimes from.
 	WarmPool string
-	// ActivationToken is the pool's RUNTIME_ACTIVATION_TOKEN.
-	ActivationToken string
+	// ActivationToken is the pool's RUNTIME_ACTIVATION_TOKEN. When empty, it
+	// is read from ActivationSecret (key RUNTIME_ACTIVATION_TOKEN) in
+	// Namespace, which is created with a random token if missing; the pool's
+	// pods take it from the same Secret.
+	ActivationToken  string
+	ActivationSecret string
 
 	http *http.Client
+
+	tokenMu     sync.Mutex
+	cachedToken string
+	cachedAt    time.Time
 }
+
+// activationKey is the key in ActivationSecret, and the runtime's variable.
+const activationKey = "RUNTIME_ACTIVATION_TOKEN"
 
 const (
 	sandboxGroup   = "agents.x-k8s.io"
@@ -48,8 +63,66 @@ const (
 
 // NewAgentSandbox builds the backend from the pod's service-account
 // credentials. warmPool and activationToken select warm mode.
-func NewAgentSandbox(k *Kubernetes, warmPool, activationToken string) *AgentSandbox {
-	return &AgentSandbox{Kubernetes: k, WarmPool: warmPool, ActivationToken: activationToken, http: &http.Client{Timeout: 30 * time.Second}}
+func NewAgentSandbox(k *Kubernetes, warmPool, activationToken, activationSecret string) *AgentSandbox {
+	return &AgentSandbox{
+		Kubernetes: k, WarmPool: warmPool, ActivationToken: activationToken, ActivationSecret: activationSecret,
+		http: &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
+// Prepare creates the activation Secret if it is missing, so the pool's pods
+// can start before the first agent wakes. Warm mode only.
+func (s *AgentSandbox) Prepare(ctx context.Context) error {
+	if s.WarmPool == "" || s.ActivationToken != "" {
+		return nil
+	}
+	_, err := s.activationToken(ctx, false)
+	return err
+}
+
+// activationToken returns the pool's token, re-reading the Secret at most
+// once a minute (or now, when refresh is set: the runtime refused the token).
+func (s *AgentSandbox) activationToken(ctx context.Context, refresh bool) (string, error) {
+	if s.ActivationToken != "" {
+		return s.ActivationToken, nil
+	}
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
+	if !refresh && s.cachedToken != "" && time.Since(s.cachedAt) < time.Minute {
+		return s.cachedToken, nil
+	}
+	var secret struct {
+		Data map[string]string `json:"data"`
+	}
+	err := s.do(ctx, http.MethodGet, s.path("secrets", s.ActivationSecret), nil, &secret)
+	if errors.Is(err, errNotFound) {
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			return "", err
+		}
+		token := hex.EncodeToString(b)
+		err = s.do(ctx, http.MethodPost, s.path("secrets", ""), map[string]any{
+			"apiVersion": "v1", "kind": "Secret",
+			"metadata": map[string]any{"name": s.ActivationSecret, "labels": map[string]string{managedLabel: managedBy}},
+			"type":     "Opaque", "stringData": map[string]string{activationKey: token},
+		}, nil)
+		if errors.Is(err, errConflict) {
+			// Created concurrently: read it.
+			err = s.do(ctx, http.MethodGet, s.path("secrets", s.ActivationSecret), nil, &secret)
+		} else if err == nil {
+			s.Log.Info("created the warm pool's activation secret", "secret", s.ActivationSecret)
+			secret.Data = map[string]string{activationKey: base64.StdEncoding.EncodeToString([]byte(token))}
+		}
+	}
+	if err != nil {
+		return "", fmt.Errorf("activation secret %s: %w", s.ActivationSecret, err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(secret.Data[activationKey])
+	if err != nil || len(raw) < 32 {
+		return "", fmt.Errorf("activation secret %s: %s must be at least 32 characters", s.ActivationSecret, activationKey)
+	}
+	s.cachedToken, s.cachedAt = string(raw), time.Now()
+	return s.cachedToken, nil
 }
 
 func (s *AgentSandbox) Kind() string {
@@ -279,7 +352,11 @@ func (s *AgentSandbox) activate(ctx context.Context, base string, spec Spec) err
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+s.ActivationToken)
+	token, err := s.activationToken(ctx, false)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := s.http.Do(req)
 	if err != nil {
@@ -294,6 +371,12 @@ func (s *AgentSandbox) activate(ctx context.Context, base string, spec Spec) err
 	switch {
 	case resp.StatusCode == http.StatusOK:
 		return nil
+	case resp.StatusCode == http.StatusUnauthorized:
+		// The Secret may have been rotated: re-read it before the next try.
+		// Runtimes started with the old token must be replaced (delete the
+		// pool's unclaimed sandboxes).
+		_, _ = s.activationToken(ctx, true)
+		return errors.New("the claimed runtime refused the activation token")
 	case out.Error.Code == "owned_elsewhere":
 		return ErrOwnedElsewhere
 	case resp.StatusCode == http.StatusConflict:

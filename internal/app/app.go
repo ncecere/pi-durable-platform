@@ -310,7 +310,14 @@ func newAgents(cfg config.Config, pool *pgxpool.Pool, box *secrets.Box, log *slo
 			return nil, err
 		}
 		k.RuntimeClassName, k.ImagePullSecret = cfg.Agents.RuntimeClass, cfg.Agents.ImagePullSecret
-		l = launcher.NewAgentSandbox(k, cfg.Agents.SandboxWarmPool, cfg.Agents.SandboxActivationToken)
+		s := launcher.NewAgentSandbox(k, cfg.Agents.SandboxWarmPool, cfg.Agents.SandboxActivationToken, cfg.Agents.SandboxActivationSecret)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		if err := s.Prepare(ctx); err != nil {
+			// Not fatal: activation retries it when an agent wakes.
+			log.Warn("prepare the warm pool's activation secret", "err", err)
+		}
+		cancel()
+		l = s
 	default:
 		dir, err := filepath.Abs(cfg.Agents.RuntimeDir)
 		if err != nil {

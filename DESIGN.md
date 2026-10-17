@@ -66,8 +66,11 @@ agent is stored in Kubernetes, and the pool refills after each claim, so a wake 
 start-up. While the previous runtime is still releasing the agent, activation answers `409 owned_elsewhere` and the
 platform retries. A runtime that restarts comes back in standby and is activated again on the next request.
 
-The activation token reaches only the platform and the pool's pods; agent pods take traffic from the platform alone,
-so one agent cannot activate another runtime.
+The activation token is in a Secret in the agents namespace (`AGENTS_SANDBOX_ACTIVATION_SECRET`; the platform creates
+it with a random token if missing, and the pool's pods read it), or given to the platform directly
+(`AGENTS_SANDBOX_ACTIVATION_TOKEN`). It reaches only the platform and the pool's pods; agent pods take traffic from the
+platform alone, so one agent cannot activate another runtime. To rotate it, delete the Secret and the pool's unclaimed
+sandboxes.
 
 ## Verified so far
 

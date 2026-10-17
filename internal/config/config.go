@@ -102,11 +102,13 @@ type Agents struct {
 	RuntimeClass    string
 	ImagePullSecret string
 	// Agent Sandbox launcher: claim runtimes from this SandboxWarmPool (in
-	// Namespace) and activate them with this token (the pool's
-	// RUNTIME_ACTIVATION_TOKEN). Without a pool, each agent is its own Sandbox.
-	SandboxWarmPool        string
-	SandboxActivationToken string
-	IdleTimeout            time.Duration
+	// Namespace) and activate them with the pool's RUNTIME_ACTIVATION_TOKEN:
+	// given here, or kept in a Secret in Namespace that the platform creates
+	// if missing. Without a pool, each agent is its own Sandbox.
+	SandboxWarmPool         string
+	SandboxActivationToken  string
+	SandboxActivationSecret string
+	IdleTimeout             time.Duration
 	// Model every agent uses: demo (scripted, no key) or openai-compatible.
 	ModelProvider  string
 	ModelBaseURL   string

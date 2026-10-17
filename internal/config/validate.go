@@ -53,8 +53,14 @@ func (c Config) validateAgents() []error {
 		if a.SandboxWarmPool == "" && a.Image == "" {
 			errs = append(errs, errors.New("AGENTS_LAUNCHER=agent-sandbox needs AGENTS_IMAGE (a Sandbox per agent) or AGENTS_SANDBOX_WARM_POOL (claims on a warm pool)"))
 		}
-		if a.SandboxWarmPool != "" && len(a.SandboxActivationToken) < 32 {
-			errs = append(errs, errors.New("AGENTS_SANDBOX_WARM_POOL needs AGENTS_SANDBOX_ACTIVATION_TOKEN (at least 32 characters), the pool's RUNTIME_ACTIVATION_TOKEN"))
+		switch {
+		case a.SandboxWarmPool == "":
+		case a.SandboxActivationToken != "" && a.SandboxActivationSecret != "":
+			errs = append(errs, errors.New("set AGENTS_SANDBOX_ACTIVATION_TOKEN or AGENTS_SANDBOX_ACTIVATION_SECRET, not both"))
+		case a.SandboxActivationSecret != "":
+		case len(a.SandboxActivationToken) < 32:
+			errs = append(errs, errors.New("AGENTS_SANDBOX_WARM_POOL needs the pool's RUNTIME_ACTIVATION_TOKEN: AGENTS_SANDBOX_ACTIVATION_SECRET "+
+				"(a Secret the platform keeps it in) or AGENTS_SANDBOX_ACTIVATION_TOKEN (at least 32 characters)"))
 		}
 	default:
 		errs = append(errs, errors.New("AGENTS_LAUNCHER must be local, kubernetes or agent-sandbox"))
