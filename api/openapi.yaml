@@ -20,6 +20,8 @@ tags:
   description: Personal API keys for scripts and tools
 - name: service-accounts
   description: Team-owned identities for services, agents, CI and scripts
+- name: agents
+  description: Durable Pi agents, their conversations (threads) and templates
 paths:
   /healthz:
     get:
@@ -1071,6 +1073,405 @@ paths:
           $ref: '#/components/responses/ErrorReply'
         '403':
           $ref: '#/components/responses/ErrorReply'
+  /v1/agent-templates:
+    get:
+      tags:
+      - agents
+      operationId: listAgentTemplates
+      summary: Templates agents can be made from (anyone signed in)
+      responses:
+        '200':
+          description: Templates ordered by name
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AgentTemplate'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/agents:
+    get:
+      tags:
+      - agents
+      operationId: listAgents
+      summary: Agents the caller may use (their assistant and their teams' agents)
+      responses:
+        '200':
+          description: The assistant first, then team agents by team and name
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Agent'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/me/assistant:
+    post:
+      tags:
+      - agents
+      operationId: ensureMyAssistant
+      summary: The caller's personal assistant, created from the default template on first use
+      description: Idempotent; concurrent calls create one assistant. 201 when it was created.
+      responses:
+        '200':
+          description: The existing assistant
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Agent'
+        '201':
+          description: Created
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Agent'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/agents:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    post:
+      tags:
+      - agents
+      operationId: createTeamAgent
+      summary: Create a team agent from a template (team editors and above)
+      description: 409 name_taken (names are unique within the team, ignoring case); 409 team_archived; 404 template_not_found. At most 50 per team.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentCreate'
+      responses:
+        '201':
+          description: Created
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/agents/{agentId}:
+    parameters:
+    - $ref: '#/components/parameters/AgentIdParam'
+    get:
+      tags:
+      - agents
+      operationId: getAgent
+      summary: An agent the caller may use
+      responses:
+        '200':
+          description: The agent
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Agent'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    patch:
+      tags:
+      - agents
+      operationId: updateAgent
+      summary: Rename, describe, or turn an agent on or off (its owner; team editors and above)
+      description: Turning an agent off hibernates it and refuses new work; its conversations are kept.
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentUpdate'
+      responses:
+        '200':
+          description: Updated
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
+          $ref: '#/components/responses/ErrorReply'
+    delete:
+      tags:
+      - agents
+      operationId: deleteAgent
+      summary: Delete an agent and all its conversations (its owner; team owners and admins; platform admins)
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Ok'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/agents/{agentId}/hibernate:
+    parameters:
+    - $ref: '#/components/parameters/AgentIdParam'
+    post:
+      tags:
+      - agents
+      operationId: hibernateAgent
+      summary: Stop the agent's runtime now; the next request wakes it
+      responses:
+        '200':
+          description: Hibernated
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Ok'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/agents/{agentId}/threads:
+    parameters:
+    - $ref: '#/components/parameters/AgentIdParam'
+    get:
+      tags:
+      - agents
+      operationId: listAgentThreads
+      summary: The agent's conversations, most recently used first (wakes the agent)
+      responses:
+        '200':
+          description: Threads
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AgentThread'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '503':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/agents/{agentId}/threads/{threadId}:
+    parameters:
+    - $ref: '#/components/parameters/AgentIdParam'
+    - $ref: '#/components/parameters/ThreadIdParam'
+    get:
+      tags:
+      - agents
+      operationId: getAgentThread
+      summary: A conversation's transcript and the reply in progress
+      responses:
+        '200':
+          description: The conversation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ChatView'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '503':
+          $ref: '#/components/responses/ErrorReply'
+    delete:
+      tags:
+      - agents
+      operationId: deleteAgentThread
+      summary: Stop and remove a conversation from the agent's list
+      responses:
+        '200':
+          description: Removed
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Ok'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '503':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/agents/{agentId}/threads/{threadId}/messages:
+    parameters:
+    - $ref: '#/components/parameters/AgentIdParam'
+    - $ref: '#/components/parameters/ThreadIdParam'
+    post:
+      tags:
+      - agents
+      operationId: sendAgentMessage
+      summary: Send a message (creates the thread on first use)
+      description: Accepted, not answered; follow the thread's events for the reply. While the agent is busy the message runs after the current reply. A repeated requestId is not submitted twice.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentMessageCreate'
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgentMessageAccepted'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '503':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/agents/{agentId}/threads/{threadId}/stop:
+    parameters:
+    - $ref: '#/components/parameters/AgentIdParam'
+    - $ref: '#/components/parameters/ThreadIdParam'
+    post:
+      tags:
+      - agents
+      operationId: stopAgentThread
+      summary: Stop the reply in progress
+      responses:
+        '202':
+          description: Stopped
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Ok'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '503':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/agents/{agentId}/threads/{threadId}/events:
+    parameters:
+    - $ref: '#/components/parameters/AgentIdParam'
+    - $ref: '#/components/parameters/ThreadIdParam'
+    get:
+      tags:
+      - agents
+      operationId: streamAgentThread
+      summary: Server-sent events with the conversation's view after every change
+      description: Each `view` event's data is a ChatView (JSON). The stream keeps the agent awake while open.
+      parameters:
+      - name: once
+        in: query
+        description: Send the current view as one event, then end the stream
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: An event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '503':
+          $ref: '#/components/responses/ErrorReply'
 components:
   headers:
     ETag:
@@ -1078,6 +1479,21 @@ components:
       schema:
         type: string
   parameters:
+    AgentIdParam:
+      name: agentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ThreadIdParam:
+      name: threadId
+      in: path
+      required: true
+      description: Client-chosen thread ID (1-64 letters, digits, dashes or underscores)
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_-]{1,64}$'
     AuditActionParam:
       name: action
       in: query
@@ -1233,6 +1649,197 @@ components:
               data:
                 $ref: '#/components/schemas/Ok'
   schemas:
+    AgentTemplate:
+      type: object
+      required: [id, slug, name, description]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+          example: assistant
+        name:
+          type: string
+        description:
+          type: string
+    Agent:
+      type: object
+      required: [id, kind, name, description, templateSlug, templateName, enabled, running, revision, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [personal, team]
+        name:
+          type: string
+        description:
+          type: string
+        teamId:
+          type: string
+          format: uuid
+          nullable: true
+        teamSlug:
+          type: string
+          nullable: true
+        teamName:
+          type: string
+          nullable: true
+        templateSlug:
+          type: string
+        templateName:
+          type: string
+        enabled:
+          type: boolean
+        running:
+          type: boolean
+          description: Whether its runtime is up now (it hibernates when idle and wakes on the next request)
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        revision:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AgentCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 2000
+        template:
+          type: string
+          description: Template slug (default assistant)
+    AgentUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 2000
+        enabled:
+          type: boolean
+    AgentThread:
+      type: object
+      required: [threadId, title, createdAt, updatedAt]
+      properties:
+        threadId:
+          type: string
+        title:
+          type: string
+        createdAt:
+          type: integer
+          format: int64
+          description: Unix milliseconds
+        updatedAt:
+          type: integer
+          format: int64
+          description: Unix milliseconds
+    AgentMessageCreate:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          maxLength: 32000
+        requestId:
+          type: string
+          description: Idempotency key; a repeated one is not submitted again
+          pattern: '^[A-Za-z0-9_-]{1,64}$'
+    AgentMessageAccepted:
+      type: object
+      required: [submissionId]
+      properties:
+        submissionId:
+          type: integer
+          format: int64
+    ChatToolCall:
+      type: object
+      required: [id, name, arguments]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        arguments:
+          type: object
+          additionalProperties: true
+    ChatMessage:
+      type: object
+      required: [id, role]
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant, tool]
+        text:
+          type: string
+        thinking:
+          type: string
+        toolCalls:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatToolCall'
+        error:
+          type: string
+          description: An assistant reply that failed or was interrupted
+        toolCallId:
+          type: string
+        name:
+          type: string
+          description: Tool name (tool results)
+        isError:
+          type: boolean
+    ChatToolSlot:
+      type: object
+      required: [callId, name, status]
+      properties:
+        callId:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        output:
+          type: string
+    ChatView:
+      type: object
+      required: [busy, messages, tools]
+      properties:
+        busy:
+          type: boolean
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        partial:
+          type: object
+          required: [text, thinking]
+          description: The assistant reply being generated
+          properties:
+            text:
+              type: string
+            thinking:
+              type: string
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatToolSlot'
     AuditActor:
       type: object
       description: Who made the change, resolved when the log is read

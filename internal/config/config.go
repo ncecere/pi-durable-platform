@@ -63,6 +63,47 @@ type Config struct {
 	LoginAttemptsPerMinute int
 	ShutdownDelay          time.Duration
 	ShutdownTimeout        time.Duration
+
+	// Agents configures where agents keep their state and how their
+	// runtimes are started.
+	Agents Agents
+}
+
+// Agent launchers.
+const (
+	LauncherLocal      = "local"      // child processes on this host (development)
+	LauncherKubernetes = "kubernetes" // one pod per agent
+)
+
+// Agents configures agent storage, runtimes and their model.
+type Agents struct {
+	// DatabaseURL connects to the agents database with a role that has
+	// CREATEROLE and CREATE on it. Each agent gets its own schema and role
+	// there; this role is never given to agents.
+	DatabaseURL string
+	// CreateDatabase creates the agents database through DATABASE_URL at
+	// start-up if it is missing (development).
+	CreateDatabase bool
+	// RuntimeDatabaseHost overrides host:port in the URLs given to agent
+	// runtimes, when they reach PostgreSQL differently from the platform.
+	RuntimeDatabaseHost string
+	Launcher            string
+	// RuntimeDir is the runtime package for the local launcher.
+	RuntimeDir string
+	// Kubernetes launcher: the namespace for agent pods (default: the
+	// platform's own), the runtime image, an optional sandboxing
+	// RuntimeClass and image pull Secret.
+	Namespace       string
+	Image           string
+	RuntimeClass    string
+	ImagePullSecret string
+	IdleTimeout     time.Duration
+	// Model every agent uses: demo (scripted, no key) or openai-compatible.
+	ModelProvider  string
+	ModelBaseURL   string
+	ModelAPIKey    string
+	ModelID        string
+	ModelReasoning bool
 }
 
 // Themes are the UI themes. Only the neutral theme ships; branding comes
@@ -120,6 +161,12 @@ func Defaults() Config {
 		LoginAttemptsPerMinute: 20,
 		ShutdownDelay:          5 * time.Second,
 		ShutdownTimeout:        60 * time.Second,
+		Agents: Agents{
+			Launcher:      LauncherLocal,
+			RuntimeDir:    "runtime",
+			IdleTimeout:   10 * time.Minute,
+			ModelProvider: "demo",
+		},
 	}
 }
 

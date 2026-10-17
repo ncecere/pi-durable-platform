@@ -73,6 +73,14 @@ func (c Config) SafetyErrors(mode string) []error {
 		errs = append(errs, errors.New("API_KEY_PEPPER is the public example value from .env.example, so stored API key digests "+
 			"could be checked offline. Generate a new one with `openssl rand -base64 32` (changing it invalidates existing API keys)"))
 	}
+	if c.Agents.Launcher == LauncherLocal {
+		errs = append(errs, errors.New("AGENTS_LAUNCHER=local requires a loopback APP_URL: it runs agents as unisolated processes "+
+			"on the platform host. Use AGENTS_LAUNCHER=kubernetes"))
+	}
+	if c.Agents.CreateDatabase {
+		errs = append(errs, errors.New("AGENTS_CREATE_DATABASE is for development and requires a loopback APP_URL: "+
+			"create the agents database and its provisioning role yourself"))
+	}
 	if c.DevAuth {
 		errs = append(errs, errors.New("DEV_AUTH requires a loopback APP_URL: it lets anyone sign in as a development persona. "+
 			"Set DEV_AUTH=false and configure OIDC_ISSUER; never enable it on a reachable host"))

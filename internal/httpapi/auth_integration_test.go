@@ -9,12 +9,15 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ncecere/pi-durable-platform/internal/agenthost/launcher"
+	"github.com/ncecere/pi-durable-platform/internal/agents"
 	"github.com/ncecere/pi-durable-platform/internal/app"
 	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi"
@@ -27,6 +30,8 @@ type testApp struct {
 	URL    string
 	Pool   *pgxpool.Pool
 	Client *http.Client
+	// Agents is the agents service (its runtimes run as local processes).
+	Agents *agents.Service
 }
 
 // Test keys (32 bytes, base64): the encryption key and the API key pepper.
@@ -67,6 +72,14 @@ func newTestAppDeps(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 	cfg.DatabaseURL = "unused"
 	cfg.EncryptionKey, cfg.APIKeyPepper = testEncryptionKey, testAPIKeyPepper
 	cfg.RequestsPerMinute, cfg.LoginAttemptsPerMinute = 100_000, 100_000
+	// Agents: their own database, and real runtimes from ../../runtime
+	// (needs `pnpm install` there) on the scripted demo model.
+	_, cfg.Agents.DatabaseURL = testutil.NewDB(t)
+	runtimeDir, err := filepath.Abs("../../runtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Agents.Launcher, cfg.Agents.RuntimeDir, cfg.Agents.ModelProvider = config.LauncherLocal, runtimeDir, "demo"
 	if mutate != nil {
 		mutate(&cfg)
 	}
@@ -77,6 +90,15 @@ func newTestAppDeps(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := deps.Agents.Prepare(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if l, ok := deps.Agents.Host().Launcher().(*launcher.Local); ok {
+			l.StopAll(context.Background())
+		}
+		deps.Agents.Close()
+	})
 	deps.Health = httpapi.NewHealth(map[string]func(context.Context) error{"postgres": pool.Ping})
 	deps.Web, deps.WebBuilt = testWeb, true
 	if hook != nil {
@@ -85,7 +107,7 @@ func newTestAppDeps(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 	handler = httpapi.NewAPIHandler(deps)
 
 	jar, _ := cookiejar.New(nil)
-	return &testApp{t: t, URL: srv.URL, Pool: pool, Client: &http.Client{Jar: jar}}
+	return &testApp{t: t, URL: srv.URL, Pool: pool, Client: &http.Client{Jar: jar}, Agents: deps.Agents}
 }
 
 func (a *testApp) do(method, path string, body any, headers map[string]string) (int, []byte) {

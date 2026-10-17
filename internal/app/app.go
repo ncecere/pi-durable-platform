@@ -8,10 +8,15 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ncecere/pi-durable-platform/internal/agenthost"
+	"github.com/ncecere/pi-durable-platform/internal/agenthost/launcher"
+	"github.com/ncecere/pi-durable-platform/internal/agents"
 	"github.com/ncecere/pi-durable-platform/internal/apikeys"
 	"github.com/ncecere/pi-durable-platform/internal/auth"
 	"github.com/ncecere/pi-durable-platform/internal/buildinfo"
@@ -69,11 +74,20 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 		return fmt.Errorf("the database is at migration %d but this binary needs %d: run `pi-durable-platform migrate` (or set MIGRATE_ON_START=true)", st.Current, st.Latest)
 	}
 
-	health := httpapi.NewHealth(map[string]func(context.Context) error{"postgres": pool.Ping})
+	if cfg.Agents.CreateDatabase {
+		if err := ensureAgentsDatabase(ctx, pool, cfg.Agents.DatabaseURL, log); err != nil {
+			return err
+		}
+	}
 	deps, err := NewDeps(cfg, pool, log)
 	if err != nil {
 		return err
 	}
+	defer deps.Agents.Close()
+	if err := deps.Agents.Prepare(ctx); err != nil {
+		return fmt.Errorf("agents database: %w", err)
+	}
+	health := httpapi.NewHealth(map[string]func(context.Context) error{"postgres": pool.Ping, "agents-postgres": deps.Agents.Ping})
 	deps.Health = health
 	deps.Web, deps.WebBuilt = web.Assets()
 	if !deps.WebBuilt {
@@ -92,11 +106,20 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	defer stopLoops()
 	go cleanupLoop(loopCtx, deps.Auth, log)
 	go rateCounterLoop(loopCtx, deps.RateStore, log)
+	go deps.Agents.Host().ReapLoop(loopCtx, 30*time.Second)
 	if err := serve(ctx, srv, log); err != nil {
 		return err
 	}
 	stopLoops()
-	return shutdown(cfg, log, health, srv)
+	err = shutdown(cfg, log, health, srv)
+	// Local runtimes are child processes: stop them gracefully with the
+	// platform. Kubernetes agents keep running and hibernate on their own.
+	if l, ok := deps.Agents.Host().Launcher().(*launcher.Local); ok {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		l.StopAll(stopCtx)
+		cancel()
+	}
+	return err
 }
 
 // keyPeppers are API_KEY_PEPPER and API_KEY_PEPPER_PREVIOUS, decoded.
@@ -158,6 +181,10 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (httpapi.D
 	}
 	authSvc := auth.NewService(cfg, pool, log)
 	authSvc.SetRateStore(rates)
+	agentSvc, err := newAgents(cfg, pool, box, log)
+	if err != nil {
+		return httpapi.Deps{}, err
+	}
 	return httpapi.Deps{
 		Config:          cfg,
 		Pool:            pool,
@@ -167,6 +194,7 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (httpapi.D
 		Platform:        platform.NewService(pool),
 		APIKeys:         keys,
 		ServiceAccounts: sas,
+		Agents:          agentSvc,
 		Secrets:         box,
 		RateStore:       rates,
 	}, nil
@@ -250,4 +278,60 @@ func shutdown(cfg config.Config, log *slog.Logger, health *httpapi.Health, serve
 		log.Info("shutdown complete")
 	}
 	return errors.Join(errs...)
+}
+
+// newAgents builds the agents service: a lazily connected pool on the agents
+// database, the provisioner, the configured launcher and the runtime manager.
+func newAgents(cfg config.Config, pool *pgxpool.Pool, box *secrets.Box, log *slog.Logger) (*agents.Service, error) {
+	pcfg, err := pgxpool.ParseConfig(cfg.Agents.DatabaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("AGENTS_DATABASE_URL: %w", err)
+	}
+	pcfg.MaxConns = 4
+	agentsPool, err := pgxpool.NewWithConfig(context.Background(), pcfg)
+	if err != nil {
+		return nil, fmt.Errorf("AGENTS_DATABASE_URL: %w", err)
+	}
+	var l launcher.Launcher
+	switch cfg.Agents.Launcher {
+	case config.LauncherKubernetes:
+		k, err := launcher.NewInCluster(cfg.Agents.Namespace, cfg.Agents.Image, log.With("component", "launcher"))
+		if err != nil {
+			agentsPool.Close()
+			return nil, err
+		}
+		k.RuntimeClassName, k.ImagePullSecret = cfg.Agents.RuntimeClass, cfg.Agents.ImagePullSecret
+		l = k
+	default:
+		dir, err := filepath.Abs(cfg.Agents.RuntimeDir)
+		if err != nil {
+			agentsPool.Close()
+			return nil, err
+		}
+		l = launcher.NewLocal(dir, log.With("component", "launcher"))
+	}
+	host := agenthost.New(l, cfg.Agents.IdleTimeout, log.With("component", "agenthost"))
+	return agents.New(pool, agentsPool, box, host, cfg.Agents), nil
+}
+
+// ensureAgentsDatabase creates the agents database through the platform's
+// connection if it is missing (AGENTS_CREATE_DATABASE, development only).
+func ensureAgentsDatabase(ctx context.Context, pool *pgxpool.Pool, agentsURL string, log *slog.Logger) error {
+	pcfg, err := pgxpool.ParseConfig(agentsURL)
+	if err != nil {
+		return fmt.Errorf("AGENTS_DATABASE_URL: %w", err)
+	}
+	name := pcfg.ConnConfig.Database
+	var exists bool
+	if err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)", name).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	if _, err := pool.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
+		return fmt.Errorf("create agents database %s: %w", name, err)
+	}
+	log.Info("created agents database", "database", name)
+	return nil
 }

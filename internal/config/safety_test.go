@@ -52,6 +52,8 @@ func TestSafetyChecks(t *testing.T) {
 		c.EncryptionKey, c.APIKeyPepper = testKey, testKey
 		c.AppURL = "https://agents.example.com"
 		c.OIDC.Issuer, c.OIDC.ClientID, c.OIDC.ClientSecret = "https://idp.example.com", "id", "secret"
+		c.Agents.DatabaseURL = "postgres://agents"
+		c.Agents.Launcher, c.Agents.Image = LauncherKubernetes, "registry.example.com/pdp-runtime:1"
 		return c
 	}
 	cases := []struct {
@@ -61,6 +63,10 @@ func TestSafetyChecks(t *testing.T) {
 		want   []string // substrings; none means valid
 	}{
 		{"production ok", func(*Config) {}, "serve", nil},
+		{"local launcher off loopback", func(c *Config) { c.Agents.Launcher = LauncherLocal }, "serve",
+			[]string{"AGENTS_LAUNCHER=local requires a loopback APP_URL"}},
+		{"creating the agents database off loopback", func(c *Config) { c.Agents.CreateDatabase = true }, "serve",
+			[]string{"AGENTS_CREATE_DATABASE is for development"}},
 		{"example encryption key", func(c *Config) { c.EncryptionKey = ex["ENCRYPTION_KEY"] }, "serve",
 			[]string{"ENCRYPTION_KEY is the public example value", "openssl rand -base64 32"}},
 		{"example key in another encoding", func(c *Config) { c.EncryptionKey = strings.TrimRight(ex["ENCRYPTION_KEY"], "=") }, "serve",

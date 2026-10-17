@@ -29,7 +29,39 @@ func (c Config) Validate(mode string) error {
 	errs = append(errs, c.validateSecrets()...)
 	errs = append(errs, c.Instance.validate()...)
 	errs = append(errs, c.validateWeb()...)
+	errs = append(errs, c.validateAgents()...)
 	return errors.Join(errs...)
+}
+
+// validateAgents checks agent storage, the launcher and the model.
+func (c Config) validateAgents() []error {
+	var errs []error
+	a := c.Agents
+	if a.DatabaseURL == "" {
+		errs = append(errs, errors.New("AGENTS_DATABASE_URL is required: a database for agent state, separate from DATABASE_URL's"))
+	}
+	switch a.Launcher {
+	case LauncherLocal:
+		if a.RuntimeDir == "" {
+			errs = append(errs, errors.New("AGENTS_RUNTIME_DIR is required with AGENTS_LAUNCHER=local"))
+		}
+	case LauncherKubernetes:
+		if a.Image == "" {
+			errs = append(errs, errors.New("AGENTS_IMAGE is required with AGENTS_LAUNCHER=kubernetes"))
+		}
+	default:
+		errs = append(errs, errors.New("AGENTS_LAUNCHER must be local or kubernetes"))
+	}
+	switch a.ModelProvider {
+	case "demo":
+	case "openai-compatible":
+		if a.ModelBaseURL == "" || a.ModelAPIKey == "" || a.ModelID == "" {
+			errs = append(errs, errors.New("AGENTS_MODEL_PROVIDER=openai-compatible needs AGENTS_MODEL_BASE_URL, AGENTS_MODEL_API_KEY and AGENTS_MODEL_ID"))
+		}
+	default:
+		errs = append(errs, errors.New("AGENTS_MODEL_PROVIDER must be demo or openai-compatible"))
+	}
+	return errs
 }
 
 // validateProcess checks what every long-running mode needs: logging.

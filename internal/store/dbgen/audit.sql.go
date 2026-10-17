@@ -88,6 +88,7 @@ CROSS JOIN LATERAL (
         WHEN 'team_invite' THEN (SELECT i.email::text FROM team_invites i WHERE i.id = ids.target_uuid)
         WHEN 'api_key' THEN (SELECT k.name FROM api_keys k WHERE k.id = ids.target_uuid)
         WHEN 'service_account' THEN (SELECT sa.name FROM service_accounts sa WHERE sa.id = ids.target_uuid)
+        WHEN 'agent' THEN (SELECT ag.name FROM agents ag WHERE ag.id = ids.target_uuid)
         WHEN 'service_account_key' THEN (SELECT sa.name || ' · ' || k.name FROM service_account_keys k
                                          JOIN service_accounts sa ON sa.id = k.service_account_id WHERE k.id = ids.target_uuid)
     END)::text AS label

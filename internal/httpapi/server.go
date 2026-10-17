@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ncecere/pi-durable-platform/internal/agents"
 	"github.com/ncecere/pi-durable-platform/internal/apikeys"
 	"github.com/ncecere/pi-durable-platform/internal/auth"
 	"github.com/ncecere/pi-durable-platform/internal/config"
@@ -37,6 +38,8 @@ type Deps struct {
 	APIKeys *apikeys.Service
 	// ServiceAccounts manages team service accounts and their keys.
 	ServiceAccounts *serviceaccounts.Service
+	// Agents manages agents and relays conversations to their runtimes.
+	Agents *agents.Service
 	// Secrets seals values stored in the database with ENCRYPTION_KEY
 	// (nil in tests that don't need it).
 	Secrets *secrets.Box
@@ -82,7 +85,7 @@ func apiRoutes(d Deps) []route {
 	routes := opsRoutes(d)
 	// Add a new area's route groups here (and its paths to api/openapi.yaml).
 	for _, group := range [][]route{a.authRoutes(), a.teamRoutes(), a.platformAdminRoutes(), a.apiKeyRoutes(),
-		a.serviceAccountRoutes(), a.serviceAccountAdminRoutes()} {
+		a.serviceAccountRoutes(), a.serviceAccountAdminRoutes(), a.agentRoutes()} {
 		routes = append(routes, group...)
 	}
 	return routes

@@ -185,4 +185,28 @@ var matrixPolicies = map[string]policy{
 		sa, key := c.serviceAccountKey()
 		return del(c.team("/service-accounts/" + sa + "/keys/" + key))
 	}},
+
+	// Agents. Everyone signed in has an assistant (theirs alone) and sees
+	// the templates. A team's agents and their conversations are its
+	// members' only: platform roles never reach them (admins may delete).
+	"listAgentTemplates": {own: signedIn, build: func(*mctx) request { return get("/v1/agent-templates") }},
+	"listAgents":         {own: signedIn, build: func(*mctx) request { return get("/v1/agents") }},
+	"ensureMyAssistant":  {own: signedIn, build: func(*mctx) request { return post("/v1/me/assistant", nil) }},
+	"createTeamAgent": {scope: scopeTeam, own: editors, build: func(c *mctx) request {
+		return post(c.team("/agents"), map[string]any{"name": fmt.Sprintf("new-agent-%d", c.e.next())})
+	}},
+	"getAgent": {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.agent("", false)) }},
+	"updateAgent": {scope: scopeTeam, own: editors, build: func(c *mctx) request {
+		return patch(c.agent("", true), map[string]any{"description": "updated by the matrix"}).h(rev1)
+	}},
+	"deleteAgent":       {scope: scopeTeam, own: admins | padmin, foreign: padmin, build: func(c *mctx) request { return del(c.agent("", true)) }},
+	"hibernateAgent":    {scope: scopeTeam, own: members, build: func(c *mctx) request { return post(c.agent("/hibernate", true), nil) }},
+	"listAgentThreads":  {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.agent("/threads", false)) }},
+	"getAgentThread":    {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.thread("", false)) }},
+	"deleteAgentThread": {scope: scopeTeam, own: members, build: func(c *mctx) request { return del(c.thread("", true)) }},
+	"sendAgentMessage": {scope: scopeTeam, own: members, build: func(c *mctx) request {
+		return post(c.thread("/messages", false), map[string]any{"text": "hello from the matrix"})
+	}},
+	"stopAgentThread":   {scope: scopeTeam, own: members, build: func(c *mctx) request { return post(c.thread("/stop", false), nil) }},
+	"streamAgentThread": {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.thread("/events?once=true", false)) }},
 }

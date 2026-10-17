@@ -11,6 +11,34 @@ import (
 	"github.com/google/uuid"
 )
 
+type Agent struct {
+	ID              uuid.UUID
+	Kind            string
+	OwnerUserID     uuid.NullUUID
+	TeamID          uuid.NullUUID
+	TemplateID      uuid.UUID
+	Name            string
+	Description     string
+	DbPasswordEnc   []byte
+	RuntimeTokenEnc []byte
+	Enabled         bool
+	Revision        int64
+	CreatedBy       uuid.NullUUID
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	LastUsedAt      *time.Time
+}
+
+type AgentTemplate struct {
+	ID           uuid.UUID
+	Slug         string
+	Name         string
+	Description  string
+	Instructions string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
 type ApiKey struct {
 	ID         uuid.UUID
 	UserID     uuid.UUID

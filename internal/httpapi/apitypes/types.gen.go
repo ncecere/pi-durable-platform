@@ -9,6 +9,24 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AgentKind.
+const (
+	AgentKindPersonal AgentKind = "personal"
+	AgentKindTeam     AgentKind = "team"
+)
+
+// Valid indicates whether the value is a known member of the AgentKind enum.
+func (e AgentKind) Valid() bool {
+	switch e {
+	case AgentKindPersonal:
+		return true
+	case AgentKindTeam:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ApiKeyStatus.
 const (
 	ApiKeyStatusActive  ApiKeyStatus = "active"
@@ -84,6 +102,27 @@ func (e AuditViaKind) Valid() bool {
 	case AuditViaKindApiKey:
 		return true
 	case AuditViaKindSession:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChatMessageRole.
+const (
+	ChatMessageRoleAssistant ChatMessageRole = "assistant"
+	ChatMessageRoleTool      ChatMessageRole = "tool"
+	ChatMessageRoleUser      ChatMessageRole = "user"
+)
+
+// Valid indicates whether the value is a known member of the ChatMessageRole enum.
+func (e ChatMessageRole) Valid() bool {
+	switch e {
+	case ChatMessageRoleAssistant:
+		return true
+	case ChatMessageRoleTool:
+		return true
+	case ChatMessageRoleUser:
 		return true
 	default:
 		return false
@@ -309,6 +348,79 @@ func (e ListTeamAuditParamsActorKind) Valid() bool {
 	}
 }
 
+// Agent defines model for Agent.
+type Agent struct {
+	CreatedAt   time.Time          `json:"createdAt"`
+	Description string             `json:"description"`
+	Enabled     bool               `json:"enabled"`
+	Id          openapi_types.UUID `json:"id"`
+	Kind        AgentKind          `json:"kind"`
+	LastUsedAt  *time.Time         `json:"lastUsedAt,omitempty"`
+	Name        string             `json:"name"`
+	Revision    int64              `json:"revision"`
+
+	// Running Whether its runtime is up now (it hibernates when idle and wakes on the next request)
+	Running      bool                `json:"running"`
+	TeamId       *openapi_types.UUID `json:"teamId,omitempty"`
+	TeamName     *string             `json:"teamName,omitempty"`
+	TeamSlug     *string             `json:"teamSlug,omitempty"`
+	TemplateName string              `json:"templateName"`
+	TemplateSlug string              `json:"templateSlug"`
+	UpdatedAt    time.Time           `json:"updatedAt"`
+}
+
+// AgentKind defines model for Agent.Kind.
+type AgentKind string
+
+// AgentCreate defines model for AgentCreate.
+type AgentCreate struct {
+	Description *string `json:"description,omitempty"`
+	Name        string  `json:"name"`
+
+	// Template Template slug (default assistant)
+	Template *string `json:"template,omitempty"`
+}
+
+// AgentMessageAccepted defines model for AgentMessageAccepted.
+type AgentMessageAccepted struct {
+	SubmissionId int64 `json:"submissionId"`
+}
+
+// AgentMessageCreate defines model for AgentMessageCreate.
+type AgentMessageCreate struct {
+	// RequestId Idempotency key; a repeated one is not submitted again
+	RequestId *string `json:"requestId,omitempty"`
+	Text      string  `json:"text"`
+}
+
+// AgentTemplate defines model for AgentTemplate.
+type AgentTemplate struct {
+	Description string             `json:"description"`
+	Id          openapi_types.UUID `json:"id"`
+	Name        string             `json:"name"`
+
+	// Slug Example: assistant
+	Slug string `json:"slug"`
+}
+
+// AgentThread defines model for AgentThread.
+type AgentThread struct {
+	// CreatedAt Unix milliseconds
+	CreatedAt int64  `json:"createdAt"`
+	ThreadId  string `json:"threadId"`
+	Title     string `json:"title"`
+
+	// UpdatedAt Unix milliseconds
+	UpdatedAt int64 `json:"updatedAt"`
+}
+
+// AgentUpdate defines model for AgentUpdate.
+type AgentUpdate struct {
+	Description *string `json:"description,omitempty"`
+	Enabled     *bool   `json:"enabled,omitempty"`
+	Name        *string `json:"name,omitempty"`
+}
+
 // ApiKey defines model for ApiKey.
 type ApiKey struct {
 	CreatedAt  time.Time          `json:"createdAt"`
@@ -437,6 +549,53 @@ type AuthConfig struct {
 type Capabilities struct {
 	PlatformAdmin   bool `json:"platformAdmin"`
 	PlatformAuditor bool `json:"platformAuditor"`
+}
+
+// ChatMessage defines model for ChatMessage.
+type ChatMessage struct {
+	// Error An assistant reply that failed or was interrupted
+	Error   *string `json:"error,omitempty"`
+	Id      string  `json:"id"`
+	IsError *bool   `json:"isError,omitempty"`
+
+	// Name Tool name (tool results)
+	Name       *string         `json:"name,omitempty"`
+	Role       ChatMessageRole `json:"role"`
+	Text       *string         `json:"text,omitempty"`
+	Thinking   *string         `json:"thinking,omitempty"`
+	ToolCallId *string         `json:"toolCallId,omitempty"`
+	ToolCalls  *[]ChatToolCall `json:"toolCalls,omitempty"`
+}
+
+// ChatMessageRole defines model for ChatMessage.Role.
+type ChatMessageRole string
+
+// ChatToolCall defines model for ChatToolCall.
+type ChatToolCall struct {
+	Arguments map[string]interface{} `json:"arguments"`
+	Id        string                 `json:"id"`
+	Name      string                 `json:"name"`
+}
+
+// ChatToolSlot defines model for ChatToolSlot.
+type ChatToolSlot struct {
+	CallId string  `json:"callId"`
+	Name   string  `json:"name"`
+	Output *string `json:"output,omitempty"`
+	Status string  `json:"status"`
+}
+
+// ChatView defines model for ChatView.
+type ChatView struct {
+	Busy     bool          `json:"busy"`
+	Messages []ChatMessage `json:"messages"`
+
+	// Partial The assistant reply being generated
+	Partial *struct {
+		Text     string `json:"text"`
+		Thinking string `json:"thinking"`
+	} `json:"partial,omitempty"`
+	Tools []ChatToolSlot `json:"tools"`
 }
 
 // DevAccount defines model for DevAccount.
@@ -778,6 +937,9 @@ type UserUpdate struct {
 	Status       *UserStatus   `json:"status,omitempty"`
 }
 
+// AgentIdParam defines model for AgentIdParam.
+type AgentIdParam = openapi_types.UUID
+
 // AuditActionParam Example: team.
 type AuditActionParam = string
 
@@ -816,6 +978,9 @@ type ServiceAccountIdParam = openapi_types.UUID
 
 // TeamParam defines model for TeamParam.
 type TeamParam = string
+
+// ThreadIdParam defines model for ThreadIdParam.
+type ThreadIdParam = string
 
 // UserIdParam defines model for UserIdParam.
 type UserIdParam = openapi_types.UUID
@@ -921,6 +1086,18 @@ type AdminUpdateUserParams struct {
 	IfMatch IfMatchHeader `json:"If-Match"`
 }
 
+// UpdateAgentParams defines parameters for UpdateAgent.
+type UpdateAgentParams struct {
+	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
+	IfMatch IfMatchHeader `json:"If-Match"`
+}
+
+// StreamAgentThreadParams defines parameters for StreamAgentThread.
+type StreamAgentThreadParams struct {
+	// Once Send the current view as one event, then end the stream
+	Once *bool `form:"once,omitempty" json:"once,omitempty"`
+}
+
 // GetMeParams defines parameters for GetMe.
 type GetMeParams struct {
 	// Optional With true, a request without a session cookie gets data null (200) instead of a 401, for pages that work signed out. An expired session is still a 401 (and clears the cookie).
@@ -983,8 +1160,17 @@ type AdminAssignOwnerJSONRequestBody = OwnerAssign
 // AdminUpdateUserJSONRequestBody defines body for AdminUpdateUser for application/json ContentType.
 type AdminUpdateUserJSONRequestBody = UserUpdate
 
+// UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
+type UpdateAgentJSONRequestBody = AgentUpdate
+
+// SendAgentMessageJSONRequestBody defines body for SendAgentMessage for application/json ContentType.
+type SendAgentMessageJSONRequestBody = AgentMessageCreate
+
 // CreateMyApiKeyJSONRequestBody defines body for CreateMyApiKey for application/json ContentType.
 type CreateMyApiKeyJSONRequestBody = ApiKeyCreate
+
+// CreateTeamAgentJSONRequestBody defines body for CreateTeamAgent for application/json ContentType.
+type CreateTeamAgentJSONRequestBody = AgentCreate
 
 // AddMemberJSONRequestBody defines body for AddMember for application/json ContentType.
 type AddMemberJSONRequestBody = MemberAdd

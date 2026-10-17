@@ -58,36 +58,36 @@ export function createRuntimeServer(options: RuntimeOptions): { server: Server; 
 		const method = request.method ?? "GET";
 
 		if (method === "GET" && url.pathname === "/healthz") return json(response, 200, { ok: true });
-		if (!authorized(request)) return json(response, 401, { error: "unauthorized" });
+		if (!authorized(request)) return fail(response, 401, "unauthorized", "Unauthorized");
 
 		if (method === "GET" && url.pathname === "/status") {
 			const busy = await busyThreads();
 			if (busy > 0) touch();
 			return json(response, 200, { ...options.info, busyThreads: busy, lastActivityAt: lastActivity });
 		}
-		if (method === "GET" && url.pathname === "/threads") return json(response, 200, { threads: await threads.list() });
+		if (method === "GET" && url.pathname === "/threads") return json(response, 200, await threads.list());
 
-		if (parts[0] !== "threads" || parts[1] === undefined) return json(response, 404, { error: "not found" });
+		if (parts[0] !== "threads" || parts[1] === undefined) return fail(response, 404, "not_found", "Not found");
 		const threadId = parts[1];
-		if (!THREAD_ID.test(threadId)) return json(response, 400, { error: "invalid thread id" });
+		if (!THREAD_ID.test(threadId)) return fail(response, 400, "invalid_thread_id", "Thread IDs are 1-64 letters, digits, dashes or underscores");
 		const action = parts[2];
 
 		if (method === "GET" && action === undefined) {
 			const view = await viewOf(threadId);
-			return view === undefined ? json(response, 404, { error: "no such thread" }) : json(response, 200, view);
+			return view === undefined ? fail(response, 404, "thread_not_found", "Thread not found") : json(response, 200, view);
 		}
 		if (method === "DELETE" && action === undefined) {
 			const conversation = await threads.get(threadId);
 			if (conversation !== undefined) await conversation.abort(ctx).catch(() => {});
-			return json(response, (await threads.remove(threadId)) ? 204 : 404, {});
+			return (await threads.remove(threadId)) ? json(response, 200, { ok: true }) : fail(response, 404, "thread_not_found", "Thread not found");
 		}
 		if (method === "POST" && action === "messages") {
 			touch();
 			const body = (await readJson(request)) as { text?: unknown; requestId?: unknown };
 			const text = typeof body.text === "string" ? body.text.trim() : "";
 			const requestId = typeof body.requestId === "string" ? body.requestId : undefined;
-			if (text.length === 0 || text.length > 32_000) return json(response, 400, { error: "text is required (at most 32,000 characters)" });
-			if (requestId !== undefined && !THREAD_ID.test(requestId)) return json(response, 400, { error: "invalid requestId" });
+			if (text.length === 0 || text.length > 32_000) return fail(response, 400, "invalid_text", "text is required (at most 32,000 characters)");
+			if (requestId !== undefined && !THREAD_ID.test(requestId)) return fail(response, 400, "invalid_request_id", "requestId must be 1-64 letters, digits, dashes or underscores");
 			const conversation = await threads.ensure(threadId, text);
 			const submission = await conversation.submit(
 				{ type: "input", content: text, whenBusy: "followUp", ...(requestId === undefined ? {} : { requestId }) },
@@ -99,24 +99,29 @@ export function createRuntimeServer(options: RuntimeOptions): { server: Server; 
 		if (method === "POST" && action === "stop") {
 			touch();
 			const conversation = await threads.get(threadId);
-			if (conversation === undefined) return json(response, 404, { error: "no such thread" });
+			if (conversation === undefined) return fail(response, 404, "thread_not_found", "Thread not found");
 			await conversation.abort(ctx);
-			return json(response, 202, {});
+			return json(response, 202, { ok: true });
 		}
-		if (method === "GET" && action === "events") return streamThread(threadId, request, response);
-		return json(response, 404, { error: "not found" });
+		if (method === "GET" && action === "events") return streamThread(threadId, request, response, url.searchParams.get("once") === "true");
+		return fail(response, 404, "not_found", "Not found");
 	};
 
 	/** Server-sent events: the whole chat view after every commit that touches the thread, coalesced to 10/s. */
-	const streamThread = async (threadId: string, request: IncomingMessage, response: ServerResponse) => {
+	const streamThread = async (threadId: string, request: IncomingMessage, response: ServerResponse, once: boolean) => {
 		const conversation = await threads.get(threadId);
-		if (conversation === undefined) return json(response, 404, { error: "no such thread" });
+		if (conversation === undefined) return fail(response, 404, "thread_not_found", "Thread not found");
 		const watch = await conversation.watch(ctx);
 		response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
 		const send = (value: typeof watch.value) => {
 			response.write(`event: view\ndata: ${JSON.stringify(buildView(value.entries, value.docs["pi.live"] as never))}\n\n`);
 		};
 		send(watch.value);
+		if (once) {
+			await watch.stop();
+			response.end();
+			return;
+		}
 		let pending: typeof watch.value | undefined;
 		let timer: NodeJS.Timeout | undefined;
 		watch.start(async (value) => {
@@ -145,7 +150,7 @@ export function createRuntimeServer(options: RuntimeOptions): { server: Server; 
 		route(request, response).catch((error: unknown) => {
 			const status = error instanceof RequestError ? error.status : 500;
 			if (status === 500) console.error("[runtime] request failed", error);
-			if (!response.headersSent) json(response, status, { error: status === 500 ? "internal error" : (error as Error).message });
+			if (!response.headersSent) fail(response, status, status === 500 ? "internal" : "invalid_request", status === 500 ? "Internal error" : (error as Error).message);
 			else response.end();
 		});
 	});
@@ -161,12 +166,19 @@ class RequestError extends Error {
 	}
 }
 
+/** Platform conventions: `{"data": …}` on success, `{"error": {"code", "message"}}` otherwise. */
 function json(response: ServerResponse, status: number, body: unknown): void {
 	if (status === 204) {
 		response.writeHead(204).end();
 		return;
 	}
-	response.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify(body));
+	response.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify({ data: body }));
+}
+
+function fail(response: ServerResponse, status: number, code: string, message: string): void {
+	response
+		.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" })
+		.end(JSON.stringify({ error: { code, message } }));
 }
 
 async function readJson(request: IncomingMessage): Promise<unknown> {

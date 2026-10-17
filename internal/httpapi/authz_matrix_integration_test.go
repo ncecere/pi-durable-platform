@@ -9,7 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
+	"github.com/ncecere/pi-durable-platform/internal/agents"
 	"github.com/ncecere/pi-durable-platform/internal/auth"
+	"github.com/ncecere/pi-durable-platform/internal/authz"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 )
 
@@ -31,6 +35,8 @@ type teamFix struct {
 	auditID        string // an entry of the team's audit log
 	// serviceAccount is a service account with one key (saKey).
 	serviceAccount, saKey string
+	// owner is an owner of the team; agent a team agent with a thread.
+	owner, agent, thread string
 }
 
 type matrixEnv struct {
@@ -119,7 +125,7 @@ func newMatrixEnv(t *testing.T) *matrixEnv {
 	e := &matrixEnv{t: t, app: newTestApp(t, nil)}
 	e.a = e.newTeam("alpha", "Alpha Confidential Team")
 	e.b = e.newTeam("bravo", "Bravo Team")
-	e.newMember(e.a, "owner")
+	e.a.owner = e.newMember(e.a, "owner")
 	roles := map[caller]string{cMember: "member", cEditor: "editor", cTeamAdmin: "admin", cOwner: "owner"}
 	platformRoles := map[caller]string{cPlatformAdmin: "platform_admin", cAuditor: "platform_auditor"}
 	for c := cMember; c < numCallers; c++ {
@@ -137,7 +143,35 @@ func newMatrixEnv(t *testing.T) *matrixEnv {
 	e.callers[cAnon] = anonSession(t, e.app)
 	e.spareUser = e.newUser("spare@example.com", "none")
 	e.spareTeam = e.newTeam("spare", "Spare Team").slug
+	e.b.owner = e.userIDs[cOwner]
+	for _, tf := range []*teamFix{&e.a, &e.b} {
+		tf.agent = e.newAgent(*tf)
+		tf.thread = e.newThread(*tf, tf.agent)
+	}
 	return e
+}
+
+// newAgent creates a team agent, as the team's owner.
+func (e *matrixEnv) newAgent(tf teamFix) string {
+	e.t.Helper()
+	actor := authz.Actor{UserID: uuid.MustParse(tf.owner), PlatformRole: authz.PlatformNone}
+	v, err := e.app.Agents.CreateTeamAgent(context.Background(), actor, tf.slug, agents.CreateInput{Name: fmt.Sprintf("agent-%d", e.next())})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return v.Agent.ID.String()
+}
+
+// newThread starts a conversation with a team agent, as the team's owner
+// (this starts the agent's runtime).
+func (e *matrixEnv) newThread(tf teamFix, agentID string) string {
+	e.t.Helper()
+	thread := fmt.Sprintf("t-%d", e.next())
+	code, body := e.sessionFor(tf.owner).raw("POST", "/v1/agents/"+agentID+"/threads/"+thread+"/messages", map[string]any{"text": "hello"}, nil)
+	if code != http.StatusAccepted {
+		e.t.Fatalf("start thread: %d %s", code, body)
+	}
+	return thread
 }
 
 // mctx is what a request builder sees.
@@ -149,6 +183,26 @@ type mctx struct {
 }
 
 func (c *mctx) team(suffix string) string { return "/v1/teams/" + c.tf.slug + suffix }
+
+// agent is the team's agent path, or a fresh agent's when a destructive call
+// is expected to succeed.
+func (c *mctx) agent(suffix string, fresh bool) string {
+	id := c.tf.agent
+	if fresh && c.allowed {
+		id = c.e.newAgent(*c.tf)
+	}
+	return "/v1/agents/" + id + suffix
+}
+
+// thread is the team agent's thread path, or a fresh thread's for a
+// destructive call expected to succeed.
+func (c *mctx) thread(suffix string, fresh bool) string {
+	t := c.tf.thread
+	if fresh && c.allowed {
+		t = c.e.newThread(*c.tf, c.tf.agent)
+	}
+	return "/v1/agents/" + c.tf.agent + "/threads/" + t + suffix
+}
 
 func (c *mctx) member() string {
 	if c.allowed {

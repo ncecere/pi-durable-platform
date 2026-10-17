@@ -27,6 +27,7 @@ func devConfig(dbURL string) config.Config {
 	c.DatabaseURL, c.AppURL, c.DevAuth = dbURL, "http://localhost:8098", true
 	c.EncryptionKey = "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE="
 	c.APIKeyPepper = c.EncryptionKey
+	c.Agents.DatabaseURL = dbURL
 	return c
 }
 
@@ -36,7 +37,7 @@ func TestDoctorHealthyInstall(t *testing.T) {
 	if !rep.OK {
 		t.Fatalf("report not ok: %+v", rep.Checks)
 	}
-	if c, _ := find(rep, "postgres", "migrations"); c.Status != doctor.OK || !strings.Contains(c.Detail, "current (version 3)") {
+	if c, _ := find(rep, "postgres", "migrations"); c.Status != doctor.OK || !strings.Contains(c.Detail, "current (version 4)") {
 		t.Errorf("migrations = %+v", c)
 	}
 	if c, _ := find(rep, "safety", "production"); c.Status != doctor.Info {
@@ -59,7 +60,7 @@ func TestDoctorHealthyInstall(t *testing.T) {
 
 func TestDoctorPendingMigrations(t *testing.T) {
 	pool, dbURL := testutil.NewDB(t)
-	if _, err := pool.Exec(context.Background(), "DELETE FROM goose_db_version WHERE version_id = 3"); err != nil {
+	if _, err := pool.Exec(context.Background(), "DELETE FROM goose_db_version WHERE version_id = 4"); err != nil {
 		t.Fatal(err)
 	}
 	rep := doctor.Run(context.Background(), devConfig(dbURL), doctor.Options{})
@@ -72,6 +73,7 @@ func TestDoctorUnreachableAndUnsafe(t *testing.T) {
 	c := config.Defaults()
 	c.DatabaseURL = "postgres://u:p@127.0.0.1:1/db?sslmode=disable&connect_timeout=1"
 	c.AppURL, c.DevAuth = "http://agents.example.com", true
+	c.Agents.Launcher, c.Agents.Image = config.LauncherKubernetes, "registry.example.com/runtime:1"
 	rep := doctor.Run(context.Background(), c, doctor.Options{Timeout: 3 * time.Second})
 	if rep.OK {
 		t.Fatal("unreachable database and unsafe config reported ok")
