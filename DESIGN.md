@@ -41,13 +41,33 @@ Browser / chat app / service ──► Platform (Go)
                                    ├─ auth, teams, roles, service accounts, audit
                                    ├─ templates, agents (owner: a person or a team)
                                    ├─ provisioner: per-agent schema + role in the agents database
-                                   ├─ launcher: start / stop agent runtimes (local processes | Kubernetes pods)
+                                   ├─ launcher: start / stop agent runtimes (local processes | Kubernetes pods | Agent Sandbox)
                                    ├─ reaper: hibernate idle agents
                                    └─ proxy: /v1/agents/{id}/threads/... → the agent's runtime (SSE streaming)
                                               │ bearer token
                                               ▼
                                    Agent runtime (Node, Pi Durable) ── its schema in PostgreSQL
 ```
+
+## Launchers
+
+| `AGENTS_LAUNCHER` | Runtime per active agent | Hibernate | Wake |
+| --- | --- | --- | --- |
+| `local` | a child process of the platform (development only) | stop the process | start it |
+| `kubernetes` | a pod `agent-<id>`, secrets in a Secret of the same name | delete the pod | create it |
+| `agent-sandbox` | a [Sandbox](https://agent-sandbox.sigs.k8s.io) `agent-<id>` around the same pod | `operatingMode: Suspended` | `Running` |
+| `agent-sandbox` + `AGENTS_SANDBOX_WARM_POOL` | a standby runtime claimed from a `SandboxWarmPool` (claim `agent-<id>`) | release the claim | claim + activate |
+
+Warm mode: the pool's pods run the runtime image without `AGENT_ID`, with `RUNTIME_ACTIVATION_TOKEN`; they are Ready
+and wait (`runtime/src/standby.ts`). Waking an agent creates its claim, and the platform `POST`s the agent's
+configuration (schema, database URL, runtime token, model settings) to the claimed runtime's `/activate` with the
+activation token. From then on the runtime is that agent and only accepts the agent's own token. Nothing about the
+agent is stored in Kubernetes, and the pool refills after each claim, so a wake skips scheduling, image pull and Node
+start-up. While the previous runtime is still releasing the agent, activation answers `409 owned_elsewhere` and the
+platform retries. A runtime that restarts comes back in standby and is activated again on the next request.
+
+The activation token reaches only the platform and the pool's pods; agent pods take traffic from the platform alone,
+so one agent cannot activate another runtime.
 
 ## Verified so far
 

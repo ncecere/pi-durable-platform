@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type RequestListener, type Server, type ServerResponse } from "node:http";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type Harness, LiveDoc } from "@earendil-works/pi-durable";
 import type { ThreadStore } from "./threads.ts";
@@ -21,7 +21,7 @@ export type RuntimeOptions = {
  * The agent's private HTTP interface. Only the platform calls it, with the agent's bearer token; clients never reach a
  * runtime directly. Pi is the source of truth: the runtime keeps no state of its own besides the open harness.
  */
-export function createRuntimeServer(options: RuntimeOptions): { server: Server; lastActivity: () => number } {
+export function createRuntimeServer(options: RuntimeOptions): { server: Server; handler: RequestListener; lastActivity: () => number } {
 	const { harness, threads } = options;
 	const expected = Buffer.from(`Bearer ${options.token}`);
 	let lastActivity = Date.now();
@@ -146,15 +146,15 @@ export function createRuntimeServer(options: RuntimeOptions): { server: Server; 
 		});
 	};
 
-	const server = createServer((request, response) => {
+	const handler: RequestListener = (request, response) => {
 		route(request, response).catch((error: unknown) => {
 			const status = error instanceof RequestError ? error.status : 500;
 			if (status === 500) console.error("[runtime] request failed", error);
 			if (!response.headersSent) fail(response, status, status === 500 ? "internal" : "invalid_request", status === 500 ? "Internal error" : (error as Error).message);
 			else response.end();
 		});
-	});
-	return { server, lastActivity: () => lastActivity };
+	};
+	return { server: createServer(handler), handler, lastActivity: () => lastActivity };
 }
 
 class RequestError extends Error {

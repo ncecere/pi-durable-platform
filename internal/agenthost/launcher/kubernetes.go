@@ -36,6 +36,7 @@ type Kubernetes struct {
 	api       string
 	tokenFile string
 	client    *http.Client
+	port      int // the runtime's port (tests); 0 is runtimePort
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
@@ -79,6 +80,14 @@ func NewInCluster(namespace, image string, log *slog.Logger) (*Kubernetes, error
 }
 
 func (k *Kubernetes) Kind() string { return "kubernetes" }
+
+func (k *Kubernetes) runtimeURL(ip string) string {
+	port := k.port
+	if port == 0 {
+		port = runtimePort
+	}
+	return fmt.Sprintf("http://%s:%d", ip, port)
+}
 
 func podName(agentID string) string { return "agent-" + sanitize(agentID) }
 
@@ -234,6 +243,18 @@ func (k *Kubernetes) putSecret(ctx context.Context, name string, spec Spec) erro
 }
 
 func (k *Kubernetes) createPod(ctx context.Context, name string, spec Spec) error {
+	labels, podSpec := k.agentPod(name, spec)
+	p := map[string]any{
+		"apiVersion": "v1", "kind": "Pod",
+		"metadata": map[string]any{"name": name, "labels": labels},
+		"spec":     podSpec,
+	}
+	return k.do(ctx, http.MethodPost, k.path("pods", ""), p, nil)
+}
+
+// agentPod is the hardened pod that runs one agent (its secrets in the
+// Secret called name): its labels and spec.
+func (k *Kubernetes) agentPod(name string, spec Spec) (map[string]string, map[string]any) {
 	env := []map[string]any{
 		{"name": "AGENT_ID", "value": spec.AgentID},
 		{"name": "AGENT_SCHEMA", "value": spec.Schema},
@@ -281,14 +302,7 @@ func (k *Kubernetes) createPod(ctx context.Context, name string, spec Spec) erro
 	if k.ImagePullSecret != "" {
 		podSpec["imagePullSecrets"] = []map[string]string{{"name": k.ImagePullSecret}}
 	}
-	p := map[string]any{
-		"apiVersion": "v1", "kind": "Pod",
-		"metadata": map[string]any{"name": name, "labels": map[string]string{
-			managedLabel: managedBy, agentLabel: spec.AgentID, "app.kubernetes.io/name": "pi-durable-agent",
-		}},
-		"spec": podSpec,
-	}
-	return k.do(ctx, http.MethodPost, k.path("pods", ""), p, nil)
+	return map[string]string{managedLabel: managedBy, agentLabel: spec.AgentID, "app.kubernetes.io/name": "pi-durable-agent"}, podSpec
 }
 
 type pod struct {
@@ -348,10 +362,21 @@ func (k *Kubernetes) getPod(ctx context.Context, name string) (*pod, error) {
 	return &p, nil
 }
 
-var errNotFound = errors.New("not found")
+var (
+	errNotFound = errors.New("not found")
+	errConflict = errors.New("conflict")
+)
 
 func (k *Kubernetes) path(resource, name string) string {
-	p := fmt.Sprintf("/api/v1/namespaces/%s/%s", k.Namespace, resource)
+	return k.groupPath("", "v1", resource, name)
+}
+
+// groupPath is a namespaced resource's path in an API group ("" is core).
+func (k *Kubernetes) groupPath(group, version, resource, name string) string {
+	p := fmt.Sprintf("/apis/%s/%s/namespaces/%s/%s", group, version, k.Namespace, resource)
+	if group == "" {
+		p = fmt.Sprintf("/api/%s/namespaces/%s/%s", version, k.Namespace, resource)
+	}
 	if name != "" {
 		p += "/" + name
 	}
@@ -377,6 +402,9 @@ func (k *Kubernetes) do(ctx context.Context, method, path string, body, out any)
 	}
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
 	req.Header.Set("Content-Type", "application/json")
+	if method == http.MethodPatch {
+		req.Header.Set("Content-Type", "application/merge-patch+json")
+	}
 	resp, err := k.client.Do(req)
 	if err != nil {
 		return err
@@ -384,6 +412,9 @@ func (k *Kubernetes) do(ctx context.Context, method, path string, body, out any)
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
 		return errNotFound
+	}
+	if resp.StatusCode == http.StatusConflict {
+		return errConflict
 	}
 	if resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))

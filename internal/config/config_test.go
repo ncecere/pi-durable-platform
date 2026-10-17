@@ -128,6 +128,21 @@ func TestValidate(t *testing.T) {
 			c.AppURL, c.DevAuth, c.EncryptionKeyPrevious = "http://localhost:8098", true, "c2hvcnQ="
 		}, "serve", "ENCRYPTION_KEY_PREVIOUS"},
 		{"migrate needs no encryption key", func(c *Config) { c.EncryptionKey = "" }, "migrate", ""},
+		{"agent sandbox needs image or pool", func(c *Config) {
+			c.AppURL, c.DevAuth, c.Agents.Launcher = "http://localhost:8098", true, LauncherAgentSandbox
+		}, "serve", "AGENTS_IMAGE (a Sandbox per agent) or AGENTS_SANDBOX_WARM_POOL"},
+		{"agent sandbox per agent", func(c *Config) {
+			c.AppURL, c.DevAuth, c.Agents.Launcher, c.Agents.Image = "http://localhost:8098", true, LauncherAgentSandbox, "runtime:1"
+		}, "serve", ""},
+		{"warm pool needs activation token", func(c *Config) {
+			c.AppURL, c.DevAuth, c.Agents.Launcher, c.Agents.SandboxWarmPool = "http://localhost:8098", true, LauncherAgentSandbox, "pool"
+			c.Agents.SandboxActivationToken = "short"
+		}, "serve", "AGENTS_SANDBOX_ACTIVATION_TOKEN"},
+		{"warm pool", func(c *Config) {
+			c.AppURL, c.DevAuth, c.Agents.Launcher, c.Agents.SandboxWarmPool = "http://localhost:8098", true, LauncherAgentSandbox, "pool"
+			c.Agents.SandboxActivationToken = strings.Repeat("x", 32)
+		}, "serve", ""},
+		{"unknown launcher", func(c *Config) { c.AppURL, c.DevAuth, c.Agents.Launcher = "http://localhost:8098", true, "vm" }, "serve", "local, kubernetes or agent-sandbox"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

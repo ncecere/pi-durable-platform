@@ -73,6 +73,10 @@ type Config struct {
 const (
 	LauncherLocal      = "local"      // child processes on this host (development)
 	LauncherKubernetes = "kubernetes" // one pod per agent
+	// LauncherAgentSandbox runs agents as Kubernetes Agent Sandbox resources:
+	// a Sandbox per agent (suspended when idle), or claims on a warm pool of
+	// standby runtimes (AGENTS_SANDBOX_WARM_POOL).
+	LauncherAgentSandbox = "agent-sandbox"
 )
 
 // Agents configures agent storage, runtimes and their model.
@@ -97,7 +101,12 @@ type Agents struct {
 	Image           string
 	RuntimeClass    string
 	ImagePullSecret string
-	IdleTimeout     time.Duration
+	// Agent Sandbox launcher: claim runtimes from this SandboxWarmPool (in
+	// Namespace) and activate them with this token (the pool's
+	// RUNTIME_ACTIVATION_TOKEN). Without a pool, each agent is its own Sandbox.
+	SandboxWarmPool        string
+	SandboxActivationToken string
+	IdleTimeout            time.Duration
 	// Model every agent uses: demo (scripted, no key) or openai-compatible.
 	ModelProvider  string
 	ModelBaseURL   string

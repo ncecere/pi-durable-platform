@@ -303,6 +303,14 @@ func newAgents(cfg config.Config, pool *pgxpool.Pool, box *secrets.Box, log *slo
 		}
 		k.RuntimeClassName, k.ImagePullSecret = cfg.Agents.RuntimeClass, cfg.Agents.ImagePullSecret
 		l = k
+	case config.LauncherAgentSandbox:
+		k, err := launcher.NewInCluster(cfg.Agents.Namespace, cfg.Agents.Image, log.With("component", "launcher"))
+		if err != nil {
+			agentsPool.Close()
+			return nil, err
+		}
+		k.RuntimeClassName, k.ImagePullSecret = cfg.Agents.RuntimeClass, cfg.Agents.ImagePullSecret
+		l = launcher.NewAgentSandbox(k, cfg.Agents.SandboxWarmPool, cfg.Agents.SandboxActivationToken)
 	default:
 		dir, err := filepath.Abs(cfg.Agents.RuntimeDir)
 		if err != nil {

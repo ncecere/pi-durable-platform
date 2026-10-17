@@ -102,7 +102,7 @@ Configuration comes from environment variables (optionally layered over a YAML f
 | `internal/authz` | Pure authorization rules (platform and team roles) |
 | `internal/httpapi` | Route table (`server.go`), handlers, middleware, the contract and authorization-matrix tests |
 | `internal/{auth,teams,platform,apikeys,serviceaccounts,audit,agents}` | The services; each authorizes and audits in the same transaction as the change |
-| `internal/agenthost` | Agent storage provisioning, launchers (local processes, Kubernetes pods), wake/proxy/hibernate |
+| `internal/agenthost` | Agent storage provisioning, launchers (local processes, Kubernetes pods, Agent Sandbox), wake/proxy/hibernate |
 | `runtime/` | The Pi Durable agent runtime and its PostgreSQL storage (`pnpm test` needs the compose Postgres) |
 | `web/src/router.tsx`, `web/src/components/layout/nav.tsx` | The web routes and navigation |
 
