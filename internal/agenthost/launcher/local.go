@@ -187,6 +187,9 @@ func (l *Local) Stop(ctx context.Context, agentID string) error {
 	}
 }
 
+// Remove stops the agent; a local runtime keeps nothing else.
+func (l *Local) Remove(ctx context.Context, agentID string) error { return l.Stop(ctx, agentID) }
+
 // StopAll stops every runtime (platform shutdown).
 func (l *Local) StopAll(ctx context.Context) {
 	var wg sync.WaitGroup

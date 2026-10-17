@@ -21,6 +21,7 @@ func (f fixedLauncher) Ensure(context.Context, launcher.Spec) (launcher.Endpoint
 }
 func (f fixedLauncher) Stop(context.Context, string) error    { return nil }
 func (f fixedLauncher) Running() map[string]launcher.Endpoint { return nil }
+func (f fixedLauncher) Remove(context.Context, string) error  { return nil }
 func (f fixedLauncher) Kind() string                          { return "fixed" }
 
 // Shutdown ends open event streams at once (and closing twice is harmless).

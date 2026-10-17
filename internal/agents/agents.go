@@ -446,7 +446,7 @@ func (s *Service) Delete(ctx context.Context, a authz.Actor, id uuid.UUID) error
 		if err := authz.CheckAgentDelete(sub, a.IsPlatformAdmin()); err != nil {
 			return err
 		}
-		if err := s.host.Hibernate(ctx, id.String()); err != nil {
+		if err := s.host.Remove(ctx, id.String()); err != nil {
 			return err
 		}
 		if err := s.prov.Delete(ctx, id.String()); err != nil {

@@ -41,6 +41,9 @@ type Launcher interface {
 	// Stop hibernates the agent: the runtime shuts down gracefully; work in
 	// flight stays in storage and resumes on the next start.
 	Stop(ctx context.Context, agentID string) error
+	// Remove stops the agent and deletes everything the launcher keeps for it
+	// (the agent itself is being deleted).
+	Remove(ctx context.Context, agentID string) error
 	// Running lists the agents with a live runtime and their endpoints.
 	Running() map[string]Endpoint
 	// Kind names the backend ("local", "kubernetes").

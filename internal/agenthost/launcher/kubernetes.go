@@ -139,6 +139,18 @@ func (k *Kubernetes) Stop(ctx context.Context, agentID string) error {
 	return err
 }
 
+// Remove deletes the agent's pod and its Secret (database URL and token).
+func (k *Kubernetes) Remove(ctx context.Context, agentID string) error {
+	if err := k.Stop(ctx, agentID); err != nil {
+		return err
+	}
+	err := k.do(ctx, http.MethodDelete, k.path("secrets", podName(agentID)), nil, nil)
+	if errors.Is(err, errNotFound) {
+		return nil
+	}
+	return err
+}
+
 func (k *Kubernetes) Running() map[string]Endpoint {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

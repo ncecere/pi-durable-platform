@@ -69,6 +69,15 @@ func (m *Manager) Hibernate(ctx context.Context, agentID string) error {
 	return m.launcher.Stop(ctx, agentID)
 }
 
+// Remove stops the agent and deletes what its launcher keeps for it.
+func (m *Manager) Remove(ctx context.Context, agentID string) error {
+	m.mu.Lock()
+	delete(m.lastUsed, agentID)
+	delete(m.streams, agentID)
+	m.mu.Unlock()
+	return m.launcher.Remove(ctx, agentID)
+}
+
 // Running reports whether the agent has a live runtime.
 func (m *Manager) Running(agentID string) bool {
 	_, ok := m.launcher.Running()[agentID]
