@@ -1,0 +1,56 @@
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: pdp
+          POSTGRES_PASSWORD: pdp-local-only
+          POSTGRES_DB: pdp
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pdp -d pdp"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      PDP_TEST_DATABASE_URL: postgres://pdp:pdp-local-only@localhost:5432/postgres?sslmode=disable
+      PDP_TEST_REQUIRE_DB: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Agent runtime
+        working-directory: runtime
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          npx tsc --noEmit
+          PDP_TEST_DATABASE_URL=postgres://pdp:pdp-local-only@localhost:5432/pdp npx vitest run
+      - name: Web
+        working-directory: web
+        run: |
+          npm ci --ignore-scripts
+          npm run typecheck
+          npm test
+          npm run check:styling
+          npm run check:size
+          npm run build
+      - name: Go
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test ./...
