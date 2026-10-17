@@ -84,7 +84,7 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 		return err
 	}
 	defer deps.Agents.Close()
-	if err := deps.Agents.Prepare(ctx); err != nil {
+	if err := prepareAgents(ctx, deps.Agents, log); err != nil {
 		return fmt.Errorf("agents database: %w", err)
 	}
 	health := httpapi.NewHealth(map[string]func(context.Context) error{"postgres": pool.Ping, "agents-postgres": deps.Agents.Ping})
@@ -355,4 +355,26 @@ func PruneAgentStorage(ctx context.Context, cfg config.Config, log *slog.Logger,
 	}
 	defer svc.Close()
 	return svc.PruneStorage(ctx, dryRun)
+}
+
+// prepareAgents hardens the agents database, waiting for it like the platform
+// database (OpenWait): on a fresh install it may be created a little after
+// the server (for example a CloudNativePG Database resource).
+func prepareAgents(ctx context.Context, svc *agents.Service, log *slog.Logger) error {
+	ctx, cancel := context.WithTimeout(ctx, dbConnectWait)
+	defer cancel()
+	wait := time.Second
+	for {
+		err := svc.Prepare(ctx)
+		if err == nil {
+			return nil
+		}
+		log.Warn("agents database not ready; retrying", "err", err, "in", wait)
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(wait):
+		}
+		wait = min(wait*2, 15*time.Second)
+	}
 }
