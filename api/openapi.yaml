@@ -1,0 +1,2083 @@
+openapi: 3.0.3
+info:
+  title: Pi Durable Platform API
+  version: 0.1.0
+  description: 'Management API. Browser sessions authenticate with a cookie; writes need the session''s `X-CSRF-Token` (from
+    `GET /v1/me`) and a same-origin `Origin`. Success responses are `{"data": ...}` and errors `{"error": {"code": "...",
+    "message": "..."}}`.
+
+
+    Every route served by the application must be listed here; a test enforces it.
+
+    '
+tags:
+- name: operations
+- name: auth
+- name: me
+- name: teams
+- name: admin
+- name: api-keys
+  description: Personal API keys for scripts and tools
+- name: service-accounts
+  description: Team-owned identities for services, agents, CI and scripts
+paths:
+  /healthz:
+    get:
+      tags:
+      - operations
+      operationId: getHealthz
+      summary: Liveness probe
+      responses:
+        '200':
+          $ref: '#/components/responses/HealthReply'
+  /readyz:
+    get:
+      tags:
+      - operations
+      operationId: getReadyz
+      summary: Readiness probe (dependencies reachable and not draining)
+      responses:
+        '200':
+          $ref: '#/components/responses/HealthReply'
+        '503':
+          $ref: '#/components/responses/HealthReply'
+  /auth/login:
+    get:
+      tags:
+      - auth
+      operationId: startLogin
+      summary: Start single sign-on (redirects to the identity provider)
+      parameters:
+      - name: next
+        in: query
+        required: false
+        description: Same-origin path to return to after sign-in.
+        schema:
+          type: string
+      responses:
+        '302':
+          description: Redirect to the identity provider
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '429':
+          $ref: '#/components/responses/ErrorReply'
+        '503':
+          $ref: '#/components/responses/ErrorReply'
+  /auth/callback:
+    get:
+      tags:
+      - auth
+      operationId: completeLogin
+      summary: OIDC redirect target
+      responses:
+        '303':
+          description: Signed in; redirect into the app
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+  /auth/dev:
+    post:
+      tags:
+      - auth
+      operationId: devLogin
+      summary: Development sign-in (only when DEV_AUTH=true on a loopback APP_URL)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DevLoginRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkReply'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /auth/logout:
+    post:
+      tags:
+      - auth
+      operationId: logout
+      summary: End the current browser session
+      responses:
+        '200':
+          $ref: '#/components/responses/OkReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/auth/config:
+    get:
+      tags:
+      - auth
+      operationId: getAuthConfig
+      summary: Sign-in methods and instance identity for the web UI
+      responses:
+        '200':
+          description: Sign-in configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AuthConfig'
+  /v1/me:
+    get:
+      tags:
+      - me
+      operationId: getMe
+      summary: The signed-in user, CSRF token and capabilities
+      parameters:
+      - name: optional
+        in: query
+        required: false
+        description: With true, a request without a session cookie gets data null (200) instead of a 401, for pages that
+          work signed out. An expired session is still a 401 (and clears the cookie).
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: Current user (null only with optional=true and no session cookie)
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    nullable: true
+                    allOf:
+                    - $ref: '#/components/schemas/Me'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams:
+    get:
+      tags:
+      - teams
+      operationId: listMyTeams
+      summary: Teams the caller belongs to
+      responses:
+        '200':
+          description: Memberships
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MyTeam'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    get:
+      tags:
+      - teams
+      operationId: getTeam
+      summary: A team the caller belongs to (platform admins and auditors see any team)
+      responses:
+        '200':
+          description: Team
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TeamView'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/members:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    get:
+      tags:
+      - teams
+      operationId: listMembers
+      summary: Team members
+      responses:
+        '200':
+          description: Members, owners first
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Member'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - teams
+      operationId: addMember
+      summary: Add a member by email, or invite them if they have never signed in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemberAdd'
+      responses:
+        '201':
+          description: Added or invited
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MemberAddResult'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/members/{userId}:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    - $ref: '#/components/parameters/UserIdParam'
+    patch:
+      tags:
+      - teams
+      operationId: updateMember
+      summary: Change a member's role
+      description: 409 last_owner for the team's only owner.
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemberUpdate'
+      responses:
+        '200':
+          description: Updated member
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Member'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
+          $ref: '#/components/responses/ErrorReply'
+    delete:
+      tags:
+      - teams
+      operationId: removeMember
+      summary: Remove a member, or leave the team (your own user ID)
+      description: 409 last_owner for the team's only owner.
+      responses:
+        '200':
+          $ref: '#/components/responses/OkReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/invites:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    get:
+      tags:
+      - teams
+      operationId: listInvites
+      summary: Open email invites
+      responses:
+        '200':
+          description: Invites
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Invite'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/invites/{inviteId}:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    - name: inviteId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    delete:
+      tags:
+      - teams
+      operationId: revokeInvite
+      summary: Revoke an open invite
+      description: Team owners and admins (within their role's reach), and platform admins for any open invite, such as
+        an owner invite sent from Admin -> Teams.
+      responses:
+        '200':
+          $ref: '#/components/responses/OkReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/audit:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    get:
+      tags:
+      - teams
+      operationId: listTeamAudit
+      summary: The team's audit log (owners, admins and editors)
+      parameters:
+      - $ref: '#/components/parameters/CursorParam'
+      - $ref: '#/components/parameters/LimitParam'
+      - $ref: '#/components/parameters/AuditActionParam'
+      - $ref: '#/components/parameters/AuditExcludeActionParam'
+      - $ref: '#/components/parameters/AuditActorParam'
+      - $ref: '#/components/parameters/AuditActorKindParam'
+      - $ref: '#/components/parameters/AuditTargetTypeParam'
+      - $ref: '#/components/parameters/AuditFromParam'
+      - $ref: '#/components/parameters/AuditToParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/AuditPageReply'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/audit/{entryId}:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    - name: entryId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    get:
+      tags:
+      - teams
+      operationId: getTeamAuditEntry
+      summary: One entry of the team's audit log, for a linked entry (owners, admins and editors)
+      responses:
+        '200':
+          description: The entry
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AuditEntry'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/users:
+    get:
+      tags:
+      - admin
+      operationId: adminListUsers
+      summary: All users (platform admins and auditors), with how many teams each belongs to
+      parameters:
+      - $ref: '#/components/parameters/SearchParam'
+      - name: role
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/PlatformRole'
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/UserStatus'
+      - $ref: '#/components/parameters/CursorParam'
+      - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: A page of users ordered by email
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UserPage'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/users/{userId}:
+    parameters:
+    - $ref: '#/components/parameters/UserIdParam'
+    get:
+      tags:
+      - admin
+      operationId: adminGetUser
+      summary: A user and their team memberships
+      responses:
+        '200':
+          description: User
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UserDetail'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    patch:
+      tags:
+      - admin
+      operationId: adminUpdateUser
+      summary: Change a user's platform role or suspend/reactivate them
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdate'
+      responses:
+        '200':
+          description: Updated user
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/teams:
+    get:
+      tags:
+      - admin
+      operationId: adminListTeams
+      summary: All teams (platform admins and auditors)
+      parameters:
+      - $ref: '#/components/parameters/SearchParam'
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/TeamStatus'
+      - $ref: '#/components/parameters/CursorParam'
+      - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: A page of teams ordered by slug
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TeamPage'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - admin
+      operationId: adminCreateTeam
+      summary: Create a team and assign its first owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TeamCreated'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/teams/{team}:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    get:
+      tags:
+      - admin
+      operationId: adminGetTeam
+      summary: A team with membership counts
+      responses:
+        '200':
+          description: Team
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TeamSummary'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    patch:
+      tags:
+      - admin
+      operationId: adminUpdateTeam
+      summary: Change team details, or archive/unarchive it
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamUpdate'
+      responses:
+        '200':
+          description: Updated team
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TeamSummary'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/teams/{team}/owners:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    post:
+      tags:
+      - admin
+      operationId: adminAssignOwner
+      summary: Make someone an owner of a team (promotes, adds or invites)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OwnerAssign'
+      responses:
+        '200':
+          description: Assigned
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MemberAddResult'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/audit:
+    get:
+      tags:
+      - admin
+      operationId: adminListAudit
+      summary: The platform-wide audit log (platform admins and auditors)
+      parameters:
+      - $ref: '#/components/parameters/CursorParam'
+      - $ref: '#/components/parameters/LimitParam'
+      - $ref: '#/components/parameters/AuditActionParam'
+      - $ref: '#/components/parameters/AuditExcludeActionParam'
+      - $ref: '#/components/parameters/AuditActorParam'
+      - $ref: '#/components/parameters/AuditActorKindParam'
+      - $ref: '#/components/parameters/AuditTargetTypeParam'
+      - $ref: '#/components/parameters/AuditFromParam'
+      - $ref: '#/components/parameters/AuditToParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/AuditPageReply'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/audit/{entryId}:
+    parameters:
+    - name: entryId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    get:
+      tags:
+      - admin
+      operationId: adminGetAuditEntry
+      summary: One entry of the platform-wide audit log, for a linked entry (platform admins and auditors)
+      responses:
+        '200':
+          description: The entry
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AuditEntry'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/me/api-keys:
+    get:
+      tags:
+      - api-keys
+      operationId: listMyApiKeys
+      summary: The caller's API keys, including revoked and expired ones from the last 30 days
+      responses:
+        '200':
+          description: Keys, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApiKey'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - api-keys
+      operationId: createMyApiKey
+      summary: Create a personal API key (browser session only); the secret is shown once
+      description: 409 too_many_keys (at most 20 active keys per person).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiKeyCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ApiKeyCreated'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '422':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/me/api-keys/{keyId}:
+    parameters:
+    - name: keyId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    delete:
+      tags:
+      - api-keys
+      operationId: revokeMyApiKey
+      summary: Revoke one of the caller's keys; takes effect on the next request
+      responses:
+        '200':
+          $ref: '#/components/responses/OkReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/service-accounts:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    get:
+      tags:
+      - service-accounts
+      operationId: listServiceAccounts
+      summary: The team's service accounts (members and above; platform staff read any team)
+      responses:
+        '200':
+          description: Service accounts ordered by name
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServiceAccount'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - service-accounts
+      operationId: createServiceAccount
+      summary: Create a service account (team owners and admins)
+      description: 409 name_taken (names are unique within the team); 409 team_archived. At most 100 per team.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceAccountCreate'
+      responses:
+        '201':
+          description: Created
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ServiceAccount'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/service-accounts/{serviceAccountId}:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    - $ref: '#/components/parameters/ServiceAccountIdParam'
+    get:
+      tags:
+      - service-accounts
+      operationId: getServiceAccount
+      summary: One of the team's service accounts
+      responses:
+        '200':
+          description: Service account
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ServiceAccount'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    patch:
+      tags:
+      - service-accounts
+      operationId: updateServiceAccount
+      summary: Change a service account (team owners and admins); turning it off stops its keys at the next request
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceAccountUpdate'
+      responses:
+        '200':
+          description: Updated
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ServiceAccount'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
+          $ref: '#/components/responses/ErrorReply'
+    delete:
+      tags:
+      - service-accounts
+      operationId: deleteServiceAccount
+      summary: Delete a service account and revoke its keys (team owners and admins); its call records are kept
+      responses:
+        '200':
+          $ref: '#/components/responses/OkReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/service-accounts/{serviceAccountId}/keys:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    - $ref: '#/components/parameters/ServiceAccountIdParam'
+    get:
+      tags:
+      - service-accounts
+      operationId: listServiceAccountKeys
+      summary: A service account's keys, including revoked and expired ones from the last 30 days (team owners and admins;
+        platform staff)
+      responses:
+        '200':
+          description: Keys, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServiceAccountKey'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - service-accounts
+      operationId: createServiceAccountKey
+      summary: Create a key (team owners and admins, browser session only); the secret is shown once
+      description: 409 too_many_keys (at most 2 active keys, for rotation). 409 disabled for a turned-off account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceAccountKeyCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ServiceAccountKeyCreated'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '422':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/service-accounts/{serviceAccountId}/keys/{keyId}:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    - $ref: '#/components/parameters/ServiceAccountIdParam'
+    - name: keyId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    delete:
+      tags:
+      - service-accounts
+      operationId: revokeServiceAccountKey
+      summary: Revoke a key (team owners and admins); takes effect on the next request
+      responses:
+        '200':
+          $ref: '#/components/responses/OkReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/service-accounts:
+    get:
+      tags:
+      - admin
+      operationId: adminListServiceAccounts
+      summary: Every team's service accounts (platform admins and auditors)
+      description: q matches the account's name and its team's slug and name. An unknown team lists nothing.
+      parameters:
+      - $ref: '#/components/parameters/SearchParam'
+      - name: team
+        in: query
+        required: false
+        description: Team slug or ID (that team's service accounts)
+        schema:
+          type: string
+          maxLength: 100
+      - $ref: '#/components/parameters/CursorParam'
+      - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: A page of service accounts ordered by name
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ServiceAccountPage'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+components:
+  headers:
+    ETag:
+      description: Quoted revision, for If-Match on the next update
+      schema:
+        type: string
+  parameters:
+    AuditActionParam:
+      name: action
+      in: query
+      required: false
+      description: An exact action (team.member_add), or a prefix ending in a dot (team.) for every action in that group.
+      schema:
+        type: string
+        maxLength: 100
+        pattern: ^[a-z][a-z_]*\.[a-z_]*$
+        example: team.
+    AuditActorKindParam:
+      name: actorKind
+      in: query
+      required: false
+      description: Only entries by the system
+      schema:
+        type: string
+        enum:
+        - system
+    AuditActorParam:
+      name: actorUserId
+      in: query
+      required: false
+      description: Only entries by this person (including their API keys)
+      schema:
+        type: string
+        format: uuid
+    AuditExcludeActionParam:
+      name: excludeAction
+      in: query
+      required: false
+      description: 'Action groups (prefixes ending in a dot, comma-separated) to leave out: auth. hides sign-ins and sign-outs.'
+      schema:
+        type: string
+        maxLength: 100
+        pattern: ^[a-z][a-z_]*\.(,[a-z][a-z_]*\.)*$
+        example: auth.
+    AuditFromParam:
+      name: from
+      in: query
+      required: false
+      description: Entries at or after this time
+      schema:
+        type: string
+        format: date-time
+    AuditTargetTypeParam:
+      name: targetType
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 64
+        pattern: ^[a-z_]+$
+        example: team
+    AuditToParam:
+      name: to
+      in: query
+      required: false
+      description: Entries before this time (exclusive)
+      schema:
+        type: string
+        format: date-time
+    CursorParam:
+      name: cursor
+      in: query
+      required: false
+      description: nextCursor from the previous page
+      schema:
+        type: string
+    IfMatchHeader:
+      name: If-Match
+      in: header
+      required: true
+      description: The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
+      schema:
+        type: string
+    LimitParam:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    SearchParam:
+      name: q
+      in: query
+      required: false
+      description: Case-insensitive substring match
+      schema:
+        type: string
+        maxLength: 200
+    TeamParam:
+      name: team
+      in: path
+      required: true
+      description: Team slug or ID
+      schema:
+        type: string
+    UserIdParam:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ServiceAccountIdParam:
+      name: serviceAccountId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    AuditPageReply:
+      description: A page of audit entries, newest first
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - data
+            properties:
+              data:
+                $ref: '#/components/schemas/AuditPage'
+    ErrorReply:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    HealthReply:
+      description: Health status
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - data
+            properties:
+              data:
+                $ref: '#/components/schemas/Health'
+    OkReply:
+      description: Success
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+            - data
+            properties:
+              data:
+                $ref: '#/components/schemas/Ok'
+  schemas:
+    AuditActor:
+      type: object
+      description: Who made the change, resolved when the log is read
+      required:
+      - kind
+      properties:
+        kind:
+          type: string
+          enum:
+          - user
+          - api_key
+          - system
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        email:
+          type: string
+        apiKeyName:
+          type: string
+          description: The API key used (api_key actors)
+    AuditEntry:
+      type: object
+      required:
+      - id
+      - occurredAt
+      - actorKind
+      - actor
+      - action
+      - targetType
+      - targetId
+      - targetLabel
+      - targetExists
+      - metadata
+      - requestId
+      properties:
+        id:
+          type: integer
+          format: int64
+        occurredAt:
+          type: string
+          format: date-time
+        actorKind:
+          type: string
+          enum:
+          - user
+          - api_key
+          - system
+        actorUserId:
+          type: string
+          format: uuid
+          nullable: true
+        teamId:
+          type: string
+          format: uuid
+          nullable: true
+        teamName:
+          type: string
+          nullable: true
+          description: The team's name for a team's entry (null for platform entries, or when the team was deleted)
+        teamSlug:
+          type: string
+          nullable: true
+          description: The team's slug, with teamName
+        action:
+          type: string
+          example: team.member_add
+        actor:
+          $ref: '#/components/schemas/AuditActor'
+        targetType:
+          type: string
+        targetId:
+          type: string
+        targetLabel:
+          type: string
+          nullable: true
+          description: The target's current name, resolved when the log is read. For a deleted target, the last name recorded
+            in the audit log; null when none is known.
+        targetExists:
+          type: boolean
+          description: Whether the target still exists (deleted and soft-deleted targets are false)
+        before:
+          description: Configuration before the change
+          nullable: true
+        after:
+          description: Configuration after the change
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+        requestId:
+          type: string
+        via:
+          allOf:
+          - $ref: '#/components/schemas/AuditVia'
+          nullable: true
+          description: How the person acted. Null for the systems entries.
+        clientIp:
+          type: string
+          nullable: true
+          description: The caller's address as recorded, in the platform log only (null in a team's log, or when none was
+            recorded).
+    AuditPage:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEntry'
+        nextCursor:
+          type: string
+          nullable: true
+    AuditVia:
+      type: object
+      required:
+      - kind
+      properties:
+        kind:
+          type: string
+          enum:
+          - session
+          - api_key
+          description: 'session: signed in to the web app; api_key: with an API key.'
+        name:
+          type: string
+          description: The API key's name, when known
+    AuthConfig:
+      type: object
+      required:
+      - oidcEnabled
+      - devAuthEnabled
+      - loginUrl
+      - devAccounts
+      - instance
+      properties:
+        instance:
+          $ref: '#/components/schemas/InstanceInfo'
+        oidcEnabled:
+          type: boolean
+        devAuthEnabled:
+          type: boolean
+        loginUrl:
+          type: string
+        devAccounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/DevAccount'
+        teamRequestUrl:
+          type: string
+          nullable: true
+          description: Where people request a new team (only platform admins create teams)
+    Capabilities:
+      type: object
+      required:
+      - platformAdmin
+      - platformAuditor
+      properties:
+        platformAdmin:
+          type: boolean
+        platformAuditor:
+          type: boolean
+    DevAccount:
+      type: object
+      required:
+      - id
+      - name
+      - email
+      - platformRole
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        platformRole:
+          $ref: '#/components/schemas/PlatformRole'
+    DevLoginRequest:
+      type: object
+      required:
+      - account
+      properties:
+        account:
+          type: string
+          example: admin
+    ErrorResponse:
+      type: object
+      required:
+      - error
+      properties:
+        error:
+          type: object
+          required:
+          - code
+          - message
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+              description: Structured context for some errors.
+    Health:
+      type: object
+      required:
+      - status
+      - checks
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+          - draining
+          - unavailable
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+    InstanceInfo:
+      type: object
+      description: How this deployment presents itself (INSTANCE_NAME, ORG_NAME, UI_THEME, UI_LOGO_URL, SUPPORT_URL).
+      required:
+      - name
+      - orgName
+      - theme
+      - logoUrl
+      - supportUrl
+      properties:
+        name:
+          type: string
+          example: Pi Durable Platform
+          description: Product name shown in the UI and page titles
+        orgName:
+          type: string
+          example: Example Corp
+          description: Organisation name (empty when not configured)
+        theme:
+          type: string
+          enum:
+          - neutral
+          description: UI theme, applied as data-brand on the html element
+        logoUrl:
+          type: string
+          nullable: true
+          example: https://www.example.edu/logo.svg
+          description: https URL or same-origin path of the logo
+        supportUrl:
+          type: string
+          nullable: true
+          example: https://help.example.edu/ai
+          description: 'Where the Help link points: an http(s) URL or a mailto: address'
+    Invite:
+      type: object
+      required:
+      - id
+      - email
+      - role
+      - createdAt
+      - expiresAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        role:
+          $ref: '#/components/schemas/TeamRole'
+        invitedBy:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+    Me:
+      type: object
+      required:
+      - user
+      - csrfToken
+      - capabilities
+      - teams
+      - groups
+      properties:
+        teams:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyTeam'
+        groups:
+          type: array
+          description: The caller's IdP groups as of their last sign-in (from OIDC_GROUPS_CLAIM; may be empty).
+          items:
+            type: string
+        user:
+          $ref: '#/components/schemas/User'
+        csrfToken:
+          type: string
+        capabilities:
+          $ref: '#/components/schemas/Capabilities'
+    Member:
+      type: object
+      required:
+      - user
+      - role
+      - revision
+      - createdAt
+      properties:
+        user:
+          $ref: '#/components/schemas/MemberUser'
+        role:
+          $ref: '#/components/schemas/TeamRole'
+        revision:
+          $ref: '#/components/schemas/Revision'
+        createdAt:
+          type: string
+          format: date-time
+    MemberAdd:
+      type: object
+      required:
+      - email
+      - role
+      properties:
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/TeamRole'
+    MemberAddResult:
+      type: object
+      required:
+      - status
+      properties:
+        status:
+          type: string
+          enum:
+          - added
+          - invited
+        member:
+          $ref: '#/components/schemas/Member'
+        invite:
+          $ref: '#/components/schemas/Invite'
+    MemberUpdate:
+      type: object
+      required:
+      - role
+      properties:
+        role:
+          $ref: '#/components/schemas/TeamRole'
+    MemberUser:
+      type: object
+      required:
+      - id
+      - email
+      - displayName
+      - status
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        displayName:
+          type: string
+        status:
+          $ref: '#/components/schemas/UserStatus'
+    MyTeam:
+      type: object
+      required:
+      - id
+      - slug
+      - name
+      - status
+      - role
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        status:
+          $ref: '#/components/schemas/TeamStatus'
+        role:
+          $ref: '#/components/schemas/TeamRole'
+    Ok:
+      type: object
+      required:
+      - ok
+      properties:
+        ok:
+          type: boolean
+    OwnerAssign:
+      type: object
+      required:
+      - email
+      properties:
+        email:
+          type: string
+          format: email
+    PlatformRole:
+      type: string
+      enum:
+      - none
+      - platform_admin
+      - platform_auditor
+    Revision:
+      type: integer
+      format: int64
+      description: Increases on every change. Send it back in If-Match.
+    Team:
+      type: object
+      required:
+      - id
+      - slug
+      - name
+      - description
+      - status
+      - revision
+      - createdAt
+      - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/TeamStatus'
+        revision:
+          $ref: '#/components/schemas/Revision'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+    TeamCreate:
+      type: object
+      required:
+      - slug
+      - name
+      - ownerEmail
+      properties:
+        slug:
+          type: string
+          example: platform-tools
+        name:
+          type: string
+          example: Platform Tools
+        description:
+          type: string
+        ownerEmail:
+          type: string
+          format: email
+    TeamCreated:
+      type: object
+      required:
+      - team
+      - owner
+      properties:
+        team:
+          $ref: '#/components/schemas/TeamSummary'
+        owner:
+          $ref: '#/components/schemas/MemberAddResult'
+    TeamPage:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamSummary'
+        nextCursor:
+          type: string
+          nullable: true
+    TeamRole:
+      type: string
+      enum:
+      - owner
+      - admin
+      - editor
+      - member
+    TeamStatus:
+      type: string
+      enum:
+      - active
+      - archived
+    TeamSummary:
+      type: object
+      required:
+      - team
+      - memberCount
+      - ownerCount
+      - ownerInvites
+      properties:
+        team:
+          $ref: '#/components/schemas/Team'
+        memberCount:
+          type: integer
+          format: int64
+        ownerCount:
+          type: integer
+          format: int64
+        ownerInvites:
+          type: integer
+          format: int64
+          description: Open owner invites (an owner invited by email who hasn't signed in yet)
+    TeamUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/TeamStatus'
+    TeamView:
+      type: object
+      required:
+      - team
+      properties:
+        team:
+          $ref: '#/components/schemas/Team'
+        role:
+          description: The caller's role; absent when viewing as a platform admin or auditor
+          allOf:
+          - $ref: '#/components/schemas/TeamRole'
+    User:
+      type: object
+      required:
+      - id
+      - email
+      - displayName
+      - platformRole
+      - status
+      - revision
+      - createdAt
+      properties:
+        revision:
+          $ref: '#/components/schemas/Revision'
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        displayName:
+          type: string
+        platformRole:
+          $ref: '#/components/schemas/PlatformRole'
+        status:
+          $ref: '#/components/schemas/UserStatus'
+        createdAt:
+          type: string
+          format: date-time
+        lastLoginAt:
+          type: string
+          format: date-time
+          nullable: true
+        teamCount:
+          type: integer
+          format: int64
+          description: Teams the user belongs to (admin user list only)
+    UserDetail:
+      type: object
+      required:
+      - user
+      - teams
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        teams:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyTeam'
+    UserPage:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        nextCursor:
+          type: string
+          nullable: true
+    UserStatus:
+      type: string
+      enum:
+      - active
+      - suspended
+    UserUpdate:
+      type: object
+      properties:
+        platformRole:
+          $ref: '#/components/schemas/PlatformRole'
+        status:
+          $ref: '#/components/schemas/UserStatus'
+    ApiKey:
+      type: object
+      required:
+      - id
+      - name
+      - prefix
+      - createdAt
+      - status
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        prefix:
+          type: string
+          description: The first characters of the key, to recognise it (pdp_xxxxxxxx)
+        status:
+          type: string
+          enum:
+          - active
+          - expired
+          - revoked
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+    ApiKeyCreate:
+      type: object
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: Deploy script on my laptop
+        expiresInDays:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 365
+          default: 90
+          description: Keys always expire
+    ApiKeyCreated:
+      type: object
+      required:
+      - key
+      - secret
+      properties:
+        key:
+          $ref: '#/components/schemas/ApiKey'
+        secret:
+          type: string
+          description: The full key, shown only now.
+    ServiceAccountRole:
+      type: string
+      enum:
+      - member
+      - editor
+      description: The service account's team role (never owner or admin)
+    ServiceAccount:
+      type: object
+      required:
+      - id
+      - teamId
+      - teamSlug
+      - name
+      - description
+      - role
+      - enabled
+      - activeKeyCount
+      - revision
+      - createdAt
+      - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        teamSlug:
+          type: string
+        name:
+          type: string
+          example: ci-release-bot
+        description:
+          type: string
+        role:
+          $ref: '#/components/schemas/ServiceAccountRole'
+        enabled:
+          type: boolean
+        activeKeyCount:
+          type: integer
+          format: int64
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdByName:
+          type: string
+          nullable: true
+        revision:
+          $ref: '#/components/schemas/Revision'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ServiceAccountPage:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceAccount'
+        nextCursor:
+          type: string
+          nullable: true
+    ServiceAccountCreate:
+      type: object
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          pattern: ^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$
+          description: Lower-case letters, digits and dashes; unique within the team
+        description:
+          type: string
+          maxLength: 2000
+        role:
+          allOf:
+          - $ref: '#/components/schemas/ServiceAccountRole'
+          default: member
+        enabled:
+          type: boolean
+          default: true
+    ServiceAccountUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          pattern: ^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$
+        description:
+          type: string
+          maxLength: 2000
+        role:
+          $ref: '#/components/schemas/ServiceAccountRole'
+        enabled:
+          type: boolean
+    ServiceAccountKey:
+      type: object
+      required:
+      - id
+      - name
+      - prefix
+      - status
+      - createdAt
+      - expiresAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        prefix:
+          type: string
+          description: The first characters of the key (pdp_sa_xxxxxxxx)
+        status:
+          type: string
+          enum:
+          - active
+          - expired
+          - revoked
+        createdAt:
+          type: string
+          format: date-time
+        createdByName:
+          type: string
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+    ServiceAccountKeyCreate:
+      type: object
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        expiresInDays:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 365
+          default: 90
+    ServiceAccountKeyCreated:
+      type: object
+      required:
+      - key
+      - secret
+      properties:
+        key:
+          $ref: '#/components/schemas/ServiceAccountKey'
+        secret:
+          type: string
+          description: The full key, shown only now
