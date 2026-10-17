@@ -21,7 +21,10 @@ tags:
 - name: service-accounts
   description: Team-owned identities for services, agents, CI and scripts
 - name: agents
-  description: Durable Pi agents, their conversations (threads) and templates
+  description: >-
+    Durable Pi agents, their conversations (threads) and templates. Every agent operation also accepts
+    `Authorization: Bearer <key>`: a personal API key acts as its person; a team service account key acts in its
+    team with the account's role.
 paths:
   /healthz:
     get:
@@ -1158,6 +1161,35 @@ paths:
   /v1/teams/{team}/agents:
     parameters:
     - $ref: '#/components/parameters/TeamParam'
+    get:
+      tags:
+      - agents
+      operationId: listTeamAgents
+      summary: The team's agents (members and the team's service accounts)
+      description: Service-managed agents (with an external key) are listed only for service accounts, with includeManaged=true.
+      parameters:
+      - name: includeManaged
+        in: query
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: Agents by name
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Agent'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
     post:
       tags:
       - agents
@@ -1186,6 +1218,71 @@ paths:
                   data:
                     $ref: '#/components/schemas/Agent'
         '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/agents/by-key/{externalKey}:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    - name: externalKey
+      in: path
+      required: true
+      description: The service's own key for the agent, for example its user's ID
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9._:@-]{1,200}$'
+    put:
+      tags:
+      - agents
+      operationId: ensureTeamAgentByKey
+      summary: The team's service-managed agent with this key, created the first time (editor service accounts)
+      description: >-
+        Idempotent; 201 when it was created. For services that give each of their users an agent, such as a chat
+        app. Service-managed agents are used only by the team's service accounts: the team's people don't see their
+        conversations, though its owners and admins can delete them. The body names a new agent and is ignored for
+        an existing one.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentEnsure'
+      responses:
+        '200':
+          description: The existing agent
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Agent'
+        '201':
+          description: Created
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
           $ref: '#/components/responses/ErrorReply'
         '403':
           $ref: '#/components/responses/ErrorReply'
@@ -1691,6 +1788,10 @@ components:
           type: string
         templateName:
           type: string
+        externalKey:
+          type: string
+          nullable: true
+          description: Set for service-managed agents (created by a service account with its own key)
         enabled:
           type: boolean
         running:
@@ -1716,6 +1817,19 @@ components:
         name:
           type: string
           maxLength: 100
+        description:
+          type: string
+          maxLength: 2000
+        template:
+          type: string
+          description: Template slug (default assistant)
+    AgentEnsure:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          description: Defaults to the external key
         description:
           type: string
           maxLength: 2000
@@ -1851,6 +1965,7 @@ components:
           enum:
           - user
           - api_key
+          - service_account
           - system
         userId:
           type: string

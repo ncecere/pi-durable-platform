@@ -186,9 +186,15 @@ func toAPIAudit(e dbgen.ListAuditRow, platform bool) apitypes.AuditEntry {
 		out.After = e.AfterState
 	}
 	_ = json.Unmarshal(e.Metadata, &out.Metadata)
-	if e.ActorKind == "user" && e.ActorUserID.Valid {
-		// Every person acts through a browser session in this release.
+	switch {
+	case e.ActorKind == "user" && e.ActorUserID.Valid:
 		out.Via = &apitypes.AuditVia{Kind: apitypes.AuditViaKindSession}
+	case e.ActorKind == "api_key":
+		v := apitypes.AuditVia{Kind: apitypes.AuditViaKindApiKey}
+		if name, ok := out.Metadata["apiKeyName"].(string); ok && name != "" {
+			v.Name = &name
+		}
+		out.Via = &v
 	}
 	if platform && e.ClientIP != "" {
 		out.ClientIp = &e.ClientIP
@@ -203,6 +209,18 @@ func toAPIAuditActor(e dbgen.ListAuditRow) apitypes.AuditActor {
 	}
 	if e.ActorDisplayName != nil && *e.ActorDisplayName != "" {
 		actor.DisplayName = e.ActorDisplayName
+	}
+	var meta map[string]any
+	_ = json.Unmarshal(e.Metadata, &meta)
+	if e.ActorKind == "service_account" {
+		if name, ok := meta["serviceAccountName"].(string); ok && name != "" {
+			actor.DisplayName = &name
+		}
+	}
+	if e.ActorKind == "api_key" {
+		if name, ok := meta["apiKeyName"].(string); ok && name != "" {
+			actor.ApiKeyName = &name
+		}
 	}
 	return actor
 }

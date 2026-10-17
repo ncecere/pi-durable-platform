@@ -100,3 +100,5 @@ func text(m apitypes.ChatMessage) string {
 	}
 	return *m.Text
 }
+
+func sleep100() { time.Sleep(100 * time.Millisecond) }

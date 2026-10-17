@@ -272,6 +272,13 @@ func (s *Service) admitLogin(w http.ResponseWriter, r *http.Request) bool {
 	return s.admit(w, r, ratelimit.Bucket("login", s.clientIP(r)), s.cfg.LoginAttemptsPerMinute, "Too many sign-in attempts. Try again shortly.")
 }
 
+// AdmitRequest applies the per-caller request limit (REQUESTS_PER_MINUTE) to
+// callers authenticated outside RequireSession, such as API keys. key names
+// the caller ("apikey:<id>", "service-account:<id>").
+func (s *Service) AdmitRequest(w http.ResponseWriter, r *http.Request, key string) bool {
+	return s.admit(w, r, key, s.cfg.RequestsPerMinute, "Too many requests. Try again shortly.")
+}
+
 func (s *Service) admit(w http.ResponseWriter, r *http.Request, key string, limit int, message string) bool {
 	ok, wait, err := ratelimit.Allow(r.Context(), s.limiter, key, limit)
 	if err != nil {

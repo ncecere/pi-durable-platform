@@ -17,21 +17,25 @@ import (
 func (a *api) agentRoutes() []route {
 	const one = "/v1/agents/{agentId}"
 	const thread = one + "/threads/{threadId}"
+	// Every agent route takes a browser session or a key (sessionOrKey).
+	k := a.sessionOrKey
 	return []route{
-		{"GET", "/v1/agent-templates", a.session(a.listAgentTemplates)},
-		{"GET", "/v1/agents", a.session(a.listAgents)},
-		{"POST", "/v1/me/assistant", a.session(a.ensureMyAssistant)},
-		{"POST", "/v1/teams/{team}/agents", a.session(a.createTeamAgent)},
-		{"GET", one, a.session(a.getAgent)},
-		{"PATCH", one, a.session(a.updateAgent)},
-		{"DELETE", one, a.session(a.deleteAgent)},
-		{"POST", one + "/hibernate", a.session(a.hibernateAgent)},
-		{"GET", one + "/threads", a.session(a.agentProxy("/threads"))},
-		{"GET", thread, a.session(a.agentProxy(""))},
-		{"DELETE", thread, a.session(a.agentProxy(""))},
-		{"POST", thread + "/messages", a.session(a.agentProxy("/messages"))},
-		{"POST", thread + "/stop", a.session(a.agentProxy("/stop"))},
-		{"GET", thread + "/events", a.session(a.agentProxy("/events"))},
+		{"GET", "/v1/agent-templates", k(a.listAgentTemplates)},
+		{"GET", "/v1/agents", k(a.listAgents)},
+		{"POST", "/v1/me/assistant", k(a.ensureMyAssistant)},
+		{"GET", "/v1/teams/{team}/agents", k(a.listTeamAgents)},
+		{"POST", "/v1/teams/{team}/agents", k(a.createTeamAgent)},
+		{"PUT", "/v1/teams/{team}/agents/by-key/{externalKey}", k(a.ensureTeamAgentByKey)},
+		{"GET", one, k(a.getAgent)},
+		{"PATCH", one, k(a.updateAgent)},
+		{"DELETE", one, k(a.deleteAgent)},
+		{"POST", one + "/hibernate", k(a.hibernateAgent)},
+		{"GET", one + "/threads", k(a.agentProxy("/threads"))},
+		{"GET", thread, k(a.agentProxy(""))},
+		{"DELETE", thread, k(a.agentProxy(""))},
+		{"POST", thread + "/messages", k(a.agentProxy("/messages"))},
+		{"POST", thread + "/stop", k(a.agentProxy("/stop"))},
+		{"GET", thread + "/events", k(a.agentProxy("/events"))},
 	}
 }
 
@@ -45,7 +49,7 @@ func toAPIAgent(v agents.View) apitypes.Agent {
 		Id: ag.ID, Kind: apitypes.AgentKind(ag.Kind), Name: ag.Name, Description: ag.Description,
 		TeamSlug: v.TeamSlug, TeamName: v.TeamName, TemplateSlug: v.TemplateSlug, TemplateName: v.TemplateName,
 		Enabled: ag.Enabled, Running: v.Running, LastUsedAt: ag.LastUsedAt, Revision: ag.Revision,
-		CreatedAt: ag.CreatedAt, UpdatedAt: ag.UpdatedAt,
+		CreatedAt: ag.CreatedAt, UpdatedAt: ag.UpdatedAt, ExternalKey: ag.ExternalKey,
 	}
 	if ag.TeamID.Valid {
 		id := ag.TeamID.UUID
@@ -90,6 +94,32 @@ func (a *api) createTeamAgent(w http.ResponseWriter, r *http.Request) {
 	setIf(&ci.Template, in.Template)
 	v, err := a.Agents.CreateTeamAgent(r.Context(), a.actor(r), r.PathValue("team"), ci)
 	a.writeAgent(w, r, http.StatusCreated, v, err)
+}
+
+// listTeamAgents reads ?includeManaged=true (service accounts: also the
+// team's service-managed agents).
+func (a *api) listTeamAgents(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.Agents.ListTeam(r.Context(), a.actor(r), r.PathValue("team"), r.URL.Query().Get("includeManaged") == "true")
+	writeList(w, r, rows, err, toAPIAgent)
+}
+
+// ensureTeamAgentByKey returns the team's service-managed agent with the
+// key, creating it the first time (201).
+func (a *api) ensureTeamAgentByKey(w http.ResponseWriter, r *http.Request) {
+	var in apitypes.AgentEnsure
+	if r.ContentLength != 0 && !httpx.Decode(w, r, &in) {
+		return
+	}
+	ci := agents.CreateInput{}
+	setIf(&ci.Name, in.Name)
+	setIf(&ci.Description, in.Description)
+	setIf(&ci.Template, in.Template)
+	v, created, err := a.Agents.EnsureByKey(r.Context(), a.actor(r), r.PathValue("team"), r.PathValue("externalKey"), ci)
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	a.writeAgent(w, r, status, v, err)
 }
 
 func (a *api) getAgent(w http.ResponseWriter, r *http.Request) {

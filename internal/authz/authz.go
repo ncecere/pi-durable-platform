@@ -29,30 +29,56 @@ const (
 )
 
 // Actor is the principal performing an operation, plus request metadata for
-// the audit log. Every actor of the management API is a signed-in person
-// (browser session).
+// the audit log: a person (browser session or personal API key), or a team's
+// service account (its key). A service account has no user ID and no
+// platform role; it acts in its own team with its own team role.
 type Actor struct {
 	UserID       uuid.UUID
 	PlatformRole string
 	RequestID    string
 	ClientIP     string
+
+	// APIKey is the personal API key the person used (zero: a session).
+	APIKeyID   uuid.UUID
+	APIKeyName string
+
+	// Service is set for a service account.
+	Service *ServiceActor
 }
 
-func (a Actor) IsPlatformAdmin() bool { return a.PlatformRole == PlatformAdmin }
+// ServiceActor is a team service account acting through one of its keys.
+type ServiceActor struct {
+	AccountID uuid.UUID
+	Name      string
+	TeamID    uuid.UUID
+	Role      string // member or editor
+	KeyName   string
+}
+
+func (a Actor) IsPlatformAdmin() bool { return a.Service == nil && a.PlatformRole == PlatformAdmin }
 
 // CanReadPlatform reports whether the actor may read platform metadata
 // (users, teams, audit). It never implies access to team content.
 func (a Actor) CanReadPlatform() bool {
-	return a.PlatformRole == PlatformAdmin || a.PlatformRole == PlatformAuditor
+	return a.Service == nil && (a.PlatformRole == PlatformAdmin || a.PlatformRole == PlatformAuditor)
 }
 
 // Audit returns an audit entry pre-filled with the actor.
 func (a Actor) Audit(action, targetType, targetID string) audit.Entry {
-	return audit.Entry{
+	e := audit.Entry{
 		ActorKind: audit.ActorUser, ActorUserID: a.UserID,
 		Action: action, TargetType: targetType, TargetID: targetID,
 		RequestID: a.RequestID, ClientIP: a.ClientIP,
 	}
+	switch {
+	case a.Service != nil:
+		e.ActorKind, e.ActorUserID, e.ActorServiceAccountID = audit.ActorServiceAccount, uuid.Nil, a.Service.AccountID
+		e.Metadata = map[string]any{"serviceAccountName": a.Service.Name, "keyName": a.Service.KeyName}
+	case a.APIKeyID != uuid.Nil:
+		e.ActorKind = audit.ActorAPIKey
+		e.Metadata = map[string]any{"apiKeyId": a.APIKeyID.String(), "apiKeyName": a.APIKeyName}
+	}
+	return e
 }
 
 var roleRank = map[string]int{RoleMember: 1, RoleEditor: 2, RoleAdmin: 3, RoleOwner: 4}

@@ -15,32 +15,34 @@ import (
 
 const insertAudit = `-- name: InsertAudit :exec
 INSERT INTO audit_log (
-    actor_kind, actor_user_id, team_id, action, target_type, target_id,
+    actor_kind, actor_user_id, actor_service_account_id, team_id, action, target_type, target_id,
     before_state, after_state, metadata, request_id, client_ip
 ) VALUES (
-    $1, $2, $3, $4, $5, $6,
-    $7, $8, $9, $10, $11
+    $1, $2, $3, $4, $5, $6, $7,
+    $8, $9, $10, $11, $12
 )
 `
 
 type InsertAuditParams struct {
-	ActorKind   string
-	ActorUserID uuid.NullUUID
-	TeamID      uuid.NullUUID
-	Action      string
-	TargetType  string
-	TargetID    string
-	BeforeState json.RawMessage
-	AfterState  json.RawMessage
-	Metadata    json.RawMessage
-	RequestID   string
-	ClientIP    string
+	ActorKind             string
+	ActorUserID           uuid.NullUUID
+	ActorServiceAccountID uuid.NullUUID
+	TeamID                uuid.NullUUID
+	Action                string
+	TargetType            string
+	TargetID              string
+	BeforeState           json.RawMessage
+	AfterState            json.RawMessage
+	Metadata              json.RawMessage
+	RequestID             string
+	ClientIP              string
 }
 
 func (q *Queries) InsertAudit(ctx context.Context, arg InsertAuditParams) error {
 	_, err := q.db.Exec(ctx, insertAudit,
 		arg.ActorKind,
 		arg.ActorUserID,
+		arg.ActorServiceAccountID,
 		arg.TeamID,
 		arg.Action,
 		arg.TargetType,

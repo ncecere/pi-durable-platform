@@ -11,6 +11,7 @@ package agents
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -35,7 +36,8 @@ import (
 // DefaultTemplate is the template personal assistants are made from.
 const DefaultTemplate = "assistant"
 
-// MaxPerTeam is how many agents a team may have.
+// MaxPerTeam is how many agents a team may create by hand (service-managed
+// agents, one per user of a service, are not counted).
 const MaxPerTeam = 50
 
 var (
@@ -48,6 +50,9 @@ var (
 	errDisabled         = apperr.Conflict("agent_disabled", "This agent is turned off")
 	errBadName          = apperr.Invalid("invalid_name", "Name must be 1-100 characters on one line")
 	errBadDesc          = apperr.Invalid("invalid_description", "Description must be at most 2000 characters")
+	errBadKey           = apperr.Invalid("invalid_external_key", "External keys are 1-200 letters, digits or . _ : @ -")
+	errPeopleOnly       = apperr.Forbidden("Personal assistants belong to people; service accounts use team agents")
+	externalKeyRE       = regexp.MustCompile(`^[A-Za-z0-9._:@-]{1,200}$`)
 )
 
 // Service manages agents.
@@ -100,6 +105,9 @@ func (s *Service) Templates(ctx context.Context) ([]dbgen.AgentTemplate, error) 
 // List returns the agents the actor may use: their assistant and their
 // teams' agents.
 func (s *Service) List(ctx context.Context, a authz.Actor) ([]View, error) {
+	if a.Service != nil {
+		return s.ListTeam(ctx, a, a.Service.TeamID.String(), false)
+	}
 	rows, err := s.q.ListAgentsForUser(ctx, uuid.NullUUID{UUID: a.UserID, Valid: true})
 	if err != nil {
 		return nil, err
@@ -117,14 +125,26 @@ func (s *Service) List(ctx context.Context, a authz.Actor) ([]View, error) {
 	return out, nil
 }
 
+// roleIn is the actor's role in a team: a person's membership, or a service
+// account's own role in its own team ("" otherwise).
+func roleIn(ctx context.Context, q *dbgen.Queries, a authz.Actor, teamID uuid.UUID) (string, error) {
+	if a.Service != nil {
+		if a.Service.TeamID == teamID {
+			return a.Service.Role, nil
+		}
+		return "", nil
+	}
+	return teams.MemberRole(ctx, q, teamID, a.UserID)
+}
+
 // subject resolves the actor's relationship to an agent.
 func subject(ctx context.Context, q *dbgen.Queries, a authz.Actor, ag dbgen.Agent) (authz.AgentSubject, error) {
-	sub := authz.AgentSubject{Kind: ag.Kind}
+	sub := authz.AgentSubject{Kind: ag.Kind, IsService: a.Service != nil, ServiceManaged: ag.ExternalKey != nil}
 	switch ag.Kind {
 	case authz.AgentPersonal:
-		sub.IsOwner = ag.OwnerUserID.Valid && ag.OwnerUserID.UUID == a.UserID
+		sub.IsOwner = a.Service == nil && ag.OwnerUserID.Valid && ag.OwnerUserID.UUID == a.UserID
 	case authz.AgentTeam:
-		role, err := teams.MemberRole(ctx, q, ag.TeamID.UUID, a.UserID)
+		role, err := roleIn(ctx, q, a, ag.TeamID.UUID)
 		if err != nil {
 			return sub, err
 		}
@@ -176,6 +196,9 @@ func (s *Service) Get(ctx context.Context, a authz.Actor, id uuid.UUID) (View, e
 // Personal returns the actor's assistant, creating it from the default
 // template the first time (idempotent; concurrent calls create one).
 func (s *Service) Personal(ctx context.Context, a authz.Actor) (View, bool, error) {
+	if a.Service != nil {
+		return View{}, false, errPeopleOnly
+	}
 	if ag, err := s.q.GetPersonalAgent(ctx, uuid.NullUUID{UUID: a.UserID, Valid: true}); err == nil {
 		v, err := s.view(ctx, s.q, ag)
 		return v, false, err
@@ -220,32 +243,59 @@ type CreateInput struct {
 	Name, Description, Template string
 }
 
-// CreateTeamAgent makes an agent for a team (editors and above).
+// CreateTeamAgent makes an agent for a team (editors and above, people or
+// editor service accounts).
 func (s *Service) CreateTeamAgent(ctx context.Context, a authz.Actor, teamRef string, in CreateInput) (View, error) {
+	v, _, err := s.createInTeam(ctx, a, teamRef, in, nil)
+	return v, err
+}
+
+// EnsureByKey returns the team's service-managed agent with this external
+// key, creating it the first time (editor service accounts only). in names a
+// new agent; an existing one is returned as it is. created reports which.
+func (s *Service) EnsureByKey(ctx context.Context, a authz.Actor, teamRef, key string, in CreateInput) (View, bool, error) {
+	if !externalKeyRE.MatchString(key) {
+		return View{}, false, errBadKey
+	}
+	if strings.TrimSpace(in.Name) == "" {
+		in.Name = key
+		if len(in.Name) > 100 {
+			in.Name = in.Name[:100]
+		}
+	}
+	return s.createInTeam(ctx, a, teamRef, in, &key)
+}
+
+func (s *Service) createInTeam(ctx context.Context, a authz.Actor, teamRef string, in CreateInput, key *string) (View, bool, error) {
 	in.Name = strings.TrimSpace(in.Name)
 	if n := utf8.RuneCountInString(in.Name); n < 1 || n > 100 || strings.ContainsAny(in.Name, "\r\n\x00") {
-		return View{}, errBadName
+		return View{}, false, errBadName
 	}
 	if utf8.RuneCountInString(in.Description) > 2000 {
-		return View{}, errBadDesc
+		return View{}, false, errBadDesc
 	}
 	if in.Template == "" {
 		in.Template = DefaultTemplate
 	}
 	var out View
+	created := false
 	err := store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {
 		t, err := teams.Resolve(ctx, q, teamRef)
 		if err != nil {
 			return err
 		}
-		role, err := teams.MemberRole(ctx, q, t.ID, a.UserID)
+		role, err := roleIn(ctx, q, a, t.ID)
 		if err != nil {
 			return err
 		}
 		if role == "" {
 			return errTeamNotFound
 		}
-		if err := authz.CheckTeamAgentCreate(role); err != nil {
+		if key != nil {
+			if err := authz.CheckServiceManagedCreate(a.Service != nil, role); err != nil {
+				return err
+			}
+		} else if err := authz.CheckTeamAgentCreate(role); err != nil {
 			return err
 		}
 		if _, err := q.LockTeam(ctx, t.ID); err != nil {
@@ -254,7 +304,15 @@ func (s *Service) CreateTeamAgent(ctx context.Context, a authz.Actor, teamRef st
 		if t.Status != teams.StatusActive {
 			return errTeamArchived
 		}
-		if n, err := q.CountTeamAgents(ctx, uuid.NullUUID{UUID: t.ID, Valid: true}); err != nil {
+		if key != nil {
+			ag, err := q.GetAgentByExternalKey(ctx, dbgen.GetAgentByExternalKeyParams{TeamID: uuid.NullUUID{UUID: t.ID, Valid: true}, ExternalKey: key})
+			if err == nil {
+				out, err = s.view(ctx, q, ag)
+				return err
+			} else if !errors.Is(store.NotFound(err), store.ErrNotFound) {
+				return err
+			}
+		} else if n, err := q.CountTeamAgents(ctx, uuid.NullUUID{UUID: t.ID, Valid: true}); err != nil {
 			return err
 		} else if n >= MaxPerTeam {
 			return errTooMany
@@ -271,22 +329,52 @@ func (s *Service) CreateTeamAgent(ctx context.Context, a authz.Actor, teamRef st
 		}
 		ag, err := s.insert(ctx, q, a, dbgen.InsertAgentParams{
 			Kind: authz.AgentTeam, TeamID: uuid.NullUUID{UUID: t.ID, Valid: true},
-			TemplateID: tpl.ID, Name: in.Name, Description: desc,
+			TemplateID: tpl.ID, Name: in.Name, Description: desc, ExternalKey: key,
 		})
 		if err != nil {
 			return err
 		}
+		created = true
 		out, err = s.view(ctx, q, ag)
 		return err
 	})
-	return out, err
+	return out, created, err
+}
+
+// ListTeam lists a team's agents for its members and service accounts;
+// service-managed agents only for its service accounts, when asked.
+func (s *Service) ListTeam(ctx context.Context, a authz.Actor, teamRef string, includeManaged bool) ([]View, error) {
+	t, err := teams.Resolve(ctx, s.q, teamRef)
+	if err != nil {
+		return nil, err
+	}
+	role, err := roleIn(ctx, s.q, a, t.ID)
+	if err != nil {
+		return nil, err
+	}
+	if role == "" {
+		return nil, errTeamNotFound
+	}
+	rows, err := s.q.ListTeamAgents(ctx, dbgen.ListTeamAgentsParams{TeamID: uuid.NullUUID{UUID: t.ID, Valid: true}, IncludeManaged: includeManaged && a.Service != nil})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]View, 0, len(rows))
+	for _, ag := range rows {
+		v, err := s.view(ctx, s.q, ag)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, nil
 }
 
 // insert provisions the agent's storage and records it. If recording fails,
 // the storage is removed again.
 func (s *Service) insert(ctx context.Context, q *dbgen.Queries, a authz.Actor, p dbgen.InsertAgentParams) (dbgen.Agent, error) {
 	p.ID = uuid.New()
-	p.CreatedBy = uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil}
+	p.CreatedBy = uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil && a.Service == nil}
 	creds, err := s.prov.Create(ctx, p.ID.String())
 	if err != nil {
 		return dbgen.Agent{}, err

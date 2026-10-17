@@ -50,15 +50,18 @@ func (e ApiKeyStatus) Valid() bool {
 
 // Defines values for AuditActorKind.
 const (
-	AuditActorKindApiKey AuditActorKind = "api_key"
-	AuditActorKindSystem AuditActorKind = "system"
-	AuditActorKindUser   AuditActorKind = "user"
+	AuditActorKindApiKey         AuditActorKind = "api_key"
+	AuditActorKindServiceAccount AuditActorKind = "service_account"
+	AuditActorKindSystem         AuditActorKind = "system"
+	AuditActorKindUser           AuditActorKind = "user"
 )
 
 // Valid indicates whether the value is a known member of the AuditActorKind enum.
 func (e AuditActorKind) Valid() bool {
 	switch e {
 	case AuditActorKindApiKey:
+		return true
+	case AuditActorKindServiceAccount:
 		return true
 	case AuditActorKindSystem:
 		return true
@@ -350,9 +353,12 @@ func (e ListTeamAuditParamsActorKind) Valid() bool {
 
 // Agent defines model for Agent.
 type Agent struct {
-	CreatedAt   time.Time          `json:"createdAt"`
-	Description string             `json:"description"`
-	Enabled     bool               `json:"enabled"`
+	CreatedAt   time.Time `json:"createdAt"`
+	Description string    `json:"description"`
+	Enabled     bool      `json:"enabled"`
+
+	// ExternalKey Set for service-managed agents (created by a service account with its own key)
+	ExternalKey *string            `json:"externalKey,omitempty"`
 	Id          openapi_types.UUID `json:"id"`
 	Kind        AgentKind          `json:"kind"`
 	LastUsedAt  *time.Time         `json:"lastUsedAt,omitempty"`
@@ -376,6 +382,17 @@ type AgentKind string
 type AgentCreate struct {
 	Description *string `json:"description,omitempty"`
 	Name        string  `json:"name"`
+
+	// Template Template slug (default assistant)
+	Template *string `json:"template,omitempty"`
+}
+
+// AgentEnsure defines model for AgentEnsure.
+type AgentEnsure struct {
+	Description *string `json:"description,omitempty"`
+
+	// Name Defaults to the external key
+	Name *string `json:"name,omitempty"`
 
 	// Template Template slug (default assistant)
 	Template *string `json:"template,omitempty"`
@@ -1104,6 +1121,11 @@ type GetMeParams struct {
 	Optional *bool `form:"optional,omitempty" json:"optional,omitempty"`
 }
 
+// ListTeamAgentsParams defines parameters for ListTeamAgents.
+type ListTeamAgentsParams struct {
+	IncludeManaged *bool `form:"includeManaged,omitempty" json:"includeManaged,omitempty"`
+}
+
 // ListTeamAuditParams defines parameters for ListTeamAudit.
 type ListTeamAuditParams struct {
 	// Cursor nextCursor from the previous page
@@ -1171,6 +1193,9 @@ type CreateMyApiKeyJSONRequestBody = ApiKeyCreate
 
 // CreateTeamAgentJSONRequestBody defines body for CreateTeamAgent for application/json ContentType.
 type CreateTeamAgentJSONRequestBody = AgentCreate
+
+// EnsureTeamAgentByKeyJSONRequestBody defines body for EnsureTeamAgentByKey for application/json ContentType.
+type EnsureTeamAgentByKeyJSONRequestBody = AgentEnsure
 
 // AddMemberJSONRequestBody defines body for AddMember for application/json ContentType.
 type AddMemberJSONRequestBody = MemberAdd

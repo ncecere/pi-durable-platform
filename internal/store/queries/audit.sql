@@ -1,9 +1,9 @@
 -- name: InsertAudit :exec
 INSERT INTO audit_log (
-    actor_kind, actor_user_id, team_id, action, target_type, target_id,
+    actor_kind, actor_user_id, actor_service_account_id, team_id, action, target_type, target_id,
     before_state, after_state, metadata, request_id, client_ip
 ) VALUES (
-    @actor_kind, @actor_user_id, @team_id, @action, @target_type, @target_id,
+    @actor_kind, @actor_user_id, @actor_service_account_id, @team_id, @action, @target_type, @target_id,
     @before_state, @after_state, @metadata, @request_id, @client_ip
 );
 

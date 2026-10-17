@@ -195,6 +195,11 @@ var matrixPolicies = map[string]policy{
 	"createTeamAgent": {scope: scopeTeam, own: editors, build: func(c *mctx) request {
 		return post(c.team("/agents"), map[string]any{"name": fmt.Sprintf("new-agent-%d", c.e.next())})
 	}},
+	"listTeamAgents": {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.team("/agents")) }},
+	// Service-managed agents are created by editor service accounts only (agents_keys_integration_test.go).
+	"ensureTeamAgentByKey": {scope: scopeTeam, own: 0, build: func(c *mctx) request {
+		return request{method: "PUT", path: c.team(fmt.Sprintf("/agents/by-key/user-%d", c.e.next()))}
+	}},
 	"getAgent": {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.agent("", false)) }},
 	"updateAgent": {scope: scopeTeam, own: editors, build: func(c *mctx) request {
 		return patch(c.agent("", true), map[string]any{"description": "updated by the matrix"}).h(rev1)

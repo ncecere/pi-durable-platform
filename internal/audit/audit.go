@@ -15,25 +15,28 @@ import (
 
 // Actor kinds.
 const (
-	ActorUser   = "user"
-	ActorAPIKey = "api_key"
-	ActorSystem = "system"
+	ActorUser           = "user"
+	ActorAPIKey         = "api_key"
+	ActorServiceAccount = "service_account"
+	ActorSystem         = "system"
 )
 
 // Entry is one audited event. Before/After hold configuration snapshots and
 // must never contain secrets or call payloads.
 type Entry struct {
 	ActorKind   string
-	ActorUserID uuid.UUID // uuid.Nil for system actions
-	TeamID      uuid.UUID // uuid.Nil when not team-scoped
-	Action      string    // e.g. "auth.login", "team.create"
-	TargetType  string
-	TargetID    string
-	Before      any
-	After       any
-	Metadata    map[string]any
-	RequestID   string
-	ClientIP    string
+	ActorUserID uuid.UUID // uuid.Nil for system actions and service accounts
+	// ActorServiceAccountID is set for service accounts.
+	ActorServiceAccountID uuid.UUID
+	TeamID                uuid.UUID // uuid.Nil when not team-scoped
+	Action                string    // e.g. "auth.login", "team.create"
+	TargetType            string
+	TargetID              string
+	Before                any
+	After                 any
+	Metadata              map[string]any
+	RequestID             string
+	ClientIP              string
 }
 
 func Record(ctx context.Context, q *dbgen.Queries, e Entry) error {
@@ -57,17 +60,18 @@ func Record(ctx context.Context, q *dbgen.Queries, e Entry) error {
 		return err
 	}
 	return q.InsertAudit(ctx, dbgen.InsertAuditParams{
-		ActorKind:   e.ActorKind,
-		ActorUserID: nullable(e.ActorUserID),
-		TeamID:      nullable(e.TeamID),
-		Action:      e.Action,
-		TargetType:  e.TargetType,
-		TargetID:    e.TargetID,
-		BeforeState: before,
-		AfterState:  after,
-		Metadata:    metaJSON,
-		RequestID:   e.RequestID,
-		ClientIP:    e.ClientIP,
+		ActorKind:             e.ActorKind,
+		ActorUserID:           nullable(e.ActorUserID),
+		ActorServiceAccountID: nullable(e.ActorServiceAccountID),
+		TeamID:                nullable(e.TeamID),
+		Action:                e.Action,
+		TargetType:            e.TargetType,
+		TargetID:              e.TargetID,
+		BeforeState:           before,
+		AfterState:            after,
+		Metadata:              metaJSON,
+		RequestID:             e.RequestID,
+		ClientIP:              e.ClientIP,
 	})
 }
 

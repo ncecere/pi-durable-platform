@@ -13,7 +13,7 @@ import (
 )
 
 const countTeamAgents = `-- name: CountTeamAgents :one
-SELECT count(*) FROM agents WHERE team_id = $1
+SELECT count(*) FROM agents WHERE team_id = $1 AND external_key IS NULL
 `
 
 func (q *Queries) CountTeamAgents(ctx context.Context, teamID uuid.NullUUID) (int64, error) {
@@ -33,7 +33,7 @@ func (q *Queries) DeleteAgent(ctx context.Context, id uuid.UUID) error {
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, kind, owner_user_id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at FROM agents WHERE id = $1
+SELECT id, kind, owner_user_id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key FROM agents WHERE id = $1
 `
 
 func (q *Queries) GetAgent(ctx context.Context, id uuid.UUID) (Agent, error) {
@@ -55,6 +55,40 @@ func (q *Queries) GetAgent(ctx context.Context, id uuid.UUID) (Agent, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastUsedAt,
+		&i.ExternalKey,
+	)
+	return i, err
+}
+
+const getAgentByExternalKey = `-- name: GetAgentByExternalKey :one
+SELECT id, kind, owner_user_id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key FROM agents WHERE team_id = $1 AND external_key = $2
+`
+
+type GetAgentByExternalKeyParams struct {
+	TeamID      uuid.NullUUID
+	ExternalKey *string
+}
+
+func (q *Queries) GetAgentByExternalKey(ctx context.Context, arg GetAgentByExternalKeyParams) (Agent, error) {
+	row := q.db.QueryRow(ctx, getAgentByExternalKey, arg.TeamID, arg.ExternalKey)
+	var i Agent
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.OwnerUserID,
+		&i.TeamID,
+		&i.TemplateID,
+		&i.Name,
+		&i.Description,
+		&i.DbPasswordEnc,
+		&i.RuntimeTokenEnc,
+		&i.Enabled,
+		&i.Revision,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastUsedAt,
+		&i.ExternalKey,
 	)
 	return i, err
 }
@@ -98,7 +132,7 @@ func (q *Queries) GetAgentTemplateBySlug(ctx context.Context, slug string) (Agen
 }
 
 const getPersonalAgent = `-- name: GetPersonalAgent :one
-SELECT id, kind, owner_user_id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at FROM agents WHERE kind = 'personal' AND owner_user_id = $1
+SELECT id, kind, owner_user_id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key FROM agents WHERE kind = 'personal' AND owner_user_id = $1
 `
 
 func (q *Queries) GetPersonalAgent(ctx context.Context, ownerUserID uuid.NullUUID) (Agent, error) {
@@ -120,14 +154,15 @@ func (q *Queries) GetPersonalAgent(ctx context.Context, ownerUserID uuid.NullUUI
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastUsedAt,
+		&i.ExternalKey,
 	)
 	return i, err
 }
 
 const insertAgent = `-- name: InsertAgent :one
-INSERT INTO agents (id, kind, owner_user_id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-RETURNING id, kind, owner_user_id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at
+INSERT INTO agents (id, kind, owner_user_id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, created_by, external_key)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, kind, owner_user_id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key
 `
 
 type InsertAgentParams struct {
@@ -141,6 +176,7 @@ type InsertAgentParams struct {
 	DbPasswordEnc   []byte
 	RuntimeTokenEnc []byte
 	CreatedBy       uuid.NullUUID
+	ExternalKey     *string
 }
 
 func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (Agent, error) {
@@ -155,6 +191,7 @@ func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (Agent
 		arg.DbPasswordEnc,
 		arg.RuntimeTokenEnc,
 		arg.CreatedBy,
+		arg.ExternalKey,
 	)
 	var i Agent
 	err := row.Scan(
@@ -173,6 +210,7 @@ func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (Agent
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastUsedAt,
+		&i.ExternalKey,
 	)
 	return i, err
 }
@@ -210,12 +248,12 @@ func (q *Queries) ListAgentTemplates(ctx context.Context) ([]AgentTemplate, erro
 }
 
 const listAgentsForUser = `-- name: ListAgentsForUser :many
-SELECT a.id, a.kind, a.owner_user_id, a.team_id, a.template_id, a.name, a.description, a.db_password_enc, a.runtime_token_enc, a.enabled, a.revision, a.created_by, a.created_at, a.updated_at, a.last_used_at, t.slug AS team_slug, t.name AS team_name, tpl.slug AS template_slug, tpl.name AS template_name
+SELECT a.id, a.kind, a.owner_user_id, a.team_id, a.template_id, a.name, a.description, a.db_password_enc, a.runtime_token_enc, a.enabled, a.revision, a.created_by, a.created_at, a.updated_at, a.last_used_at, a.external_key, t.slug AS team_slug, t.name AS team_name, tpl.slug AS template_slug, tpl.name AS template_name
 FROM agents a
 JOIN agent_templates tpl ON tpl.id = a.template_id
 LEFT JOIN teams t ON t.id = a.team_id
 WHERE (a.kind = 'personal' AND a.owner_user_id = $1)
-   OR (a.kind = 'team' AND t.status = 'active' AND EXISTS (
+   OR (a.kind = 'team' AND a.external_key IS NULL AND t.status = 'active' AND EXISTS (
         SELECT 1 FROM team_members m WHERE m.team_id = a.team_id AND m.user_id = $1))
 ORDER BY a.kind DESC, t.slug NULLS FIRST, lower(a.name), a.id
 `
@@ -236,6 +274,7 @@ type ListAgentsForUserRow struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	LastUsedAt      *time.Time
+	ExternalKey     *string
 	TeamSlug        *string
 	TeamName        *string
 	TemplateSlug    string
@@ -268,6 +307,7 @@ func (q *Queries) ListAgentsForUser(ctx context.Context, userID uuid.NullUUID) (
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastUsedAt,
+			&i.ExternalKey,
 			&i.TeamSlug,
 			&i.TeamName,
 			&i.TemplateSlug,
@@ -284,11 +324,19 @@ func (q *Queries) ListAgentsForUser(ctx context.Context, userID uuid.NullUUID) (
 }
 
 const listTeamAgents = `-- name: ListTeamAgents :many
-SELECT id, kind, owner_user_id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at FROM agents WHERE team_id = $1 ORDER BY lower(name), id
+SELECT id, kind, owner_user_id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key FROM agents
+WHERE team_id = $1 AND ($2::boolean OR external_key IS NULL)
+ORDER BY lower(name), id
 `
 
-func (q *Queries) ListTeamAgents(ctx context.Context, teamID uuid.NullUUID) ([]Agent, error) {
-	rows, err := q.db.Query(ctx, listTeamAgents, teamID)
+type ListTeamAgentsParams struct {
+	TeamID         uuid.NullUUID
+	IncludeManaged bool
+}
+
+// A team's agents; service-managed ones (with an external key) only when asked.
+func (q *Queries) ListTeamAgents(ctx context.Context, arg ListTeamAgentsParams) ([]Agent, error) {
+	rows, err := q.db.Query(ctx, listTeamAgents, arg.TeamID, arg.IncludeManaged)
 	if err != nil {
 		return nil, err
 	}
@@ -312,6 +360,7 @@ func (q *Queries) ListTeamAgents(ctx context.Context, teamID uuid.NullUUID) ([]A
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastUsedAt,
+			&i.ExternalKey,
 		); err != nil {
 			return nil, err
 		}
@@ -324,7 +373,7 @@ func (q *Queries) ListTeamAgents(ctx context.Context, teamID uuid.NullUUID) ([]A
 }
 
 const lockAgent = `-- name: LockAgent :one
-SELECT id, kind, owner_user_id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at FROM agents WHERE id = $1 FOR UPDATE
+SELECT id, kind, owner_user_id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key FROM agents WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) LockAgent(ctx context.Context, id uuid.UUID) (Agent, error) {
@@ -346,6 +395,7 @@ func (q *Queries) LockAgent(ctx context.Context, id uuid.UUID) (Agent, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastUsedAt,
+		&i.ExternalKey,
 	)
 	return i, err
 }
@@ -363,7 +413,7 @@ func (q *Queries) TouchAgent(ctx context.Context, id uuid.UUID) error {
 const updateAgent = `-- name: UpdateAgent :one
 UPDATE agents SET name = $2, description = $3, enabled = $4, revision = revision + 1, updated_at = now()
 WHERE id = $1
-RETURNING id, kind, owner_user_id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at
+RETURNING id, kind, owner_user_id, team_id, template_id, name, description, db_password_enc, runtime_token_enc, enabled, revision, created_by, created_at, updated_at, last_used_at, external_key
 `
 
 type UpdateAgentParams struct {
@@ -397,6 +447,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Agent
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastUsedAt,
+		&i.ExternalKey,
 	)
 	return i, err
 }

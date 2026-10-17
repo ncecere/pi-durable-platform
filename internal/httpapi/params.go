@@ -17,6 +17,10 @@ import (
 // actor returns the authorization principal for a session request.
 func (a *api) actor(r *http.Request) authz.Actor {
 	reqID, ip := httpx.RequestID(r.Context()), httpx.ClientIP(r, a.Config.TrustedProxies)
+	if actor, ok := r.Context().Value(keyActor{}).(authz.Actor); ok {
+		actor.RequestID, actor.ClientIP = reqID, ip
+		return actor
+	}
 	id, _ := auth.FromContext(r.Context())
 	return id.Actor(reqID, ip)
 }

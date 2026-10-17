@@ -27,6 +27,7 @@ type Agent struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	LastUsedAt      *time.Time
+	ExternalKey     *string
 }
 
 type AgentTemplate struct {
@@ -53,19 +54,20 @@ type ApiKey struct {
 }
 
 type AuditLog struct {
-	ID          int64
-	OccurredAt  time.Time
-	ActorKind   string
-	ActorUserID uuid.NullUUID
-	TeamID      uuid.NullUUID
-	Action      string
-	TargetType  string
-	TargetID    string
-	BeforeState json.RawMessage
-	AfterState  json.RawMessage
-	Metadata    json.RawMessage
-	RequestID   string
-	ClientIP    string
+	ID                    int64
+	OccurredAt            time.Time
+	ActorKind             string
+	ActorUserID           uuid.NullUUID
+	TeamID                uuid.NullUUID
+	Action                string
+	TargetType            string
+	TargetID              string
+	BeforeState           json.RawMessage
+	AfterState            json.RawMessage
+	Metadata              json.RawMessage
+	RequestID             string
+	ClientIP              string
+	ActorServiceAccountID uuid.NullUUID
 }
 
 type LoginState struct {
