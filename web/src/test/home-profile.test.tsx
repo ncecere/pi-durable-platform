@@ -38,16 +38,40 @@ describe("home without a team", () => {
   });
 });
 
+const agentBase = {
+  description: "A general helper.",
+  templateSlug: "assistant",
+  templateName: "Assistant",
+  enabled: true,
+  revision: 1,
+  createdAt: "2026-10-17T12:00:00Z",
+  updatedAt: "2026-10-17T12:00:00Z",
+};
+const assistant = { ...agentBase, id: "a1", kind: "personal", name: "My assistant", running: false };
+const teamAgent = { ...agentBase, id: "a2", kind: "team", name: "Triage", running: true, teamId: team.id, teamSlug: team.slug, teamName: team.name };
+
 describe("agents", () => {
-  it("is a placeholder until the agents domain lands, in the sidebar for everyone", async () => {
-    mockApi(shellRoutes("none", "member"));
+  it("lists the person's assistant and their teams' agents, in the sidebar for everyone", async () => {
+    mockApi({ ...shellRoutes("none", "member"), "GET /v1/agents": () => [assistant, teamAgent] });
     const { container } = renderApp("/agents");
     expect(await screen.findByRole("heading", { level: 1, name: "Agents" })).toBeInTheDocument();
-    expect(screen.getByText("Agents are coming soon.")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "My assistant", current: false })).toHaveAttribute("href", "/assistant");
+    expect(screen.getByRole("link", { name: "Triage" })).toHaveAttribute("href", "/agents/a2");
+    expect(screen.getByText("Hibernating")).toBeInTheDocument();
+    expect(screen.getByText("Awake")).toBeInTheDocument();
+    // Plain members can't create team agents.
+    expect(screen.queryByRole("button", { name: /New team agent/ })).not.toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: "Main" });
     expect(within(nav).getByRole("link", { name: "Agents" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Agents");
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("opens the person's assistant, creating it on the first visit", async () => {
+    const calls = mockApi({ ...shellRoutes("none", "member"), "POST /v1/me/assistant": () => assistant, "GET /v1/agents/a1/threads": () => [] });
+    renderApp("/assistant");
+    expect(await screen.findByText("Hi, I'm My assistant.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "What time is it?" })).toBeInTheDocument();
+    expect(calls.some((c) => c.method === "POST" && c.url === "/v1/me/assistant")).toBe(true);
   });
 });
 

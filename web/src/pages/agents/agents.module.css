@@ -1,0 +1,139 @@
+/* Agents: the list and the chat. Semantic tokens only. */
+
+/* The chat fills the viewport below the top bar: threads beside the conversation. */
+.chat {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  gap: var(--space-4);
+  height: calc(100dvh - var(--topbar-height) - var(--space-8));
+  min-height: 24rem;
+}
+
+@media (max-width: 48rem) {
+  .chat {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .threads {
+    max-height: 9rem;
+  }
+}
+
+.threads {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.threadList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.threadRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-radius: var(--radius-control);
+
+  &[data-active] {
+    background: var(--color-primary-subtle);
+    color: var(--color-primary-subtle-text);
+  }
+}
+
+.threadButton {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2);
+  overflow: hidden;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  border-radius: var(--radius-control);
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+  }
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  overflow: hidden;
+}
+
+.paneHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border-muted);
+}
+
+.paneTitle {
+  font-weight: var(--font-weight-semibold);
+}
+
+.conversation {
+  flex: 1;
+  min-height: 0;
+}
+
+.composer {
+  padding: var(--space-3);
+}
+
+.userText {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.replyError {
+  margin: var(--space-2) 0 0;
+  color: var(--color-danger-text);
+  font-size: var(--font-size-sm);
+}
+
+.hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+/* The agents list. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: var(--space-4);
+}
+
+.cardMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.description {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}

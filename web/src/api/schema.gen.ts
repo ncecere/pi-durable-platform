@@ -597,10 +597,344 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agent-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Templates agents can be made from (anyone signed in) */
+        get: operations["listAgentTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Agents the caller may use (their assistant and their teams' agents) */
+        get: operations["listAgents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/assistant": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The caller's personal assistant, created from the default template on first use
+         * @description Idempotent; concurrent calls create one assistant. 201 when it was created.
+         */
+        post: operations["ensureMyAssistant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/teams/{team}/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a team agent from a template (team editors and above)
+         * @description 409 name_taken (names are unique within the team, ignoring case); 409 team_archived; 404 template_not_found. At most 50 per team.
+         */
+        post: operations["createTeamAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        /** An agent the caller may use */
+        get: operations["getAgent"];
+        put?: never;
+        post?: never;
+        /** Delete an agent and all its conversations (its owner; team owners and admins; platform admins) */
+        delete: operations["deleteAgent"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename, describe, or turn an agent on or off (its owner; team editors and above)
+         * @description Turning an agent off hibernates it and refuses new work; its conversations are kept.
+         */
+        patch: operations["updateAgent"];
+        trace?: never;
+    };
+    "/v1/agents/{agentId}/hibernate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop the agent's runtime now; the next request wakes it */
+        post: operations["hibernateAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agentId}/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        /** The agent's conversations, most recently used first (wakes the agent) */
+        get: operations["listAgentThreads"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agentId}/threads/{threadId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                threadId: components["parameters"]["ThreadIdParam"];
+            };
+            cookie?: never;
+        };
+        /** A conversation's transcript and the reply in progress */
+        get: operations["getAgentThread"];
+        put?: never;
+        post?: never;
+        /** Stop and remove a conversation from the agent's list */
+        delete: operations["deleteAgentThread"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agentId}/threads/{threadId}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                threadId: components["parameters"]["ThreadIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a message (creates the thread on first use)
+         * @description Accepted, not answered; follow the thread's events for the reply. While the agent is busy the message runs after the current reply. A repeated requestId is not submitted twice.
+         */
+        post: operations["sendAgentMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agentId}/threads/{threadId}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                threadId: components["parameters"]["ThreadIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop the reply in progress */
+        post: operations["stopAgentThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agentId}/threads/{threadId}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                threadId: components["parameters"]["ThreadIdParam"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Server-sent events with the conversation's view after every change
+         * @description Each `view` event's data is a ChatView (JSON). The stream keeps the agent awake while open.
+         */
+        get: operations["streamAgentThread"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AgentTemplate: {
+            /** Format: uuid */
+            id: string;
+            /** @example assistant */
+            slug: string;
+            name: string;
+            description: string;
+        };
+        Agent: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "personal" | "team";
+            name: string;
+            description: string;
+            /** Format: uuid */
+            teamId?: string | null;
+            teamSlug?: string | null;
+            teamName?: string | null;
+            templateSlug: string;
+            templateName: string;
+            enabled: boolean;
+            /** @description Whether its runtime is up now (it hibernates when idle and wakes on the next request) */
+            running: boolean;
+            /** Format: date-time */
+            lastUsedAt?: string | null;
+            /** Format: int64 */
+            revision: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        AgentCreate: {
+            name: string;
+            description?: string;
+            /** @description Template slug (default assistant) */
+            template?: string;
+        };
+        AgentUpdate: {
+            name?: string;
+            description?: string;
+            enabled?: boolean;
+        };
+        AgentThread: {
+            threadId: string;
+            title: string;
+            /**
+             * Format: int64
+             * @description Unix milliseconds
+             */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description Unix milliseconds
+             */
+            updatedAt: number;
+        };
+        AgentMessageCreate: {
+            text: string;
+            /** @description Idempotency key; a repeated one is not submitted again */
+            requestId?: string;
+        };
+        AgentMessageAccepted: {
+            /** Format: int64 */
+            submissionId: number;
+        };
+        ChatToolCall: {
+            id: string;
+            name: string;
+            arguments: {
+                [key: string]: unknown;
+            };
+        };
+        ChatMessage: {
+            id: string;
+            /** @enum {string} */
+            role: "user" | "assistant" | "tool";
+            text?: string;
+            thinking?: string;
+            toolCalls?: components["schemas"]["ChatToolCall"][];
+            /** @description An assistant reply that failed or was interrupted */
+            error?: string;
+            toolCallId?: string;
+            /** @description Tool name (tool results) */
+            name?: string;
+            isError?: boolean;
+        };
+        ChatToolSlot: {
+            callId: string;
+            name: string;
+            status: string;
+            output?: string;
+        };
+        ChatView: {
+            busy: boolean;
+            messages: components["schemas"]["ChatMessage"][];
+            /** @description The assistant reply being generated */
+            partial?: {
+                text: string;
+                thinking: string;
+            };
+            tools: components["schemas"]["ChatToolSlot"][];
+        };
         /** @description Who made the change, resolved when the log is read */
         AuditActor: {
             /** @enum {string} */
@@ -1045,6 +1379,9 @@ export interface components {
         };
     };
     parameters: {
+        AgentIdParam: string;
+        /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+        ThreadIdParam: string;
         /** @description An exact action (team.member_add), or a prefix ending in a dot (team.) for every action in that group. */
         AuditActionParam: string;
         /** @description Only entries by the system */
@@ -2146,6 +2483,415 @@ export interface operations {
             };
             400: components["responses"]["ErrorReply"];
             403: components["responses"]["ErrorReply"];
+        };
+    };
+    listAgentTemplates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Templates ordered by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentTemplate"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+        };
+    };
+    listAgents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The assistant first, then team agents by team and name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Agent"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+        };
+    };
+    ensureMyAssistant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The existing assistant */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Agent"];
+                    };
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Agent"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+        };
+    };
+    createTeamAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentCreate"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Agent"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    getAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Agent"];
+                    };
+                };
+            };
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    deleteAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Ok"];
+                    };
+                };
+            };
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    updateAgent: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+                "If-Match": components["parameters"]["IfMatchHeader"];
+            };
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Agent"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            412: components["responses"]["ErrorReply"];
+            428: components["responses"]["ErrorReply"];
+        };
+    };
+    hibernateAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Hibernated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Ok"];
+                    };
+                };
+            };
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    listAgentThreads: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Threads */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentThread"][];
+                    };
+                };
+            };
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            503: components["responses"]["ErrorReply"];
+        };
+    };
+    getAgentThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                threadId: components["parameters"]["ThreadIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The conversation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ChatView"];
+                    };
+                };
+            };
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            503: components["responses"]["ErrorReply"];
+        };
+    };
+    deleteAgentThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                threadId: components["parameters"]["ThreadIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Ok"];
+                    };
+                };
+            };
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            503: components["responses"]["ErrorReply"];
+        };
+    };
+    sendAgentMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                threadId: components["parameters"]["ThreadIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentMessageCreate"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentMessageAccepted"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            503: components["responses"]["ErrorReply"];
+        };
+    };
+    stopAgentThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                threadId: components["parameters"]["ThreadIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stopped */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Ok"];
+                    };
+                };
+            };
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            503: components["responses"]["ErrorReply"];
+        };
+    };
+    streamAgentThread: {
+        parameters: {
+            query?: {
+                /** @description Send the current view as one event, then end the stream */
+                once?: boolean;
+            };
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                threadId: components["parameters"]["ThreadIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An event stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            503: components["responses"]["ErrorReply"];
         };
     };
 }

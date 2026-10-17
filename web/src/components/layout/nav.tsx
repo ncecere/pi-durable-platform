@@ -13,7 +13,7 @@
  *   3. add its breadcrumb in breadcrumbs.tsx.
  * Only list pages that exist.
  */
-import { Bot, FileClock, Home, LayoutDashboard, Settings, Sparkles, Users, UsersRound } from "lucide-react";
+import { Bot, FileClock, Home, LayoutDashboard, MessageCircle, Settings, Sparkles, Users, UsersRound } from "lucide-react";
 import { type ReactNode } from "react";
 import { terms } from "../../lib/terms";
 import { type Me } from "../../session";
@@ -22,14 +22,15 @@ export const icon = (C: typeof Home) => <C aria-hidden />;
 
 /* ---------------- workspace ---------------- */
 
-export type WorkspacePath = "/" | "/agents";
+export type WorkspacePath = "/" | "/assistant" | "/agents";
 
 export type WorkspaceNavItem = { to: WorkspacePath; label: string; icon: ReactNode; exact?: boolean; keywords?: string[] };
 
 /** Pages for everyone signed in, at the top of the workspace sidebar. */
 export const workspaceNav: WorkspaceNavItem[] = [
   { to: "/", label: terms.home, icon: icon(Home), exact: true, keywords: ["start", "welcome", "teams"] },
-  { to: "/agents", label: terms.agents, icon: icon(Sparkles), keywords: ["agent", "agents", "assistant", "runtime", "deploy", "pi durable"] },
+  { to: "/assistant", label: "My assistant", icon: icon(MessageCircle), keywords: ["chat", "assistant", "talk", "ask"] },
+  { to: "/agents", label: terms.agents, icon: icon(Sparkles), keywords: ["agent", "agents", "team agents", "runtime", "deploy", "pi durable"] },
 ];
 
 /* ---------------- team ---------------- */

@@ -102,13 +102,17 @@ const apiKeysRoute = createRoute({
 });
 /* ---------------- agents (everyone signed in) ---------------- */
 
-/** Agents (a placeholder until the agents domain lands); filters (?q=…) pass through. */
+/** Agents: the person's assistant and their teams' agents. */
 const agentsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "agents",
   validateSearch: (s: Record<string, unknown>): Record<string, unknown> => s,
   component: lazy(pages.agents, "AgentsPage"),
 });
+/** A team agent's chat. */
+const agentRoute = createRoute({ getParentRoute: () => appRoute, path: "agents/$agentId", component: lazy(pages.agents, "AgentPage") });
+/** The person's own assistant (created on the first visit). */
+const assistantRoute = createRoute({ getParentRoute: () => appRoute, path: "assistant", component: lazy(pages.agents, "AssistantPage") });
 
 /* ---------------- a team (workspace) ---------------- */
 
@@ -159,6 +163,8 @@ const appTree = appRoute.addChildren([
   profileRoute,
   apiKeysRoute,
   agentsRoute,
+  agentRoute,
+  assistantRoute,
   teamRoute.addChildren([teamIndexRoute, teamSettingsRoute, teamServiceAccountsRoute, teamServiceAccountRoute]),
   adminRoute.addChildren([
     adminIndexRoute,

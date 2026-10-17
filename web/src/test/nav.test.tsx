@@ -19,6 +19,7 @@ describe("navigation lists", () => {
   it("have the workspace's, the team's and the admin's sections", () => {
     expect(workspaceNav.map((n) => [n.label, n.to])).toEqual([
       ["Home", "/"],
+      ["My assistant", "/assistant"],
       ["Agents", "/agents"],
     ]);
     expect(teamNavFor(meFor("none", "member"), team.slug).find((n) => n.label === "Service accounts")?.to).toBe("/teams/$team/service-accounts");
@@ -27,7 +28,7 @@ describe("navigation lists", () => {
 
   it("resolve the record routes the lists link to (API keys, service accounts, users, teams)", () => {
     const paths = routePaths();
-    const records = ["/settings/api-keys", "/settings/profile", "/teams/$team/service-accounts/$serviceAccountId", "/admin/users/$userId", "/admin/teams/$team", "/agents"];
+    const records = ["/settings/api-keys", "/settings/profile", "/teams/$team/service-accounts/$serviceAccountId", "/admin/users/$userId", "/admin/teams/$team", "/agents", "/agents/$agentId", "/assistant"];
     for (const to of records) expect(paths, to).toContain(to);
   });
 
@@ -83,7 +84,7 @@ describe("workspace sidebar", () => {
     renderApp(`/teams/${team.slug}`);
     const nav = await screen.findByRole("navigation", { name: "Main" });
     await waitFor(() => expect(within(nav).getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page"));
-    expect(within(nav).getAllByRole("link").map((l) => l.textContent)).toEqual(["Home", "Agents", "Overview", "Service accounts", "Team settings"]);
+    expect(within(nav).getAllByRole("link").map((l) => l.textContent)).toEqual(["Home", "My assistant", "Agents", "Overview", "Service accounts", "Team settings"]);
     expect(within(nav).getByRole("link", { name: "Agents" })).toHaveAttribute("href", "/agents");
     expect(within(nav).getByRole("link", { name: "Service accounts" })).toHaveAttribute("href", `/teams/${team.slug}/service-accounts`);
     expect(within(nav).getByRole("link", { name: "Team settings" })).toHaveAttribute("href", `/teams/${team.slug}/settings`);

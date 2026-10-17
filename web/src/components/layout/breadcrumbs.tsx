@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRouter } from "@tanstack/react-router";
-import { Boxes, Home, KeyRound, Shield, Sparkles, User } from "lucide-react";
+import { Bot, Boxes, Home, KeyRound, MessageCircle, Shield, Sparkles, User } from "lucide-react";
+import { agentQuery } from "../../api/agents";
 import { adminTeamQuery, adminUserQuery, serviceAccountQuery, teamQuery } from "../../api/queries";
 import { terms } from "../../lib/terms";
 import { type BreadcrumbItem } from "@/components/ui/breadcrumbs/breadcrumbs";
@@ -60,11 +61,21 @@ function useTrail({ routeId, params }: Location, canAdmin: boolean): BreadcrumbI
   // A service account's name, likewise.
   const serviceAccountId = routeId === "/app/teams/$team/service-accounts/$serviceAccountId" ? params.serviceAccountId : undefined;
   const serviceAccount = useQuery({ ...serviceAccountQuery(slug ?? "", serviceAccountId ?? ""), enabled: !!slug && !!serviceAccountId });
+  // A team agent's name, likewise.
+  const agentId = routeId === "/app/agents/$agentId" ? params.agentId : undefined;
+  const agent = useQuery({ ...agentQuery(agentId ?? ""), enabled: !!agentId });
   if (routeId === "/app/") return [{ label: terms.home, icon: icon(Home) }];
   // From the account menu: the page itself, not "Home".
   if (routeId === "/app/settings/profile") return [{ label: "Profile", icon: icon(User) }];
   if (routeId === "/app/settings/api-keys") return [{ label: terms.apiKeys, icon: icon(KeyRound) }];
   if (routeId === "/app/agents") return [{ label: terms.agents, icon: icon(Sparkles) }];
+  if (routeId === "/app/assistant") return [{ label: "My assistant", icon: icon(MessageCircle) }];
+  if (routeId === "/app/agents/$agentId") {
+    return [
+      { label: terms.agents, icon: icon(Sparkles), render: <Link to="/agents" /> },
+      { label: agent.data?.name ?? <VisuallyHidden>Agent</VisuallyHidden>, icon: icon(Bot) },
+    ];
+  }
 
   if (slug && isNotFound(team.error)) return [{ label: terms.home, icon: icon(Home), render: <Link to="/" /> }];
   if (slug) {
