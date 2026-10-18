@@ -29,6 +29,8 @@ export class ThreadStatusReporter {
 	private readonly watching = new Map<string, number | undefined>();
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private queue: Promise<void> = Promise.resolve();
+	/** Called when a watched reply ends. */
+	onReplyEnd: (() => void) | undefined;
 
 	constructor(
 		private readonly harness: Harness,
@@ -74,6 +76,7 @@ export class ThreadStatusReporter {
 				}
 				if (await this.running(record.conversationId)) continue;
 				this.watching.delete(threadId);
+				this.onReplyEnd?.();
 				const now = Date.now();
 				void this.send("/threads/report", {
 					threadId,

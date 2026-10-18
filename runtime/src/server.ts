@@ -25,7 +25,13 @@ export type RuntimeOptions = {
  * The agent's private HTTP interface. Only the platform calls it, with the agent's bearer token; clients never reach a
  * runtime directly. Pi is the source of truth: the runtime keeps no state of its own besides the open harness.
  */
-export function createRuntimeServer(options: RuntimeOptions): { server: Server; handler: RequestListener; lastActivity: () => number } {
+export function createRuntimeServer(options: RuntimeOptions): {
+	server: Server;
+	handler: RequestListener;
+	lastActivity: () => number;
+	/** Records activity now (a reply just ended, for instance), so the reaper doesn't hibernate an agent that just worked. */
+	touch: () => void;
+} {
 	const { harness, threads } = options;
 	const expected = Buffer.from(`Bearer ${options.token}`);
 	let lastActivity = Date.now();
@@ -77,6 +83,8 @@ export function createRuntimeServer(options: RuntimeOptions): { server: Server; 
 		const action = parts[2];
 
 		if (method === "GET" && action === undefined) {
+			// Someone reading a thread (often right after its reply) is using the agent.
+			touch();
 			const view = await viewOf(threadId);
 			return view === undefined ? fail(response, 404, "thread_not_found", "Thread not found") : json(response, 200, view);
 		}
@@ -160,7 +168,7 @@ export function createRuntimeServer(options: RuntimeOptions): { server: Server; 
 			else response.end();
 		});
 	};
-	return { server: createServer(handler), handler, lastActivity: () => lastActivity };
+	return { server: createServer(handler), handler, lastActivity: () => lastActivity, touch };
 }
 
 class RequestError extends Error {

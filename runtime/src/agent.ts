@@ -88,7 +88,7 @@ export async function startAgent(config: AgentConfig): Promise<RunningAgent> {
 			? new ThreadStatusReporter(harness, threads, gatewayPost(env.PLATFORM_GATEWAY_URL, env.PLATFORM_KEY))
 			: undefined;
 	void status?.sync().catch((error: unknown) => console.error(`[agent ${config.agentId}] thread sync:`, (error as Error).message));
-	const { handler } = createRuntimeServer({
+	const { handler, touch } = createRuntimeServer({
 		harness,
 		threads,
 		token: config.token,
@@ -108,6 +108,8 @@ export async function startAgent(config: AgentConfig): Promise<RunningAgent> {
 		},
 		afterMessage: status ? (threadId, submissionId) => status.watch(threadId, submissionId) : undefined,
 	});
+	// A reply that just ended is recent work: the reaper waits a full idle period after it.
+	if (status) status.onReplyEnd = touch;
 	return {
 		handler,
 		close: async () => {
