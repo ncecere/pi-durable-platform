@@ -4,8 +4,10 @@ import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { agentsKey } from "../../../api/agents";
 import { api, ApiError, errorMessage, unwrap } from "../../../api/client";
+import { teamModelsQuery } from "../../../api/models";
 import { catalogQuery } from "../../../api/templates";
 import { FormDialog } from "../../../components/form-dialog";
+import { ModelSelect } from "../../../components/model-select";
 import { Field } from "@/components/ui/field/field";
 import { Input, Textarea } from "@/components/ui/input/input";
 import { Select } from "@/components/ui/select/select";
@@ -33,6 +35,9 @@ export function DeployAgentDialog({ teams, templateId, templateName, onClose }: 
   const template = templateId ?? (picked && templates.data?.some((t) => t.id === picked) ? picked : (templates.data?.[0]?.id ?? null));
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  // "": the template's model.
+  const [modelId, setModelId] = useState("");
+  const models = useQuery({ ...teamModelsQuery(team ?? ""), enabled: !!team });
   const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [taken, setTaken] = useState(false);
@@ -45,7 +50,7 @@ export function DeployAgentDialog({ teams, templateId, templateName, onClose }: 
       const created = unwrap(
         await api.POST("/v1/teams/{team}/agents", {
           params: { path: { team } },
-          body: { name: name.trim(), description: description.trim() || undefined, templateId: template },
+          body: { name: name.trim(), description: description.trim() || undefined, templateId: template, modelId: modelId || undefined },
         }),
       );
       await qc.invalidateQueries({ queryKey: agentsKey });
@@ -69,7 +74,17 @@ export function DeployAgentDialog({ teams, templateId, templateName, onClose }: 
       busy={busy}
       submitDisabled={!template || !team}
     >
-      {teams.length > 1 ? <Select label="Team" items={teams.map((t) => ({ value: t.slug, label: t.name }))} value={team} onValueChange={setTeam} /> : null}
+      {teams.length > 1 ? (
+        <Select
+          label="Team"
+          items={teams.map((t) => ({ value: t.slug, label: t.name }))}
+          value={team}
+          onValueChange={(t) => {
+            setTeam(t);
+            setModelId("");
+          }}
+        />
+      ) : null}
       {templateId ? null : (
         <Select
           label="Template"
@@ -93,6 +108,15 @@ export function DeployAgentDialog({ teams, templateId, templateName, onClose }: 
       <Field label="Description" labelHint="Optional" description="Defaults to the template's.">
         <Textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} />
       </Field>
+      <ModelSelect
+        labelHint="Optional"
+        description="The models published to the team. You can change it later in the agent's settings."
+        models={models.data}
+        loading={models.isLoading}
+        value={modelId}
+        onChange={setModelId}
+        defaultLabel="Template's model"
+      />
     </FormDialog>
   );
 }

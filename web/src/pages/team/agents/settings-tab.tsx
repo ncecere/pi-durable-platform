@@ -1,6 +1,6 @@
 /*
- * An agent's Settings: name, description and the switch (If-Match on its
- * revision). Editors change them; owners and admins delete the agent and all
+ * An agent's Settings: name, description, model and the switch (If-Match on
+ * its revision). Editors change them; owners and admins delete the agent and all
  * its conversations in the Danger zone.
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -21,6 +21,7 @@ import { Field } from "@/components/ui/field/field";
 import { Input, Textarea } from "@/components/ui/input/input";
 import { Switch } from "@/components/ui/switch/switch";
 import { toast } from "@/components/ui/toast/toast";
+import { AgentModelField, chosenModel, useModelChoices } from "./agent-model";
 import {
   type Agent,
   type AgentAbilities,
@@ -28,13 +29,25 @@ import {
   storeAgent,
 } from "./labels";
 
-type Form = { name: string; description: string; enabled: boolean };
+type Form = {
+  name: string;
+  description: string;
+  /** A model chosen for the agent, or "" for its template's. */
+  modelId: string;
+  enabled: boolean;
+};
 const formOf = (a: Agent): Form => ({
   name: a.name,
   description: a.description,
+  modelId: chosenModel(a),
   enabled: a.enabled,
 });
-const labels = { name: "Name", description: "Description", enabled: "Enabled" };
+const labels = {
+  name: "Name",
+  description: "Description",
+  modelId: "Model",
+  enabled: "Enabled",
+};
 
 export function SettingsTab({
   agent,
@@ -45,8 +58,10 @@ export function SettingsTab({
 }) {
   const qc = useQueryClient();
   const saved = formOf(agent);
+  const modelNames = useModelChoices(agent);
   const [form, setForm, revision] = useRevisionForm(saved, agent.revision, {
     labels,
+    choices: { modelId: modelNames },
   });
   const [submitted, setSubmitted] = useState(false);
   const [confirmingOff, setConfirmingOff] = useState<Form | null>(null);
@@ -62,6 +77,10 @@ export function SettingsTab({
             name: form.name.trim(),
             description: form.description,
             enabled: form.enabled,
+            // Only when changed: "" moves it back to its template's model.
+            ...(form.modelId !== saved.modelId
+              ? { modelId: form.modelId }
+              : {}),
           },
         }),
       ),
@@ -113,7 +132,7 @@ export function SettingsTab({
     >
       <SettingsSection
         title="General"
-        description="How the agent is named in lists. The template sets its instructions and tools."
+        description="How the agent is named in lists, and the model it runs on. The template sets its instructions and tools."
       >
         <Field label="Name" description="Unique in the team." error={nameError}>
           <Input
@@ -133,6 +152,12 @@ export function SettingsTab({
             }
           />
         </Field>
+        <AgentModelField
+          agent={agent}
+          value={form.modelId}
+          disabled={!canEdit}
+          onChange={(modelId) => setForm((f) => ({ ...f, modelId }))}
+        />
         <Switch
           label="Enabled"
           description="Turned off, it hibernates and refuses new messages. Its conversations are kept."

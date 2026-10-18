@@ -1,0 +1,36 @@
+/* Admin › Models. Semantic tokens only. */
+
+/* Extra headers: name, value and a remove button per row. */
+.headers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.headerRow {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto;
+  gap: var(--space-2);
+  align-items: start;
+}
+
+/* The discovered models: a scrolling list of checkboxes. */
+.discovered {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-height: 22rem;
+  overflow-y: auto;
+  padding-block: var(--space-1);
+}
+
+/* Fields that span the whole form grid. */
+.wide {
+  grid-column: 1 / -1;
+}
+
+.capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}

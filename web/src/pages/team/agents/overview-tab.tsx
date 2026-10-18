@@ -15,6 +15,7 @@ import { TextLink } from "@/components/ui/text-link/text-link";
 import { Time } from "@/components/ui/time/time";
 import { toast } from "@/components/ui/toast/toast";
 import s from "../../shared.module.css";
+import { AgentModelValue } from "./agent-model";
 import {
   type Agent,
   type AgentAbilities,
@@ -64,6 +65,7 @@ export function OverviewTab({ agent, abilities }: Props) {
                 </span>
               ),
             },
+            { label: "Model", value: <AgentModelValue agent={agent} /> },
             {
               label: "Storage",
               value:

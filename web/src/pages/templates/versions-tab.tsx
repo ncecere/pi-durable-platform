@@ -1,26 +1,32 @@
 /* A template's versions, newest first; editors add one (new agents get it, existing agents keep theirs). */
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useState } from "react";
-import { api, errorMessage, unwrap } from "../../api/client";
-import { templateVersionsQuery } from "../../api/templates";
-import { FormDialog } from "../../components/form-dialog";
+import { errorMessage } from "../../api/client";
+import {
+  type AgentTemplateVersion,
+  templateVersionsQuery,
+} from "../../api/templates";
+import { modelLabel } from "../../components/model-select";
 import { Badge } from "@/components/ui/badge/badge";
 import { Button } from "@/components/ui/button/button";
 import { Card } from "@/components/ui/card/card";
 import { CodeBlock } from "@/components/ui/code-block/code-block";
 import { Disclosure } from "@/components/ui/disclosure/disclosure";
-import { Field } from "@/components/ui/field/field";
-import { Input, Textarea } from "@/components/ui/input/input";
 import { Stack } from "@/components/ui/layout/layout";
 import { Time } from "@/components/ui/time/time";
-import { toast } from "@/components/ui/toast/toast";
 import s from "../shared.module.css";
-import {
-  type AgentTemplate,
-  storeTemplate,
-  type TemplateAbilities,
-} from "./labels";
+import { type AgentTemplate, type TemplateAbilities } from "./labels";
+import { NewVersionDialog } from "./new-version-dialog";
+
+/** The version's model: "Fake One · Provider", or "Platform default". */
+const modelOf = (v: AgentTemplateVersion) =>
+  v.modelId
+    ? modelLabel({
+        name: v.modelName ?? "Unknown model",
+        providerName: v.modelProviderName ?? "",
+      })
+    : "Platform default";
 
 export function VersionsTab({
   template,
@@ -56,6 +62,9 @@ export function VersionsTab({
                     Current
                   </Badge>
                 ) : null}{" "}
+                <Badge size="sm" title="The model it runs on">
+                  {modelOf(v)}
+                </Badge>{" "}
                 <span className={s.secondary}>
                   {v.notes || "No notes"} · <Time value={v.createdAt} />
                   {v.createdByName ? ` · ${v.createdByName}` : ""}
@@ -77,73 +86,5 @@ export function VersionsTab({
         />
       )}
     </Card>
-  );
-}
-
-function NewVersionDialog({
-  template,
-  onClose,
-}: {
-  template: AgentTemplate;
-  onClose: () => void;
-}) {
-  const qc = useQueryClient();
-  const versions = useQuery(templateVersionsQuery(template.id));
-  const current = versions.data?.find(
-    (v) => v.version === template.currentVersion,
-  );
-  const [instructions, setInstructions] = useState<string | undefined>(
-    undefined,
-  );
-  const [notes, setNotes] = useState("");
-  const [busy, setBusy] = useState(false);
-  const value = instructions ?? current?.instructions ?? "";
-  const submit = async () => {
-    if (!value.trim()) return;
-    setBusy(true);
-    try {
-      const t = unwrap(
-        await api.POST("/v1/agent-templates/{templateId}/versions", {
-          params: { path: { templateId: template.id } },
-          body: { instructions: value, notes },
-        }),
-      );
-      storeTemplate(qc, t);
-      void qc.invalidateQueries({
-        queryKey: templateVersionsQuery(template.id).queryKey,
-      });
-      toast.success(
-        `v${t.currentVersion} is the current version`,
-        "New agents get it; existing agents keep theirs until upgraded.",
-      );
-      onClose();
-    } catch (err) {
-      toast.error("Couldn't add the version", errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <FormDialog
-      title={`New version of ${template.name}`}
-      size="lg"
-      onClose={onClose}
-      onSubmit={() => void submit()}
-      submitLabel={`Save v${template.currentVersion + 1}`}
-      busy={busy}
-      submitDisabled={!value.trim()}
-    >
-      <Field label="Instructions">
-        <Textarea
-          value={value}
-          rows={10}
-          maxLength={20000}
-          onChange={(e) => setInstructions(e.target.value)}
-        />
-      </Field>
-      <Field label="What changed" labelHint="Optional">
-        <Input value={notes} maxLength={2000} onValueChange={setNotes} />
-      </Field>
-    </FormDialog>
   );
 }

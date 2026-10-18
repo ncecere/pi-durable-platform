@@ -12,6 +12,7 @@ import { NotFoundState } from "./components/not-found";
 import {
   adminTeamTabs,
   agentTabs,
+  providerTabs,
   serviceAccountTabs,
   tabSearch,
   teamSettingsTabs,
@@ -41,6 +42,7 @@ const pages = {
   account: () => import("./pages/account/routes"),
   people: () => import("./pages/admin/people/routes"),
   adminAudit: () => import("./pages/admin/audit/page"),
+  adminModels: () => import("./pages/admin/models/routes"),
   teamLayout: () => import("./pages/team/layout"),
   teamSettings: () => import("./pages/team/settings/page"),
   serviceAccounts: () => import("./pages/team/service-accounts/routes"),
@@ -273,6 +275,12 @@ const appTree = appRoute.addChildren([
     ),
     adminList("audit", lazy(pages.adminAudit, "AdminAuditPage")),
     adminList("templates", lazy(pages.templates, "AdminTemplatesPage")),
+    adminList("models", lazy(pages.adminModels, "AdminModelsPage")),
+    adminTabs(
+      "models/providers/$providerId",
+      providerTabs,
+      lazy(pages.adminModels, "AdminModelProviderPage"),
+    ),
   ]),
 ]);
 

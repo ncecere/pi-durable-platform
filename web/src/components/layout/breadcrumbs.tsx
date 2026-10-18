@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { templateQuery } from "../../api/templates";
 import { agentQuery } from "../../api/agents";
+import { providerQuery } from "../../api/models";
 import {
   adminTeamQuery,
   adminUserQuery,
@@ -106,6 +107,14 @@ function useTrail(
   const adminTeam = useQuery({
     ...adminTeamQuery(adminTeamSlug ?? ""),
     enabled: canAdmin && !!adminTeamSlug,
+  });
+  const providerId =
+    routeId === "/app/admin/models/providers/$providerId"
+      ? params.providerId
+      : undefined;
+  const provider = useQuery({
+    ...providerQuery(providerId ?? ""),
+    enabled: canAdmin && !!providerId,
   });
   // A service account's name, likewise.
   const serviceAccountId =
@@ -231,6 +240,13 @@ function useTrail(
         ...(isNotFound(adminTeam.error)
           ? []
           : [{ label: adminTeam.data?.team.name ?? adminTeamSlug }]),
+      );
+    } else if (providerId) {
+      crumbs.push(
+        { label: "Models", render: <Link to="/admin/models" /> },
+        ...(isNotFound(provider.error)
+          ? []
+          : [{ label: provider.data?.name ?? "Provider" }]),
       );
     } else {
       // Only the admin layout matched (an unknown admin address): the not-found page adds its own tail.

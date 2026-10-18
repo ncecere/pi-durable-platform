@@ -5,10 +5,12 @@ import { useState } from "react";
 import { templatesKey } from "../../api/templates";
 import { api, ApiError, errorMessage, unwrap } from "../../api/client";
 import { FormDialog } from "../../components/form-dialog";
+import { ModelSelect } from "../../components/model-select";
 import { Field } from "@/components/ui/field/field";
 import { Input, Textarea } from "@/components/ui/input/input";
 import { toast } from "@/components/ui/toast/toast";
 import { slugProblem } from "./labels";
+import { useTemplateModels } from "./template-models";
 
 /** team: the owning team's slug, or undefined for a platform template. */
 export function CreateTemplateDialog({
@@ -24,6 +26,8 @@ export function CreateTemplateDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
+  const [modelId, setModelId] = useState("");
+  const models = useTemplateModels(team);
   const [submitted, setSubmitted] = useState(false);
   const [taken, setTaken] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -48,6 +52,7 @@ export function CreateTemplateDialog({
         description: description.trim() || undefined,
         instructions,
         notes: "Initial version",
+        modelId: modelId || undefined,
       };
       const created = team
         ? unwrap(
@@ -133,6 +138,18 @@ export function CreateTemplateDialog({
           onChange={(e) => setInstructions(e.target.value)}
         />
       </Field>
+      <ModelSelect
+        description={
+          team
+            ? "The models published to the team. A team can pick another one for each agent."
+            : "Teams can pick another of their models for each agent."
+        }
+        models={models.models}
+        loading={models.loading}
+        value={modelId}
+        onChange={setModelId}
+        defaultLabel="Platform default"
+      />
     </FormDialog>
   );
 }

@@ -26,6 +26,7 @@ import {
   storeAgent,
   whatIsServiceManaged,
 } from "./labels";
+import { ModelUnavailableNotice } from "./agent-model";
 import { OverviewTab } from "./overview-tab";
 import { SettingsTab } from "./settings-tab";
 import { TestChat } from "./test-chat";
@@ -81,6 +82,10 @@ function Record({ agent }: { agent: Agent }) {
       facts={[
         { label: "Template", value: agent.templateName },
         {
+          label: "Model",
+          value: agent.model ? agent.model.name : "Platform default",
+        },
+        {
           label: "Managed by",
           value: agent.externalKey ? "A service" : ctx.team.name,
         },
@@ -113,6 +118,7 @@ function Record({ agent }: { agent: Agent }) {
               {whatIsServiceManaged}
             </Alert>
           ) : null}
+          <ModelUnavailableNotice agent={agent} canEdit={abilities.canEdit} />
           {!agent.enabled ? (
             <Alert tone="warning" title="Turned off">
               It refuses new messages until it&apos;s turned on again in

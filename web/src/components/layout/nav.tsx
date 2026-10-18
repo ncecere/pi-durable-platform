@@ -16,6 +16,7 @@
 import {
   BookOpen,
   Bot,
+  Cpu,
   FileClock,
   Home,
   LayoutDashboard,
@@ -199,7 +200,11 @@ export function teamNavFor(me: Me, slug: string): TeamNavItem[] {
 /* ---------------- admin ---------------- */
 
 export type AdminPath =
-  "/admin/users" | "/admin/teams" | "/admin/templates" | "/admin/audit";
+  | "/admin/users"
+  | "/admin/teams"
+  | "/admin/templates"
+  | "/admin/models"
+  | "/admin/audit";
 
 export type AdminNavItem = {
   to: AdminPath;
@@ -229,6 +234,7 @@ export const adminSections: {
     defaultOpen: true,
     items: [
       { to: "/admin/templates", label: "Templates", icon: icon(BookOpen) },
+      { to: "/admin/models", label: "Models", icon: icon(Cpu) },
       { to: "/admin/audit", label: terms.auditLog, icon: icon(FileClock) },
     ],
   },
@@ -264,6 +270,17 @@ export const adminKeywords: Partial<Record<AdminPath, string[]>> = {
     "catalog",
     "publish",
     "platform template",
+  ],
+  "/admin/models": [
+    "models",
+    "providers",
+    "llm",
+    "openai",
+    "anthropic",
+    "litellm",
+    "api key",
+    "discover",
+    "publish",
   ],
   "/admin/audit": [
     "audit log",

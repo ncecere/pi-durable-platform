@@ -162,3 +162,77 @@ export const serviceAccountKey = (extra: Partial<Schemas["ServiceAccountKey"]> =
   revokedAt: null,
   ...extra,
 });
+
+/* ---------------- models and agents ---------------- */
+
+export const providerKinds: Schemas["ProviderType"][] = [
+  { id: "openai", name: "OpenAI", api: "openai-responses", defaultBaseUrl: "https://api.openai.com/v1", authHeader: "authorization" },
+  { id: "anthropic", name: "Anthropic", api: "anthropic-messages", defaultBaseUrl: "https://api.anthropic.com", authHeader: "x-api-key" },
+  { id: "openai-compatible", name: "OpenAI-compatible (chat completions)", api: "openai-completions", defaultBaseUrl: null, authHeader: "authorization" },
+];
+
+export const providerId = "17171717-1717-4171-8171-171717171717";
+
+export const modelProvider = (extra: Partial<Schemas["ModelProvider"]> = {}): Schemas["ModelProvider"] => ({
+  id: providerId,
+  name: "LiteLLM gateway",
+  kind: "openai-compatible",
+  baseUrl: "https://litellm.example.com/v1",
+  accessMode: "proxy",
+  enabled: true,
+  hasHeaders: false,
+  modelCount: 1,
+  revision: 2,
+  createdAt: "2026-10-01T10:00:00Z",
+  updatedAt: "2026-10-01T10:00:00Z",
+  ...extra,
+});
+
+export const model = (extra: Partial<Schemas["Model"]> = {}): Schemas["Model"] => ({
+  id: "18181818-1818-4181-8181-181818181818",
+  providerId,
+  providerName: "LiteLLM gateway",
+  providerKind: "openai-compatible",
+  providerEnabled: true,
+  accessMode: "proxy",
+  upstreamId: "fake-one",
+  name: "Fake One",
+  contextWindow: 128000,
+  maxTokens: 16000,
+  images: false,
+  reasoning: false,
+  inputPrice: null,
+  outputPrice: null,
+  enabled: true,
+  visibility: "all",
+  teams: null,
+  revision: 1,
+  createdAt: "2026-10-01T10:00:00Z",
+  updatedAt: "2026-10-01T10:00:00Z",
+  ...extra,
+});
+
+export const agentId = "19191919-1919-4191-8191-191919191919";
+
+export const agent = (extra: Partial<Schemas["Agent"]> = {}): Schemas["Agent"] => ({
+  id: agentId,
+  name: "Helper",
+  description: "Answers questions about our tools.",
+  teamId: team.id,
+  teamSlug: team.slug,
+  teamName: team.name,
+  templateId: "20202020-2020-4202-8202-202020202020",
+  templateSlug: "assistant",
+  templateName: "Assistant",
+  templateVersion: 1,
+  templateCurrentVersion: 1,
+  externalKey: null,
+  enabled: true,
+  running: false,
+  model: null,
+  lastUsedAt: null,
+  revision: 4,
+  createdAt: "2026-10-01T10:00:00Z",
+  updatedAt: "2026-10-01T10:00:00Z",
+  ...extra,
+});
