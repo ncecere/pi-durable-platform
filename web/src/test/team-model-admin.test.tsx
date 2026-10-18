@@ -154,6 +154,17 @@ describe("Admin › Settings › Team providers and MCP servers", () => {
     expect(await screen.findByText("Team provider and MCP server settings saved")).toBeInTheDocument();
   });
 
+  it("shows the example network as a placeholder only while the list is empty", async () => {
+    const u = userEvent.setup();
+    mockApi(routes("platform_admin", { [`GET ${path}`]: () => settings({ privateNetworks: [] }) }));
+    renderApp("/admin/settings");
+    const input = await screen.findByRole("textbox", { name: /Private networks/ });
+    expect(input).toHaveAttribute("placeholder", "10.20.0.0/16");
+    await u.type(input, "10.30.0.0/16{Enter}");
+    expect(await screen.findByText("10.30.0.0/16")).toBeInTheDocument();
+    expect(input).toHaveAttribute("placeholder", "");
+  });
+
   it("lets people add providers in their personal workspace (ownProviders)", async () => {
     const u = userEvent.setup();
     const calls = mockApi(routes("platform_admin", { "PUT /v1/admin/settings/personal-workspaces": (body) => ({ ...personal, ...(body as object), revision: 8 }) }));

@@ -122,7 +122,8 @@ function ModelProviderForm({ settings }: { settings: ModelSettings }) {
             normalize={(t) => t.trim().toLowerCase()}
             maxTagLength={64}
             noun={{ one: "network", other: "networks" }}
-            placeholder={isAdmin ? "10.20.0.0/16" : undefined}
+            // The example only on an empty list (the help text has it too): beside a network it read as a second value.
+            placeholder={isAdmin && form.privateNetworks.length === 0 ? "10.20.0.0/16" : ""}
             disabled={!isAdmin}
             spellCheck={false}
             autoComplete="off"
