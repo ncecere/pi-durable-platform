@@ -14,8 +14,10 @@ import "github.com/ncecere/pi-durable-platform/internal/apperr"
 //     owners and admins see that it exists and can delete it; editor service
 //     accounts change and delete it.
 //   - Platform admins may delete any agent. Platform admins and auditors see
-//     the agents of personal workspaces (audit). Platform roles never grant
-//     access to conversations.
+//     the agents of every team, personal workspaces and shared teams alike
+//     (audit): their settings and status, read-only. Platform roles never
+//     grant use of an agent or access to its conversations (a platform
+//     admin's reasoned read is separate: agents.AdminRead).
 
 var errAgentNotFound = apperr.NotFound("agent_not_found", "Agent not found")
 
@@ -24,8 +26,8 @@ type AgentSubject struct {
 	Role           string // the actor's role in the agent's team ("" when not on it)
 	IsService      bool   // the actor is a service account
 	ServiceManaged bool   // the agent is service-managed
-	// Audit: the actor is platform staff and the agent is in a personal
-	// workspace (they see its settings and status, never its conversations).
+	// Audit: the actor is platform staff, not on the agent's team (they see
+	// its settings and status, never its conversations).
 	Audit bool
 }
 
@@ -46,6 +48,19 @@ func CheckAgentUse(s AgentSubject) error {
 		return nil
 	}
 	return errAgentNotFound
+}
+
+// CheckAgentHibernate decides whether the actor may hibernate the agent
+// (stop its runtime until the next request): whoever on its team may see
+// it. Platform staff see agents read-only.
+func CheckAgentHibernate(s AgentSubject) error {
+	if err := CheckAgentSee(s); err != nil {
+		return err
+	}
+	if s.Role == "" {
+		return apperr.Forbidden("Only the team's members can hibernate its agents")
+	}
+	return nil
 }
 
 // CheckAgentEdit decides whether the actor may change the agent.

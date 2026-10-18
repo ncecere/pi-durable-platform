@@ -54,15 +54,16 @@ describe("instance helpers", () => {
 });
 
 describe("sign-in page", () => {
-  it("is neutral by default: product name as the wordmark, no organisation, no logo and no help link", async () => {
+  it("is neutral by default: product name as the wordmark beside the product mark, no organisation, no instance logo and no help link", async () => {
     mockApi({ "GET /v1/auth/config": () => sso(defaultInstance) });
     const { container } = render(withQuery(<SignInPage />));
     expect(await screen.findByText("Use your organization account to continue.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "Pi Durable Platform" })).toBeInTheDocument();
     expect(screen.getByText("Durable agents for your teams")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Sign in with single sign-on/ })).toHaveAttribute("href", expect.stringMatching(/^\/auth\/login\?next=/));
-    // No logo: the product's name is its wordmark.
-    expect(container.querySelector("img")).toBeNull();
+    // No instance logo: the product's Wake mark, beside the product's name as its wordmark.
+    expect(container.querySelector("img")).toHaveAttribute("src", "/pi-durable-platform-mark-small.svg");
+    expect(container.querySelector("img")).toHaveAttribute("alt", "");
     expect(screen.queryByRole("link", { name: /Help/ })).toBeNull();
     expect(await axe(container)).toHaveNoViolations();
   });

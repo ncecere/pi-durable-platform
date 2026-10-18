@@ -10,7 +10,11 @@ export type AuditScope = { kind: "team"; team: string; member?: boolean } | { ki
 /** The query key prefix of a log's queries (invalidated together). */
 export const auditKey = (scope: AuditScope) => (scope.kind === "team" ? ["team", scope.team, "audit"] : ["admin", "audit"]);
 
-const actionLabels: Record<string, string> = {
+/**
+ * Every action the server records (web/src/test/audit-labels.test.ts reads them out of internal/ and fails on one
+ * without a label here). An action missing here is still spelled out by actionLabel.
+ */
+export const actionLabels: Record<string, string> = {
   "auth.login": "Signed in",
   "auth.logout": "Signed out",
   "auth.login_denied": "Sign-in denied",
@@ -44,6 +48,31 @@ const actionLabels: Record<string, string> = {
   "api_key.pepper_rehash": "Re-secured API key after key rotation",
   "service_account_key.pepper_rehash": "Re-secured service account key after key rotation",
   "thread.admin_read": "Read a private conversation",
+  "agent.create": "Deployed agent",
+  "agent.update": "Changed agent",
+  "agent.delete": "Deleted agent",
+  "agent_template.create": "Created template",
+  "agent_template.update": "Changed template",
+  "agent_template.version": "Added template version",
+  "agent_template.publish_request": "Asked to publish template",
+  "agent_template.approve": "Approved template for the catalog",
+  "agent_template.reject": "Rejected template for the catalog",
+  "agent_template.unpublish": "Removed template from the catalog",
+  "model_provider.create": "Added model provider",
+  "model_provider.update": "Changed model provider",
+  "model_provider.delete": "Deleted model provider",
+  "model.create": "Added model",
+  "model.update": "Changed model",
+  "model.delete": "Deleted model",
+  "mcp_server.create": "Added MCP server",
+  "mcp_server.update": "Changed MCP server",
+  "mcp_server.delete": "Deleted MCP server",
+  "platform.model_settings": "Changed team provider and MCP server settings",
+  "oauth.client_register": "Registered app",
+  "oauth.consent": "Connected app",
+  "oauth.token_issue": "Issued app token",
+  "oauth.revoke": "Revoked app access",
+  "oauth.trusted_clients_update": "Changed trusted apps",
 };
 
 /** A recorded metadata field, when it's a string. */
@@ -71,6 +100,12 @@ export const actionGroups: { prefix: string; label: string; platform?: boolean }
   { prefix: "service_account.", label: "Service accounts" },
   { prefix: "service_account_key.", label: "Service account keys" },
   { prefix: "thread.", label: "Conversations" },
+  { prefix: "agent.", label: "Agents" },
+  { prefix: "agent_template.", label: "Templates" },
+  { prefix: "model_provider.", label: "Model providers" },
+  { prefix: "model.", label: "Models" },
+  { prefix: "mcp_server.", label: "MCP servers" },
+  { prefix: "oauth.", label: "Connected apps", platform: true },
   { prefix: "api_key.", label: "API keys", platform: true },
   { prefix: "platform.", label: "Platform and users", platform: true },
   { prefix: "auth.", label: "Sign-in", platform: true },
@@ -141,6 +176,15 @@ export const targetTypeLabels: Record<string, string> = {
   service_account: "Service account",
   service_account_key: "Service account key",
   agent_thread: "Conversation",
+  agent: "Agent",
+  agent_template: "Template",
+  model_provider: "Model provider",
+  model: "Model",
+  mcp_server: "MCP server",
+  oauth_client: "App",
+  oauth_grant: "App connection",
+  oauth_settings: "Trusted apps",
+  platform: "Platform",
 };
 
 /** Why it was done, for entries that record a reason (a platform admin's read of a conversation). */

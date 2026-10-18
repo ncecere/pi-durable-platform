@@ -122,7 +122,7 @@ export type TeamNavItem = {
   label: string;
   icon: ReactNode;
   exact?: boolean;
-  /** Who gets the item. Platform staff who aren't members get the overview, the service accounts and settings. */
+  /** Who gets the item. Platform staff who aren't members get everything but what's private to members. */
   access: (a: TeamAccess) => boolean;
   /** Extra command-palette search words. */
   keywords?: string[];
@@ -141,8 +141,8 @@ const teamNav: TeamNavItem[] = [
     to: "/teams/$team/agents",
     label: terms.agents,
     icon: icon(Sparkles),
-    // Agents and their conversations are the team's own: platform staff only audit a personal workspace's agents.
-    access: (a) => a.member || (a.staff && a.personal),
+    // Platform staff see any team's agents, read-only (not their conversations: a platform admin reads one with a reason).
+    access: (a) => a.member || a.staff,
     keywords: [
       "agent",
       "agents",

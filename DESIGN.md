@@ -268,6 +268,10 @@ agent, and announces changes on `GET /v1/agents/events`.
   `agent_thread` `<agentId>/<threadId>`, with the reason, the thread's visibility and whether the workspace is personal)
   in the agent's team's audit log, where its owners see it, before returning it. Platform admins only, with a browser
   session; auditors can't. Otherwise platform roles still never reach conversations.
+- **Staff see every team's agents.** Platform admins and auditors read any team's agents (`GET
+  /v1/teams/{team}/agents`, `GET /v1/agents/{id}`: settings and status), shared teams' as well as personal
+  workspaces', so Admin › Teams › a team lists them and links to each agent's page. Read-only: they don't talk to,
+  change or hibernate an agent of a team they aren't on (platform admins may delete one).
 
 ## Launchers
 

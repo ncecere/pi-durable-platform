@@ -1,12 +1,13 @@
 /*
- * Admin → Teams › one team: a DetailPage with Overview · Members · Settings.
- * A personal workspace has no members to manage or owner to assign: it shows
- * its owner and Overview · Limits · Settings instead. Archive is a menu
+ * Admin → Teams › one team: a DetailPage with Overview · Members · Agents ·
+ * Settings. A personal workspace has no members to manage or owner to
+ * assign: it shows its owner and Overview · Limits · Agents · Settings
+ * instead. Agents links to each agent's page, read-only for platform staff. Archive is a menu
  * action and a Danger zone entry, never a solid red header button.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { Archive, ArchiveRestore, ExternalLink, Gauge, LayoutDashboard, Settings2, UsersRound } from "lucide-react";
+import { Archive, ArchiveRestore, ExternalLink, Gauge, LayoutDashboard, Settings2, Sparkles, UsersRound } from "lucide-react";
 import { useState } from "react";
 import { api, ifMatch, unwrap, type Schemas } from "@/api/client";
 import { isPersonal } from "@/api/personal";
@@ -20,9 +21,11 @@ import { AlertDialog } from "@/components/ui/dialog/dialog";
 import { toast } from "@/components/ui/toast/toast";
 import { plural } from "@/lib/format";
 import { adminTeamTabs } from "@/lib/tabs";
+import { terms } from "@/lib/terms";
 import { useIsPlatformAdmin } from "../hooks";
 import { TeamStatusBadge } from "./common";
 import { usePersonalOwner } from "./personal-overview";
+import { TeamAgentsTab } from "./team-agents";
 import { TeamLimitsTab } from "./team-limits";
 import { TeamMembersTab } from "./team-members";
 import { TeamOverviewTab } from "./team-overview";
@@ -102,6 +105,7 @@ export function AdminTeamPage() {
           personal
             ? { value: "limits", label: "Limits", icon: <Gauge aria-hidden />, content: <TeamLimitsTab team={t} isAdmin={isAdmin} /> }
             : { value: "members", label: "Members", icon: <UsersRound aria-hidden />, count: sum.memberCount, content: <TeamMembersTab team={team} isAdmin={isAdmin} /> },
+          { value: "agents", label: terms.agents, icon: <Sparkles aria-hidden />, content: <TeamAgentsTab team={t.slug} personal={personal} /> },
           {
             value: "settings",
             label: "Settings",

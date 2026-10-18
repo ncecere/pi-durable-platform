@@ -17,6 +17,14 @@ describe("home", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it("gives the Agents card a body of links, not an empty strip", async () => {
+    mockApi(shellRoutes());
+    renderApp("/");
+    const card = (await screen.findByRole("heading", { level: 2, name: "Agents" })).closest("section")!;
+    expect(within(card).getByRole("link", { name: "All agents" })).toHaveAttribute("href", "/agents");
+    expect(within(card).getByRole("link", { name: "Catalog" })).toHaveAttribute("href", "/catalog");
+  });
+
   it("gives platform staff the way into Admin", async () => {
     mockApi(shellRoutes("platform_auditor"));
     renderApp("/");
@@ -133,6 +141,22 @@ describe("templates", () => {
     expect(screen.getByText("Waiting for review")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review request" })).toBeInTheDocument();
     expect(await screen.findByText("Sort tickets.")).toBeInTheDocument();
+  });
+
+  it("heads Admin › Templates' review queue and full list, and names their tables", async () => {
+    mockApi({
+      ...shellRoutes("platform_admin", null),
+      "GET /v1/admin/agent-templates": (_b, call) => (call.search.get("status") === "pending" ? [pendingTemplate] : [platformTemplate, pendingTemplate]),
+    });
+    const { container } = renderApp("/admin/templates");
+    expect(await screen.findByRole("heading", { level: 1, name: "Templates" })).toBeInTheDocument();
+    const queue = screen.getByRole("region", { name: "Waiting for review" });
+    const queueTable = within(queue).getByRole("table", { name: "Templates waiting for review" });
+    expect(await within(queueTable).findByRole("link", { name: "Triage" })).toBeInTheDocument();
+    const every = screen.getByRole("region", { name: "Every template" });
+    expect(within(every).getByRole("table", { name: "Every template" })).toBeInTheDocument();
+    expect(await within(every).findByRole("link", { name: "Assistant" })).toBeInTheDocument();
+    expect(await axe(container)).toHaveNoViolations();
   });
 });
 

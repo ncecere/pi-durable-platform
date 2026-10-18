@@ -22,11 +22,22 @@ import { ChatMessages } from "./messages";
 export const REASON_MIN = 10;
 export const REASON_MAX = 500;
 
-/** A thread's title as staff may see it: withheld for private and personal ones, and for auditors. */
+/**
+ * A thread's title as staff may see it: withheld for private ones, every one in a personal workspace or of a
+ * service-managed agent, and for auditors. A withheld title says only that ("Title hidden"), not why: a shared
+ * thread's title can be hidden too, and the Visibility column says who sees it.
+ */
 export function conversationTitle(t: AdminAgentThread, canRead: boolean): { text: string; hidden: boolean } {
-  if (t.titleHidden || t.title === null) return { text: "Private conversation", hidden: true };
-  if (!canRead) return { text: "Title hidden", hidden: true };
+  if (t.titleHidden || t.title === null || !canRead) return { text: hiddenTitle, hidden: true };
   return { text: t.title, hidden: false };
+}
+
+export const hiddenTitle = "Title hidden";
+
+/** How a sentence names the thread: its title in quotes, or "this conversation" when the title is withheld. */
+export function conversationName(t: AdminAgentThread, canRead: boolean): string {
+  const title = conversationTitle(t, canRead);
+  return title.hidden ? "this conversation" : `“${title.text}”`;
 }
 
 /** Why the reason can't be sent yet, or undefined. */
@@ -47,7 +58,8 @@ export function ReadConversationDialog({ agent, thread, onClose }: Props) {
   const [error, setError] = useState<unknown>(null);
   const [snapshot, setSnapshot] = useState<{ view: ChatView; at: number } | null>(null);
   const problem = reasonProblem(reason);
-  const title = conversationTitle(thread, true).text;
+  const shown = conversationTitle(thread, true);
+  const title = shown.hidden ? `Conversation (${hiddenTitle.toLowerCase()})` : shown.text;
 
   const submit = async () => {
     setSubmitted(true);
@@ -95,7 +107,7 @@ export function ReadConversationDialog({ agent, thread, onClose }: Props) {
 
   return (
     <FormDialog
-      title={`Read “${title}”?`}
+      title={`Read ${conversationName(thread, true)}?`}
       description="Conversations belong to the people in them. Say why you need to read this one. Recorded in the team's audit log, which the owner can see."
       onClose={onClose}
       onSubmit={() => void submit()}

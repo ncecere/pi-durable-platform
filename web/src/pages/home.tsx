@@ -108,7 +108,7 @@ function YourTeams({ me }: { me: Me }) {
   );
 }
 
-/** Agents across the person's teams. */
+/** Agents across the person's teams, and the catalog they're deployed from. */
 function AgentsCard() {
   return (
     <Card
@@ -119,7 +119,16 @@ function AgentsCard() {
           <Sparkles aria-hidden /> Open {terms.agents} <ArrowRight aria-hidden />
         </Button>
       }
-    />
+    >
+      <div className={styles.cardLinks}>
+        <Button size="sm" variant="secondary" render={<Link to="/agents" />}>
+          All agents
+        </Button>
+        <Button size="sm" variant="secondary" render={<Link to="/catalog" />}>
+          Catalog
+        </Button>
+      </div>
+    </Card>
   );
 }
 
@@ -139,7 +148,7 @@ function PlatformCard({ platformAdmin }: { platformAdmin: boolean }) {
         </Button>
       }
     >
-      <div className={styles.adminLinks}>
+      <div className={styles.cardLinks}>
         <Button size="sm" variant="secondary" render={<Link to="/admin/users" />}>
           Users
         </Button>

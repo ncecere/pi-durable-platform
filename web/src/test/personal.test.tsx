@@ -122,7 +122,7 @@ describe("Admin › Teams › a personal workspace", () => {
     expect(screen.getAllByText("Personal workspace").length).toBeGreaterThan(0);
     expect(await screen.findByText("Una User")).toBeInTheDocument();
     const tabs = screen.getByRole("tablist", { name: "Team sections" });
-    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Overview", "Limits", "Settings"]);
+    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Overview", "Limits", "Agents", "Settings"]);
     const audit = screen.getByRole("region", { name: "Audit this workspace" });
     expect(within(audit).getByRole("link", { name: "Agents" })).toHaveAttribute("href", `/teams/${personalTeam.slug}/agents`);
     expect(within(audit).getByRole("link", { name: "Usage" })).toHaveAttribute("href", `/teams/${personalTeam.slug}/usage`);

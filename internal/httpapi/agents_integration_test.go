@@ -44,13 +44,36 @@ func TestTeamAgent(t *testing.T) {
 		t.Fatalf("member's agents = %d %+v", code, list)
 	}
 
-	// Private to the team: another team's people and platform staff don't reach it.
+	// Private to the team: another team's people don't reach it. Platform staff see it (its settings and
+	// status, read-only, as they do a personal workspace's agents), but don't use it or read its conversations.
+	code, ec = e.outsider.call("GET", base, nil, nil, nil)
+	mustCode(t, "an outsider reads the agent", code, ec, 404, "agent_not_found")
+	code, ec = e.outsider.call("GET", toolsTeam+"/agents", nil, nil, nil)
+	mustCode(t, "an outsider lists the team's agents", code, ec, 404, "team_not_found")
 	for _, s := range []*session{e.outsider, e.admin, e.auditor} {
-		code, ec := s.call("GET", base, nil, nil, nil)
-		mustCode(t, "an outsider reads the agent", code, ec, 404, "agent_not_found")
 		code, ec = s.call("POST", base+"/threads/test-1/messages", map[string]any{"text": "hi"}, nil, nil)
 		mustCode(t, "an outsider talks to the agent", code, ec, 404, "agent_not_found")
 	}
+	for name, s := range map[string]*session{"platform admin": e.admin, "auditor": e.auditor} {
+		var seen apitypes.Agent
+		if code := s.get(base, &seen); code != 200 || seen.Id != ag.Id || seen.TeamSlug != "tools" {
+			t.Fatalf("%s reads the agent: %d %+v", name, code, seen)
+		}
+		var listed []apitypes.Agent
+		if code := s.get(toolsTeam+"/agents", &listed); code != 200 || len(listed) != 1 || listed[0].Id != ag.Id {
+			t.Fatalf("%s lists the team's agents: %d %+v", name, code, listed)
+		}
+		for _, path := range []string{"/threads", "/threads/test-1"} {
+			code, ec = s.call("GET", base+path, nil, nil, nil)
+			mustCode(t, name+" reads "+path, code, ec, 404, "agent_not_found")
+		}
+		code, ec = s.call("PATCH", base, map[string]any{"description": "staff"}, nil, ifMatch(seen.Revision))
+		mustCode(t, name+" changes the agent", code, ec, 404, "agent_not_found")
+		code, ec = s.call("POST", base+"/hibernate", nil, nil, nil)
+		mustCode(t, name+" hibernates the agent", code, ec, 403, "forbidden")
+	}
+	code, ec = e.auditor.call("DELETE", base, nil, nil, nil)
+	mustCode(t, "an auditor deletes", code, ec, 403, "forbidden")
 
 	// Hibernate, then wake on the next request with the conversation intact.
 	code, ec = e.member.call("POST", base+"/hibernate", nil, nil, nil)

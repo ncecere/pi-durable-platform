@@ -1,6 +1,72 @@
-/* Audit words: the initial platform role, humanized roles, and "Not set" in both the list and the record. */
+/*
+ * Audit words: the initial platform role, humanized roles, and "Not set" in both the list and the record; and a label
+ * for every action and target type the server records (read out of the Go code in internal/).
+ */
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { auditChange, changedRows, changeSummary, valueText } from "../components/audit/changes";
-import { actionLabel, areaOf, entryTitle, reasonLine, targetTypeLabel } from "../components/audit/labels";
+import { actionGroups, actionLabel, actionLabels, areaOf, entryTitle, reasonLine, targetTypeLabel, targetTypeLabels } from "../components/audit/labels";
+
+const internal = path.resolve(__dirname, "../../../internal");
+
+/** The Go sources the server is built from: no tests, no generated code. */
+function goSources(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
+    const p = path.join(dir, d.name);
+    if (d.isDirectory()) return d.name === "dbgen" || d.name === "apitypes" ? [] : goSources(p);
+    return d.name.endsWith(".go") && !d.name.endsWith("_test.go") ? [p] : [];
+  });
+}
+
+const sources = goSources(internal).map((f) => readFileSync(f, "utf8"));
+const matches = (re: RegExp) => [...new Set(sources.flatMap((src) => [...src.matchAll(re)].map((m) => m[1]!)))].sort();
+
+/** Dotted string literals in the Go code that aren't audit actions. */
+const notActions = new Set(["ca.crt", "index.html"]);
+/** Every action recorded at v0.1.0 (the scan must find at least these: a floor for the scan itself). */
+const knownActions = [
+  "agent.create", "agent.delete", "agent.update",
+  "agent_template.approve", "agent_template.create", "agent_template.publish_request", "agent_template.reject", "agent_template.unpublish", "agent_template.update", "agent_template.version",
+  "api_key.create", "api_key.pepper_rehash", "api_key.revoke",
+  "auth.login", "auth.login_denied", "auth.logout",
+  "mcp_server.create", "mcp_server.delete", "mcp_server.update",
+  "model.create", "model.delete", "model.update",
+  "model_provider.create", "model_provider.delete", "model_provider.update",
+  "oauth.client_register", "oauth.consent", "oauth.revoke", "oauth.token_issue", "oauth.trusted_clients_update",
+  "platform.bootstrap_role", "platform.model_settings", "platform.personal_settings", "platform.user_reactivate", "platform.user_role_change", "platform.user_suspend", "platform.user_update",
+  "service_account.create", "service_account.delete", "service_account.update",
+  "service_account_key.create", "service_account_key.pepper_rehash", "service_account_key.revoke",
+  "team.archive", "team.create", "team.invite_accept", "team.invite_create", "team.invite_revoke", "team.member_add", "team.member_leave", "team.member_remove", "team.member_role_change", "team.owner_assign", "team.personal_create", "team.personal_limits", "team.unarchive", "team.update",
+  "thread.admin_read",
+];
+
+describe("audit labels for what the server records", () => {
+  const actions = matches(/"([a-z][a-z_]*\.[a-z][a-z_]*)"/g).filter((a) => !notActions.has(a));
+
+  it("finds the server's actions in internal/", () => {
+    expect(actions).toEqual(expect.arrayContaining(knownActions));
+  });
+
+  it("has a label and an area for every action", () => {
+    expect(actions.filter((a) => !actionLabels[a])).toEqual([]);
+    expect(actions.filter((a) => !areaOf(a))).toEqual([]);
+    for (const a of knownActions) expect(actionLabel(a)).toBe(actionLabels[a]);
+    expect(actionLabel("oauth.token_issue")).toBe("Issued app token");
+    expect(actionLabel("agent.create")).toBe("Deployed agent");
+  });
+
+  it("has a label for every target type", () => {
+    const types = [...new Set([...matches(/TargetType:\s*"([a-z_]+)"/g), ...matches(/Audit\((?:"[^"]*"|[A-Za-z_][\w(), ]*?),\s*"([a-z_]+)"/g)])].sort();
+    expect(types).toEqual(expect.arrayContaining(["agent", "agent_template", "agent_thread", "mcp_server", "model", "model_provider", "oauth_grant", "team", "user"]));
+    expect(types.filter((t) => !targetTypeLabels[t])).toEqual([]);
+  });
+
+  it("puts every group's prefix in one area only", () => {
+    const prefixes = actionGroups.map((g) => g.prefix);
+    expect(new Set(prefixes).size).toBe(prefixes.length);
+    for (const a of actions) expect(actionGroups.filter((g) => a.startsWith(g.prefix))).toHaveLength(1);
+  });
+});
 
 describe("audit labels", () => {
   it("names the bootstrap grant neutrally and shows its role in words", () => {

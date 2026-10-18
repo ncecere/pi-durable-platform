@@ -201,15 +201,9 @@ func subject(ctx context.Context, q *dbgen.Queries, a authz.Actor, ag dbgen.Agen
 	if err != nil {
 		return authz.AgentSubject{}, err
 	}
-	sub := authz.AgentSubject{Role: role, IsService: a.Service != nil, ServiceManaged: ag.ExternalKey != nil}
-	if role == "" && a.CanReadPlatform() {
-		t, err := q.GetTeamByID(ctx, ag.TeamID)
-		if err != nil {
-			return sub, err
-		}
-		sub.Audit = t.Kind == teams.KindPersonal
-	}
-	return sub, nil
+	// Platform staff see any team's agents (read-only); a member's role decides for them on their own teams.
+	return authz.AgentSubject{Role: role, IsService: a.Service != nil, ServiceManaged: ag.ExternalKey != nil,
+		Audit: role == "" && a.CanReadPlatform()}, nil
 }
 
 func (s *Service) view(ctx context.Context, q *dbgen.Queries, ag dbgen.Agent) (View, error) {
@@ -379,10 +373,10 @@ func (s *Service) createInTeam(ctx context.Context, a authz.Actor, teamRef strin
 	return out, created, err
 }
 
-// ListTeam lists a team's agents for its members and service accounts.
-// Service-managed agents are included when asked, for the team's service
-// accounts and its owners and admins (who see them, not their
-// conversations).
+// ListTeam lists a team's agents for its members and service accounts, and
+// for platform staff (any team's, read-only). Service-managed agents are
+// included when asked, for the team's service accounts, its owners and
+// admins, and platform staff (who see them, not their conversations).
 func (s *Service) ListTeam(ctx context.Context, a authz.Actor, teamRef string, includeManaged bool) ([]View, error) {
 	t, err := teams.Resolve(ctx, s.q, teamRef)
 	if err != nil {
@@ -392,7 +386,7 @@ func (s *Service) ListTeam(ctx context.Context, a authz.Actor, teamRef string, i
 	if err != nil {
 		return nil, err
 	}
-	audit := role == "" && a.CanReadPlatform() && t.Kind == teams.KindPersonal
+	audit := role == "" && a.CanReadPlatform()
 	if role == "" && !audit {
 		return nil, errTeamNotFound
 	}
@@ -632,7 +626,15 @@ func (s *Service) DeleteAllStorage(ctx context.Context) error { return s.prov.De
 
 // Hibernate stops the agent's runtime now (anyone who may use it).
 func (s *Service) Hibernate(ctx context.Context, a authz.Actor, id uuid.UUID) error {
-	if _, err := s.Get(ctx, a, id); err != nil {
+	ag, err := s.load(ctx, s.q, id)
+	if err != nil {
+		return err
+	}
+	sub, err := subject(ctx, s.q, a, ag)
+	if err != nil {
+		return err
+	}
+	if err := authz.CheckAgentHibernate(sub); err != nil {
 		return err
 	}
 	return s.host.Hibernate(ctx, id.String())

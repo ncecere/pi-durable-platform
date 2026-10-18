@@ -32,14 +32,14 @@ describe("navigation lists", () => {
     for (const to of records) expect(paths, to).toContain(to);
   });
 
-  it("give every team role the overview, agents, templates, models, MCP servers, usage, service accounts and settings, and platform staff who aren't members all but agents", () => {
+  it("give every team role and platform staff who aren't members the overview, agents, templates, models, MCP servers, usage, service accounts and settings", () => {
     for (const role of ["owner", "admin", "editor", "member"] as const) {
       expect(teamNavFor(meFor("none", role), team.slug).map((n) => n.label)).toEqual(["Overview", "Agents", "Templates", "Models", "MCP servers", "Usage", "Service accounts", "Team settings"]);
     }
     expect(teamNavFor(meFor("none", "member"), team.slug).find((n) => n.label === "Models")?.to).toBe("/teams/$team/models");
     expect(teamNavFor(meFor("none", "member"), team.slug).find((n) => n.label === "MCP servers")?.to).toBe("/teams/$team/mcp-servers");
-    // Agents and their conversations are the team's own; staff read templates (to review them), the team's model providers and MCP servers.
-    expect(teamNavFor(meFor("platform_auditor", null), team.slug).map((n) => n.label)).toEqual(["Overview", "Templates", "Models", "MCP servers", "Usage", "Service accounts", "Team settings"]);
+    // Staff read any team's agents (not their conversations), templates (to review them), model providers and MCP servers.
+    expect(teamNavFor(meFor("platform_auditor", null), team.slug).map((n) => n.label)).toEqual(["Overview", "Agents", "Templates", "Models", "MCP servers", "Usage", "Service accounts", "Team settings"]);
     // Neither a member nor staff: nothing (the team page says "Team not found").
     expect(teamNavFor(meFor("none", null), team.slug)).toEqual([]);
   });

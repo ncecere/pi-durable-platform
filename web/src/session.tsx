@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, LifeBuoy, LogIn } from "lucide-react";
 import { useEffect } from "react";
 import { ApiError, api, errorMessage, setCsrfToken, unwrap, type Schemas } from "./api/client";
+import { ProductMark } from "./components/layout/product-mark";
 import { applyInstance, instanceOf, tagline, type Instance } from "./lib/instance";
 import { retryDelay, shouldRetrySession } from "./lib/retry";
 import { Alert, ErrorAlert } from "@/components/ui/alert/alert";
@@ -12,6 +13,7 @@ import { Card, CardBody } from "@/components/ui/card/card";
 import { Stack } from "@/components/ui/layout/layout";
 import { Separator } from "@/components/ui/separator/separator";
 import { Loading, Spinner } from "@/components/ui/spinner/spinner";
+import { TextLink } from "@/components/ui/text-link/text-link";
 import styles from "./session.module.css";
 
 export type Me = Schemas["Me"];
@@ -111,7 +113,7 @@ export function SignInPage() {
     <main className={styles.page}>
       <div className={styles.column}>
         <div className={styles.brand}>
-          {instance.logoUrl && <InstanceLogo src={instance.logoUrl} className={styles.logo} />}
+          {instance.logoUrl ? <InstanceLogo src={instance.logoUrl} className={styles.logo} /> : <ProductMark small className={styles.mark} />}
           <h1 className={styles.title}>{instance.name}</h1>
           <p className={styles.subtitle}>{tagline(instance)}</p>
         </div>
@@ -181,9 +183,9 @@ export function SignInPage() {
         </Card>
         {instance.supportUrl && (
           <p className={styles.help}>
-            <a href={instance.supportUrl} target="_blank" rel="noreferrer">
+            <TextLink href={instance.supportUrl} target="_blank" rel="noreferrer">
               <LifeBuoy aria-hidden /> Help signing in
-            </a>
+            </TextLink>
           </p>
         )}
       </div>

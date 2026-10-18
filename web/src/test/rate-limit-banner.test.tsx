@@ -49,5 +49,7 @@ describe("the pre-session rate-limit page", () => {
     mockApi(shellRoutes());
     renderBare(<SessionUnavailable error={limited(5)} retrying onRetry={() => {}} />);
     expect(await screen.findByRole("heading", { level: 1, name: "Too many requests" })).toHaveFocus();
+    // No instance logo: the product's Wake mark.
+    expect(screen.getByRole("main").querySelector("img")).toHaveAttribute("src", "/pi-durable-platform-mark-small.svg");
   });
 });

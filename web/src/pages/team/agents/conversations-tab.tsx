@@ -1,8 +1,9 @@
 /*
  * An agent's Conversations, for platform staff: every thread, private ones
  * too, with who sees it, who started it, who's in it and when it last moved.
- * Titles of private conversations (and of every one in a personal workspace)
- * are withheld. A platform admin may read one with a reason, recorded in the
+ * Titles of private conversations (and of every one in a personal workspace
+ * or of a service-managed agent) are withheld and read "Title hidden": the
+ * Visibility column says whether a thread is private or shared. A platform admin may read one with a reason, recorded in the
  * team's audit log for its owners to see (ReadConversationDialog); auditors
  * only see the list, without titles.
  */
@@ -22,7 +23,7 @@ import { EmptyState } from "@/components/ui/empty-state/empty-state";
 import shared from "../../shared.module.css";
 import s from "./agents.module.css";
 import type { Agent } from "./labels";
-import { conversationTitle, ReadConversationDialog } from "./read-conversation";
+import { conversationName, conversationTitle, ReadConversationDialog } from "./read-conversation";
 
 type Props = { agent: Agent; personal: boolean; canRead: boolean };
 
@@ -30,6 +31,15 @@ export function ConversationsTab({ agent, personal, canRead }: Props) {
   const threads = useQuery(adminThreadsQuery(agent.id));
   const [reading, setReading] = useState<AdminAgentThread | null>(null);
   const forbidden = threads.error instanceof ApiError && threads.error.status === 403;
+  const hiddenTitles = personal
+    ? "Titles in a personal workspace are hidden, shared or not."
+    : agent.externalKey != null
+      ? "Titles of a service-managed agent's conversations are hidden, shared or not."
+      : "Titles of private conversations are hidden.";
+  const readLabel = (t: AdminAgentThread) => {
+    const by = t.createdBy?.name ?? "someone";
+    return conversationTitle(t, canRead).hidden ? `Read the conversation started by ${by}…` : `Read ${conversationName(t, canRead)}, started by ${by}…`;
+  };
 
   const columns: DataTableColumn<AdminAgentThread>[] = [
     {
@@ -90,7 +100,7 @@ export function ConversationsTab({ agent, personal, canRead }: Props) {
       ) : null}
       <Card
         title="Conversations"
-        description={`Every conversation with ${agent.name}, private ones too. ${personal ? "Titles in a personal workspace are hidden." : "Titles of private conversations are hidden."} ${canRead ? "Reading one takes a reason, recorded in the team's audit log, which its owners can see." : "Only platform admins can read them."}`}
+        description={`Every conversation with ${agent.name}, private ones too. ${hiddenTitles} ${canRead ? "Reading one takes a reason, recorded in the team's audit log, which its owners can see." : "Only platform admins can read them."}`}
         flush
       >
         <DataTable<AdminAgentThread>
@@ -108,7 +118,7 @@ export function ConversationsTab({ agent, personal, canRead }: Props) {
           rowActions={
             canRead
               ? (t) => (
-                  <Button size="sm" variant="secondary" disabled={!agent.enabled} onClick={() => setReading(t)} aria-label={`Read ${conversationTitle(t, canRead).text}, started by ${t.createdBy?.name ?? "someone"}…`}>
+                  <Button size="sm" variant="secondary" disabled={!agent.enabled} onClick={() => setReading(t)} aria-label={readLabel(t)}>
                     <BookOpen aria-hidden /> Read…
                   </Button>
                 )

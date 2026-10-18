@@ -3,7 +3,7 @@
 //
 //	pi-durable-platform serve     HTTP API, embedded UI and background loops
 //	pi-durable-platform migrate   apply database migrations and exit
-//	pi-durable-platform doctor    check the configuration, Postgres and migrations
+//	pi-durable-platform doctor    check the configuration, Postgres, migrations and the agents database
 //	pi-durable-platform version   print the version
 package main
 
@@ -30,7 +30,8 @@ const usage = `usage: pi-durable-platform <command>
 commands:
   serve     HTTP API, embedded UI and background loops
   migrate   apply database migrations and exit
-  doctor    check the configuration, Postgres and migrations (--json, --help)
+  doctor    check the configuration, Postgres, migrations and the agents
+            database (--json, --help)
   prune-agent-storage
             remove agent storage no agent owns (--dry-run, --help)
   version   print the version
@@ -106,7 +107,9 @@ func runDoctor(args []string, stdout io.Writer) error {
 	fs.Usage = func() {
 		fmt.Fprint(fs.Output(), "usage: pi-durable-platform doctor [--json] [--mode serve|migrate] [--timeout 10s]\n\n"+
 			"Checks the configuration (including the production safety checks), then\n"+
-			"PostgreSQL and the migration state. Exits 1 if any check fails.\n\n")
+			"PostgreSQL and the migration state, then the agents database\n"+
+			"(AGENTS_DATABASE_URL: reachable, and its role may provision agents).\n"+
+			"Exits 1 if any check fails.\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); errors.Is(err, flag.ErrHelp) {

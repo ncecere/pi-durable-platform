@@ -3266,8 +3266,8 @@ paths:
       tags:
       - agents
       operationId: listTeamAgents
-      summary: The team's agents (members and the team's service accounts)
-      description: Service-managed agents (with an external key) are included with includeManaged=true, for the team's owners, admins and service accounts.
+      summary: The team's agents (members and the team's service accounts; platform staff read any team's)
+      description: Service-managed agents (with an external key) are included with includeManaged=true, for the team's owners, admins and service accounts, and platform staff. Platform admins and auditors see any team's agents (settings and status, not conversations).
       parameters:
       - name: includeManaged
         in: query
@@ -3398,7 +3398,7 @@ paths:
       tags:
       - agents
       operationId: getAgent
-      summary: An agent the caller may use
+      summary: An agent the caller may use, or see (platform staff see any team's agents, not their conversations)
       responses:
         '200':
           description: The agent
