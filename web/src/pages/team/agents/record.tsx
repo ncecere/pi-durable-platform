@@ -3,8 +3,8 @@
  * runtime and how an app reaches it), Test (a chat with it, for the team's
  * members) and Settings. Service-managed agents show to the team's owners
  * and admins without Test: their conversations belong to the app's users.
- * Platform staff auditing a personal workspace see Overview and Settings,
- * read-only, without Test. Platform admins also see Conversations: every
+ * Platform staff who aren't on the team (a personal workspace's or a shared
+ * team's agent) see Overview and Settings, read-only, without Test. Platform admins also see Conversations: every
  * thread, private ones too, which they may read with a reason (recorded in
  * the team's audit log). Auditors don't: conversations aren't theirs to list.
  */
@@ -108,7 +108,7 @@ function Record({ agent }: { agent: Agent }) {
         },
       ]}
       primaryAction={
-        // Platform staff auditing a personal workspace's agent only look.
+        // Platform staff who aren't on the team only look.
         agent.running && ctx.role ? (
           <Button
             variant="secondary"
@@ -125,7 +125,7 @@ function Record({ agent }: { agent: Agent }) {
             <Alert tone="info" title="You're viewing this agent as platform staff">
               You can see its settings, status and usage.{" "}
               {capabilities.platformAdmin
-                ? "You can read a conversation under Conversations, with a reason recorded in the workspace's audit log."
+                ? `You can read a conversation under Conversations, with a reason recorded in the ${ctx.personal ? "workspace" : "team"}'s audit log.`
                 : "Not its conversations."}
             </Alert>
           ) : null}

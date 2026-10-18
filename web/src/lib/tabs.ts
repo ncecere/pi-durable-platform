@@ -4,7 +4,7 @@
  */
 
 /** Admin → Teams › one team: Overview · Members · Settings; a personal workspace: Overview · Limits · Settings. */
-export const adminTeamTabs = ["overview", "members", "limits", "settings"] as const;
+export const adminTeamTabs = ["overview", "members", "limits", "agents", "settings"] as const;
 export type AdminTeamTab = (typeof adminTeamTabs)[number];
 
 /** Admin → Models and Team → Models: Providers · Models. */

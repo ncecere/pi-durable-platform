@@ -3,7 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import type { Schemas } from "../api/client";
-import { auditEntry, invite, member, myTeam, page, team, teamSummary, user } from "./fixtures";
+import { agent, agentId, auditEntry, invite, member, myTeam, page, team, teamSummary, user } from "./fixtures";
 import { type Handler, Reply, mockApi, renderApp, shellRoutes } from "./harness";
 
 const other = user({ id: "77777777-7777-4777-8777-777777777777", email: "pat@example.com", displayName: "Pat Admin", platformRole: "platform_admin", teamCount: 2 });
@@ -191,5 +191,44 @@ describe("Admin → Teams", () => {
     await u.click(screen.getByRole("button", { name: "Archive team" }));
     await u.click(within(await screen.findByRole("alertdialog", { name: `Archive ${team.name}?` })).getByRole("button", { name: "Archive team" }));
     await waitFor(() => expect(calls.filter((c) => c.method === "PATCH").at(-1)?.body).toEqual({ status: "archived" }));
+  });
+});
+
+describe("Admin › Teams › a team's agents (platform staff who aren't members)", () => {
+  const managed = agent({ id: "29292929-2929-4292-8292-292929292929", name: "Assistant for user 42", externalKey: "user-42" });
+  const staffRoutes = (role: "platform_admin" | "platform_auditor"): Record<string, Handler> => ({
+    ...shellRoutes(role, null),
+    [`GET /v1/admin/teams/${team.slug}`]: () => teamSummary(),
+    [`GET /v1/teams/${team.slug}/audit`]: () => page([]),
+    [`GET /v1/teams/${team.slug}/agents`]: () => [agent({ running: true }), managed],
+    [`GET /v1/agents/${agentId}`]: () => agent({ running: true }),
+    [`GET /v1/admin/agents/${agentId}/threads`]: () => [],
+  });
+
+  it("lists the team's agents, service-managed ones too, each linking to its page", async () => {
+    const calls = mockApi(staffRoutes("platform_auditor"));
+    const { container } = renderApp(`/admin/teams/${team.slug}?tab=agents`);
+    const tabs = await screen.findByRole("tablist", { name: "Team sections" });
+    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Overview", "Members4", "Agents", "Settings"]);
+    const table = await screen.findByRole("table", { name: "Agents of this team" });
+    expect(await within(table).findByRole("link", { name: "Helper" })).toHaveAttribute("href", `/teams/${team.slug}/agents/${agentId}`);
+    expect(within(table).getByRole("link", { name: "Assistant for user 42" })).toHaveAttribute("href", `/teams/${team.slug}/agents/${managed.id}`);
+    expect(calls.find((c) => c.url === `/v1/teams/${team.slug}/agents`)?.search.get("includeManaged")).toBe("true");
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it.each([
+    ["platform_admin", true],
+    ["platform_auditor", false],
+  ] as const)("opens a shared team's agent read-only for a %s: no Test or Hibernate, Conversations for platform admins only", async (role, conversations) => {
+    mockApi(staffRoutes(role));
+    renderApp(`/teams/${team.slug}/agents/${agentId}`);
+    expect(await screen.findByRole("heading", { level: 1, name: "Helper" })).toBeInTheDocument();
+    expect(screen.getByText("You're viewing this agent as platform staff")).toBeInTheDocument();
+    const tabs = screen.getByRole("tablist", { name: "Agent sections" });
+    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(conversations ? ["Overview", "Conversations", "Settings"] : ["Overview", "Settings"]);
+    expect(screen.queryByRole("button", { name: /Hibernate/ })).toBeNull();
+    if (conversations) expect(screen.getByText(/with a reason recorded in the team's audit log/)).toBeInTheDocument();
+    expect(screen.queryByText("Only team members can see this.")).toBeNull();
   });
 });

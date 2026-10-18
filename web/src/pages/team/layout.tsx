@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useParams, useRouterState } from "@tanstack/react-router";
 import { Lock } from "lucide-react";
 import type { ReactNode } from "react";
-import { isPersonal } from "../../api/personal";
 import { teamQuery } from "../../api/queries";
 import { NotFoundState, isNotFound } from "../../components/not-found";
 import { PageSkeleton } from "../../components/page-skeleton";
@@ -18,15 +17,12 @@ import { TeamContext, teamCtx, useTeam } from "./common";
 
 /**
  * Pages platform staff who aren't members may open: the overview, team settings, usage, models (the team's own
- * providers), MCP servers (the team's own) and the service accounts (which platform staff read, as the API allows). Add a new team page here
- * when platform staff may read it; otherwise it is members only.
+ * providers), MCP servers (the team's own), the service accounts and the agents (their settings and status, read-only;
+ * a platform admin reads a conversation only with a reason, recorded in the team's audit log), as the API allows. Add
+ * a new team page here when platform staff may read it; otherwise it is members only.
  */
-const staffPage = (path: string) => /^\/teams\/[^/]+(\/settings|\/usage|\/models(\/providers\/[^/]+)?|\/mcp-servers(\/[^/]+)?|\/(service-accounts)(\/[^/]+)?)?\/?$/.test(path);
-/**
- * In a personal workspace platform staff also audit its agents (their settings and status; a platform admin reads a
- * conversation only with a reason, recorded in its audit log).
- */
-const staffAuditPage = (path: string) => /^\/teams\/[^/]+\/agents(\/[^/]+)?\/?$/.test(path);
+const staffPage = (path: string) =>
+  /^\/teams\/[^/]+(\/settings|\/usage|\/models(\/providers\/[^/]+)?|\/mcp-servers(\/[^/]+)?|\/(service-accounts|agents)(\/[^/]+)?)?\/?$/.test(path);
 
 /** The team area: loads the team and provides it to the current team page. */
 export function TeamLayout() {
@@ -40,9 +36,8 @@ export function TeamLayout() {
   if (view.error) return <ErrorAlert error={view.error} title="Couldn't load this team" />;
   if (!view.data) return null;
   const ctx = teamCtx(view.data.team, view.data.role);
-  // Platform staff can see a team's overview, settings and members but not its content,
-  // which is private to members. Say so instead of showing a load error.
-  if (!view.data.role && !staffPage(path) && !(isPersonal(view.data.team) && staffAuditPage(path))) {
+  // Platform staff open the pages staffPage lists; the rest is private to members. Say so instead of showing a load error.
+  if (!view.data.role && !staffPage(path)) {
     return (
       <Stack gap={6} className={s.page}>
         <PageHeader title={view.data.team.name} />
