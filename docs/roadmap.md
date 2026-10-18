@@ -30,12 +30,14 @@ agents database, and a console path for platform staff to a shared team's agents
 | v0.2 | E. Platform-chosen thread IDs, and thread MCP servers only for threads that exist | S | [#5](https://github.com/ncecere/pi-durable-platform/issues/5) |
 | v0.2 | F. Re-check IdP group membership: end sessions, keys and connected apps of people no longer allowed | S | [#6](https://github.com/ncecere/pi-durable-platform/issues/6) |
 | v0.2 | G. Harden the agents database: per-agent lock namespaces and cleanup of agent roles | M | [#7](https://github.com/ncecere/pi-durable-platform/issues/7) |
+| v0.2 | V. Configuration reference: .env.example lists every setting, and config comments are accurate | S | [#23](https://github.com/ncecere/pi-durable-platform/issues/23) |
 | v0.3 | H. Paging and search for threads and conversations | S | [#8](https://github.com/ncecere/pi-durable-platform/issues/8) |
 | v0.3 | I. Incremental event streams: send changes, not the whole conversation view | M | [#9](https://github.com/ncecere/pi-durable-platform/issues/9) |
 | v0.3 | J. Steering: send a message that changes the reply in progress | S | [#10](https://github.com/ncecere/pi-durable-platform/issues/10) |
 | v0.3 | K. Safe agent creation for people and apps: idempotency and keys in one's own workspace | M | [#11](https://github.com/ncecere/pi-durable-platform/issues/11) |
 | v0.3 | L. OAuth Connect for apps with many people: login_hint, prompt=none, app-level events and usage | M | [#12](https://github.com/ncecere/pi-durable-platform/issues/12) |
 | v0.3 | M. Move an agent, with its conversations, to another team or workspace | M | [#13](https://github.com/ncecere/pi-durable-platform/issues/13) |
+| v0.3 | W. Usage reports for several agents at once, grouped by agent and day | S | [#24](https://github.com/ncecere/pi-durable-platform/issues/24) |
 | v0.4 | N. Files and images in messages, stored on S3-compatible object storage | L | [#14](https://github.com/ncecere/pi-durable-platform/issues/14) |
 | v0.4 | O. Scheduled wake-ups: agents run work at a time or on a schedule | M | [#15](https://github.com/ncecere/pi-durable-platform/issues/15) |
 | v0.4 | P. Tool approvals: a person approves sensitive tool calls before they run | L | [#16](https://github.com/ncecere/pi-durable-platform/issues/16) |
@@ -130,6 +132,17 @@ Any role in the agents database could block another agent's lock key, which is a
 
 **Done when:** A test shows one agent's role can't take another agent's ownership lock, and orphaned roles are reported and removable.
 
+### V. Configuration reference: .env.example lists every setting, and config comments are accurate (S, [#23](https://github.com/ncecere/pi-durable-platform/issues/23))
+
+**Limitation:** .env.example doesn't list every setting (AGENTS_NAMESPACE, AGENTS_RUNTIME_CLASS and others are missing).
+
+Operators learn some settings only from the docs site or the code, and the API_KEY_PEPPER comment says it covers personal API keys only (it also covers service account keys and OAuth tokens and codes).
+
+- A test that compares the settings internal/config reads with .env.example, so a new setting can't be added without documenting it.
+- Add the missing settings with defaults and one-line explanations; fix the APIKeyPepper comment.
+
+**Done when:** CI fails when a setting is read but not in .env.example, and .env.example lists all of them today.
+
 ## v0.3: Apps at scale
 
 The first app (a chat app using OAuth Connect) reaches people's personal workspaces and team agents. With hundreds of people it needs paging, smaller event streams, steering, safe retries and an app-level view of events and usage. These are the requests in the chat app's second round of questions.
@@ -201,6 +214,16 @@ Agents created in the wrong place, or service-managed agents a person wants to k
 - Private threads stay their creator's; shared threads become visible to the new team (shown before confirming).
 
 **Done when:** An agent moved between teams keeps its conversations and is usable only under the new team's rules, audited on both sides.
+
+### W. Usage reports for several agents at once, grouped by agent and day (S, [#24](https://github.com/ncecere/pi-durable-platform/issues/24))
+
+**Limitation:** Usage grouped by day takes one agentId, so an app shows several agents' daily usage with one call per agent.
+
+An app's usage page (a person's agents by day) makes one request per agent.
+
+- A repeatable `agentId` filter on the team usage report, and `groupBy=agent,day`.
+
+**Done when:** One request returns daily usage for several agents, with tests for the filters and grouping.
 
 ## v0.4: Agents that do more
 
