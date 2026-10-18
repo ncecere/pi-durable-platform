@@ -112,11 +112,17 @@
   width: 100%;
 }
 
+/* The end padding keeps the text clear of the chevron; .control[data-size="sm"]
+   resets the padding with a more specific selector, so the small size repeats it. */
 .select {
   appearance: none;
   padding-inline-end: 2.25rem;
   cursor: pointer;
   text-overflow: ellipsis;
+
+  &[data-size="sm"] {
+    padding-inline-end: 2rem;
+  }
 }
 
 .chevron {
