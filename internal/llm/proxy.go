@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ncecere/pi-durable-platform/internal/apperr"
+	"github.com/ncecere/pi-durable-platform/internal/netguard"
 )
 
 // The model proxy: agents of a proxy-mode provider call
@@ -25,7 +26,8 @@ import (
 // own API (the runtime's SDK appends path: /chat/completions, /responses or
 // /v1/messages). The gateway checks the agent may use the model the request
 // names, relays the request with the provider's key, streams the reply back
-// and records the tokens it reports.
+// and records the tokens it reports. A team provider is called through the
+// address guard (teams.go).
 
 // ProxyCredentialPrefix starts an agent's model-proxy credential.
 const ProxyCredentialPrefix = "pdpm."
@@ -209,8 +211,14 @@ func (s *Service) proxy(w http.ResponseWriter, r *http.Request, auth AgentAuth, 
 	}
 	authenticate(up, m.Kind, m.APIKey, m.Headers)
 	started := time.Now()
-	resp, err := s.client.Do(up)
+	resp, err := s.clientFor(m.Provider).Do(up)
 	if err != nil {
+		if errors.Is(err, netguard.ErrBlockedAddress) {
+			// A team provider's host now resolves outside what teams may reach.
+			log.Warn("model proxy: team provider address not allowed", "provider", providerID, "err", errors.Unwrap(err))
+			proxyError(w, http.StatusBadGateway, "address_not_allowed", "The model provider's address is on a network teams can't use")
+			return
+		}
 		if ctx.Err() == nil {
 			log.Warn("model proxy: upstream unreachable", "provider", providerID, "err", errors.Unwrap(err))
 		}

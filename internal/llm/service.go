@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -41,6 +42,7 @@ var (
 	errBadLimits        = apperr.Invalid("invalid_limits", "Context window must be 1024-100000000 tokens and max output 1-10000000")
 	errBadPrice         = apperr.Invalid("invalid_price", "Prices are zero or more (USD per million tokens)")
 	errBadVisibility    = apperr.Invalid("invalid_visibility", "Visibility is all or teams")
+	errBadOwner         = apperr.Invalid("invalid_owner", "owner is all, platform, or a team's slug or ID")
 	// ErrUnavailable means a model is disabled, its provider is, or it is
 	// not published to the team.
 	ErrUnavailable = apperr.Conflict("model_unavailable", "That model is not available to this team (disabled, or not published to it)")
@@ -57,21 +59,54 @@ type Service struct {
 	pool   *pgxpool.Pool
 	q      *dbgen.Queries
 	box    *secrets.Box
-	client *http.Client // discovery and the proxy
+	client *http.Client // discovery and the proxy, for platform providers
+	// team reaches team providers, through the address guard.
+	team atomic.Pointer[teamNet]
 }
 
-// New returns a Service.
+// New returns a Service. Team providers are reached through the address
+// guard without the development allowance (see SetTeamNetwork).
 func New(pool *pgxpool.Pool, box *secrets.Box) *Service {
-	return &Service{pool: pool, q: dbgen.New(pool), box: box, client: newUpstreamClient()}
+	s := &Service{pool: pool, q: dbgen.New(pool), box: box, client: newUpstreamClient()}
+	s.SetTeamNetwork(TeamNetwork{})
+	return s
 }
 
 func providerAD(id uuid.UUID) []byte { return []byte("model_provider:" + id.String()) }
+
+// Owner is the team that owns a team provider.
+type Owner struct {
+	ID               uuid.UUID
+	Slug, Name, Kind string
+}
+
+func ownerOf(id uuid.NullUUID, slug, name, kind *string) *Owner {
+	if !id.Valid {
+		return nil
+	}
+	o := &Owner{ID: id.UUID}
+	for _, f := range []struct {
+		dst *string
+		src *string
+	}{{&o.Slug, slug}, {&o.Name, name}, {&o.Kind, kind}} {
+		if f.src != nil {
+			*f.dst = *f.src
+		}
+	}
+	return o
+}
+
+func teamOwner(t dbgen.Team) *Owner {
+	return &Owner{ID: t.ID, Slug: t.Slug, Name: t.Name, Kind: t.Kind}
+}
 
 // ProviderView is a provider without its secrets.
 type ProviderView struct {
 	Provider   dbgen.ModelProvider
 	HasHeaders bool
 	ModelCount int64
+	// Team owns a team provider (nil: a platform provider).
+	Team *Owner
 }
 
 // ModelView is a model with its provider's name and kind, and (for admins)
@@ -82,7 +117,9 @@ type ModelView struct {
 	ProviderKind       string
 	ProviderEnabled    bool
 	ProviderAccessMode string
-	Teams              []dbgen.ListModelTeamsRow
+	// ProviderTeam owns the model's provider (nil: a platform provider).
+	ProviderTeam *Owner
+	Teams        []dbgen.ListModelTeamsRow
 }
 
 func requireStaff(a authz.Actor) error {
@@ -99,12 +136,58 @@ func requireAdmin(a authz.Actor) error {
 	return nil
 }
 
-// Providers lists every provider (platform staff).
-func (s *Service) Providers(ctx context.Context, a authz.Actor) ([]ProviderView, error) {
+// scope is where a call comes from: the admin routes (team nil: every
+// provider, platform admins and auditors) or a team's routes (team: that
+// team's own providers only, checked by teamAccess).
+type scope struct {
+	team *dbgen.Team
+}
+
+var adminScope = scope{}
+
+// reaches reports errProviderNotFound unless the scope reaches provider p: a
+// team's routes reach only the team's own providers.
+func (sc scope) reaches(p dbgen.ModelProvider) error {
+	if sc.team != nil && (!p.TeamID.Valid || p.TeamID.UUID != sc.team.ID) {
+		return errProviderNotFound
+	}
+	return nil
+}
+
+// ownerFilter turns ?owner= (all, platform, or a team's slug or ID) into
+// list filters.
+func (s *Service) ownerFilter(ctx context.Context, owner string) (platformOnly bool, team uuid.NullUUID, err error) {
+	switch owner {
+	case "", "all":
+		return false, uuid.NullUUID{}, nil
+	case "platform":
+		return true, uuid.NullUUID{}, nil
+	}
+	if len(owner) > 100 {
+		return false, team, errBadOwner
+	}
+	t, err := teams.Resolve(ctx, s.q, owner)
+	if err != nil {
+		return false, team, err
+	}
+	return false, uuid.NullUUID{UUID: t.ID, Valid: true}, nil
+}
+
+// Providers lists providers (platform staff): every one (owner "" or all),
+// the platform's (platform), or one team's (its slug or ID).
+func (s *Service) Providers(ctx context.Context, a authz.Actor, owner string) ([]ProviderView, error) {
 	if err := requireStaff(a); err != nil {
 		return nil, err
 	}
-	rows, err := s.q.ListModelProviders(ctx)
+	platformOnly, team, err := s.ownerFilter(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	return s.listProviders(ctx, platformOnly, team)
+}
+
+func (s *Service) listProviders(ctx context.Context, platformOnly bool, team uuid.NullUUID) ([]ProviderView, error) {
+	rows, err := s.q.ListModelProviders(ctx, dbgen.ListModelProvidersParams{PlatformOnly: platformOnly, TeamID: team})
 	if err != nil {
 		return nil, err
 	}
@@ -112,19 +195,43 @@ func (s *Service) Providers(ctx context.Context, a authz.Actor) ([]ProviderView,
 	for i, r := range rows {
 		out[i] = ProviderView{Provider: dbgen.ModelProvider{ID: r.ID, Name: r.Name, Kind: r.Kind, BaseURL: r.BaseURL,
 			AccessMode: r.AccessMode, Enabled: r.Enabled, Revision: r.Revision, CreatedBy: r.CreatedBy,
-			CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}, HasHeaders: len(r.HeadersEnc) > 0, ModelCount: r.ModelCount}
+			CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, TeamID: r.TeamID}, HasHeaders: len(r.HeadersEnc) > 0, ModelCount: r.ModelCount,
+			Team: ownerOf(r.TeamID, r.TeamSlug, r.TeamName, r.TeamKind)}
 	}
 	return out, nil
 }
 
 func (s *Service) providerView(ctx context.Context, q *dbgen.Queries, p dbgen.ModelProvider) (ProviderView, error) {
-	rows, err := q.ListModels(ctx, uuid.NullUUID{UUID: p.ID, Valid: true})
+	rows, err := q.ListModels(ctx, dbgen.ListModelsParams{ProviderID: uuid.NullUUID{UUID: p.ID, Valid: true}})
 	if err != nil {
 		return ProviderView{}, err
 	}
-	hasHeaders := len(p.HeadersEnc) > 0
+	v := ProviderView{HasHeaders: len(p.HeadersEnc) > 0, ModelCount: int64(len(rows))}
+	if p.TeamID.Valid {
+		t, err := q.GetTeamByID(ctx, p.TeamID.UUID)
+		if err != nil {
+			return ProviderView{}, err
+		}
+		v.Team = teamOwner(t)
+	}
 	p.APIKeyEnc, p.HeadersEnc = nil, nil
-	return ProviderView{Provider: p, HasHeaders: hasHeaders, ModelCount: int64(len(rows))}, nil
+	v.Provider = p
+	return v, nil
+}
+
+// getProvider returns a provider the scope reaches.
+func getProvider(ctx context.Context, q *dbgen.Queries, sc scope, id uuid.UUID, lock bool) (dbgen.ModelProvider, error) {
+	get := q.GetModelProvider
+	if lock {
+		get = q.LockModelProvider
+	}
+	p, err := get(ctx, id)
+	if errors.Is(store.NotFound(err), store.ErrNotFound) {
+		return p, errProviderNotFound
+	} else if err != nil {
+		return p, err
+	}
+	return p, sc.reaches(p)
 }
 
 // Provider returns one provider (platform staff).
@@ -132,10 +239,12 @@ func (s *Service) Provider(ctx context.Context, a authz.Actor, id uuid.UUID) (Pr
 	if err := requireStaff(a); err != nil {
 		return ProviderView{}, err
 	}
-	p, err := s.q.GetModelProvider(ctx, id)
-	if errors.Is(store.NotFound(err), store.ErrNotFound) {
-		return ProviderView{}, errProviderNotFound
-	} else if err != nil {
+	return s.provider(ctx, adminScope, id)
+}
+
+func (s *Service) provider(ctx context.Context, sc scope, id uuid.UUID) (ProviderView, error) {
+	p, err := getProvider(ctx, s.q, sc, id, false)
+	if err != nil {
 		return ProviderView{}, err
 	}
 	return s.providerView(ctx, s.q, p)
@@ -202,11 +311,27 @@ func providerSnapshot(p dbgen.ModelProvider) map[string]any {
 		"hasHeaders": len(p.HeadersEnc) > 0}
 }
 
-// CreateProvider adds a provider (platform admins).
+// providerAudit is an audit entry about a provider, in its team's log when
+// a team owns it.
+func providerAudit(a authz.Actor, action string, p dbgen.ModelProvider) audit.Entry {
+	e := a.Audit(action, "model_provider", p.ID.String())
+	if p.TeamID.Valid {
+		e.TeamID = p.TeamID.UUID
+	}
+	return e
+}
+
+// CreateProvider adds a platform provider (platform admins).
 func (s *Service) CreateProvider(ctx context.Context, a authz.Actor, in ProviderInput) (ProviderView, error) {
 	if err := requireAdmin(a); err != nil {
 		return ProviderView{}, err
 	}
+	return s.createProvider(ctx, a, adminScope, in)
+}
+
+// createProvider adds a provider: the platform's (admin scope) or the
+// scope's team's (proxy only, its URL through the address guard).
+func (s *Service) createProvider(ctx context.Context, a authz.Actor, sc scope, in ProviderInput) (ProviderView, error) {
 	kind, ok := KindByID(in.Kind)
 	if !ok {
 		return ProviderView{}, errBadKind
@@ -234,6 +359,16 @@ func (s *Service) CreateProvider(ctx context.Context, a authz.Actor, in Provider
 	if err := checkHeaders(in.Headers); err != nil {
 		return ProviderView{}, err
 	}
+	var teamID uuid.NullUUID
+	if sc.team != nil {
+		teamID = uuid.NullUUID{UUID: sc.team.ID, Valid: true}
+		if in.AccessMode != ModeProxy {
+			return ProviderView{}, errTeamProxyOnly
+		}
+		if err := s.checkTeamAddress(ctx, base); err != nil {
+			return ProviderView{}, err
+		}
+	}
 	id := uuid.New()
 	keyEnc, err := s.box.Seal([]byte(in.APIKey), providerAD(id))
 	if err != nil {
@@ -246,15 +381,21 @@ func (s *Service) CreateProvider(ctx context.Context, a authz.Actor, in Provider
 	enabled := in.Enabled == nil || *in.Enabled
 	var out ProviderView
 	err = store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {
+		if sc.team != nil {
+			// The rule again, in the transaction (settings may have changed).
+			if _, err := s.teamAccess(ctx, q, a, sc.team.ID.String(), authz.CheckTeamProviderCreate, true); err != nil {
+				return err
+			}
+		}
 		p, err := q.InsertModelProvider(ctx, dbgen.InsertModelProviderParams{ID: id, Name: name, Kind: kind.ID, BaseURL: base,
 			APIKeyEnc: keyEnc, HeadersEnc: headersEnc, AccessMode: in.AccessMode, Enabled: enabled,
-			CreatedBy: uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil}})
+			CreatedBy: uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil}, TeamID: teamID})
 		if apperr.IsUniqueViolation(err, "model_providers_name_key") {
 			return errProviderName
 		} else if err != nil {
 			return err
 		}
-		e := a.Audit("model_provider.create", "model_provider", id.String())
+		e := providerAudit(a, "model_provider.create", p)
 		e.After = providerSnapshot(p)
 		if err := audit.Record(ctx, q, e); err != nil {
 			return err
@@ -273,19 +414,39 @@ type ProviderUpdate struct {
 	Enabled                           *bool
 }
 
-// UpdateProvider changes a provider (platform admins, If-Match). Running
+// UpdateProvider changes any provider (platform admins, If-Match). Running
 // agents of a direct-mode provider keep the old URL and key until they next
-// start; proxied agents use the new ones at once.
+// start; proxied agents use the new ones at once. A team provider stays
+// proxy-only, and a new URL goes through the address guard.
 func (s *Service) UpdateProvider(ctx context.Context, a authz.Actor, id uuid.UUID, in ProviderUpdate, expectedRevision int64) (ProviderView, error) {
 	if err := requireAdmin(a); err != nil {
 		return ProviderView{}, err
 	}
+	return s.updateProvider(ctx, a, adminScope, id, in, expectedRevision)
+}
+
+func (s *Service) updateProvider(ctx context.Context, a authz.Actor, sc scope, id uuid.UUID, in ProviderUpdate, expectedRevision int64) (ProviderView, error) {
+	// A team provider's new URL is checked before the transaction (the
+	// check resolves its host); a provider's owner never changes.
+	cur, err := getProvider(ctx, s.q, sc, id, false)
+	if err != nil {
+		return ProviderView{}, err
+	}
+	var base string
+	if in.BaseURL != nil {
+		if base, err = checkBaseURL(*in.BaseURL); err != nil {
+			return ProviderView{}, err
+		}
+		if cur.TeamID.Valid {
+			if err := s.checkTeamAddress(ctx, base); err != nil {
+				return ProviderView{}, err
+			}
+		}
+	}
 	var out ProviderView
-	err := store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {
-		p, err := q.LockModelProvider(ctx, id)
-		if errors.Is(store.NotFound(err), store.ErrNotFound) {
-			return errProviderNotFound
-		} else if err != nil {
+	err = store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {
+		p, err := getProvider(ctx, q, sc, id, true)
+		if err != nil {
 			return err
 		}
 		if p.Revision != expectedRevision {
@@ -300,9 +461,7 @@ func (s *Service) UpdateProvider(ctx context.Context, a authz.Actor, id uuid.UUI
 			}
 		}
 		if in.BaseURL != nil {
-			if u.BaseURL, err = checkBaseURL(*in.BaseURL); err != nil {
-				return err
-			}
+			u.BaseURL = base
 		}
 		if in.APIKey != nil {
 			if err := checkKey(*in.APIKey); err != nil {
@@ -316,6 +475,9 @@ func (s *Service) UpdateProvider(ctx context.Context, a authz.Actor, id uuid.UUI
 		if in.AccessMode != nil {
 			if *in.AccessMode != ModeProxy && *in.AccessMode != ModeDirect {
 				return errBadMode
+			}
+			if p.TeamID.Valid && *in.AccessMode != ModeProxy {
+				return errTeamProxyOnly
 			}
 			u.AccessMode = *in.AccessMode
 		}
@@ -336,10 +498,10 @@ func (s *Service) UpdateProvider(ctx context.Context, a authz.Actor, id uuid.UUI
 		} else if err != nil {
 			return err
 		}
-		e := a.Audit("model_provider.update", "model_provider", id.String())
+		e := providerAudit(a, "model_provider.update", p)
 		e.Before, e.After = providerSnapshot(p), providerSnapshot(updated)
 		if keyChanged {
-			e.Metadata = map[string]any{"apiKeyReplaced": true}
+			e.Metadata = mergeMeta(e.Metadata, map[string]any{"apiKeyReplaced": true})
 		}
 		if err := audit.Record(ctx, q, e); err != nil {
 			return err
@@ -350,17 +512,30 @@ func (s *Service) UpdateProvider(ctx context.Context, a authz.Actor, id uuid.UUI
 	return out, err
 }
 
-// DeleteProvider removes a provider and its models (platform admins).
+// mergeMeta adds extra to an audit entry's metadata (the actor's, if any).
+func mergeMeta(m, extra map[string]any) map[string]any {
+	if m == nil {
+		return extra
+	}
+	for k, v := range extra {
+		m[k] = v
+	}
+	return m
+}
+
+// DeleteProvider removes any provider and its models (platform admins).
 // Refused while templates or agents use one of its models.
 func (s *Service) DeleteProvider(ctx context.Context, a authz.Actor, id uuid.UUID) error {
 	if err := requireAdmin(a); err != nil {
 		return err
 	}
+	return s.deleteProvider(ctx, a, adminScope, id)
+}
+
+func (s *Service) deleteProvider(ctx context.Context, a authz.Actor, sc scope, id uuid.UUID) error {
 	return store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {
-		p, err := q.LockModelProvider(ctx, id)
-		if errors.Is(store.NotFound(err), store.ErrNotFound) {
-			return errProviderNotFound
-		} else if err != nil {
+		p, err := getProvider(ctx, q, sc, id, true)
+		if err != nil {
 			return err
 		}
 		if err := q.DeleteModelProvider(ctx, id); apperr.IsForeignKeyViolation(err, "") {
@@ -368,34 +543,44 @@ func (s *Service) DeleteProvider(ctx context.Context, a authz.Actor, id uuid.UUI
 		} else if err != nil {
 			return err
 		}
-		e := a.Audit("model_provider.delete", "model_provider", id.String())
+		e := providerAudit(a, "model_provider.delete", p)
 		e.Before = providerSnapshot(p)
 		return audit.Record(ctx, q, e)
 	})
 }
 
-// Models lists every model, or one provider's (platform staff), with the
-// teams each is published to.
-func (s *Service) Models(ctx context.Context, a authz.Actor, providerID *uuid.UUID) ([]ModelView, error) {
+// Models lists models (platform staff), with the teams each is published
+// to: one provider's (providerID), or every provider's of an owner (owner:
+// "" or all, platform, or a team's slug or ID).
+func (s *Service) Models(ctx context.Context, a authz.Actor, providerID *uuid.UUID, owner string) ([]ModelView, error) {
 	if err := requireStaff(a); err != nil {
 		return nil, err
 	}
+	platformOnly, team, err := s.ownerFilter(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	return s.models(ctx, adminScope, providerID, platformOnly, team)
+}
+
+func (s *Service) models(ctx context.Context, sc scope, providerID *uuid.UUID, platformOnly bool, team uuid.NullUUID) ([]ModelView, error) {
 	filter := uuid.NullUUID{}
 	if providerID != nil {
-		if _, err := s.Provider(ctx, a, *providerID); err != nil {
+		if _, err := getProvider(ctx, s.q, sc, *providerID, false); err != nil {
 			return nil, err
 		}
 		filter = uuid.NullUUID{UUID: *providerID, Valid: true}
 	}
-	rows, err := s.q.ListModels(ctx, filter)
+	rows, err := s.q.ListModels(ctx, dbgen.ListModelsParams{ProviderID: filter, PlatformOnly: platformOnly, TeamID: team})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]ModelView, len(rows))
 	for i, r := range rows {
 		out[i] = ModelView{Model: r.Model, ProviderName: r.ProviderName, ProviderKind: r.ProviderKind,
-			ProviderEnabled: r.ProviderEnabled, ProviderAccessMode: r.ProviderAccessMode}
-		if r.Model.Visibility == "teams" {
+			ProviderEnabled: r.ProviderEnabled, ProviderAccessMode: r.ProviderAccessMode,
+			ProviderTeam: ownerOf(r.ProviderTeamID, r.TeamSlug, r.TeamName, r.TeamKind)}
+		if r.Model.Visibility == "teams" && !r.ProviderTeamID.Valid {
 			if out[i].Teams, err = s.q.ListModelTeams(ctx, r.Model.ID); err != nil {
 				return nil, err
 			}
@@ -410,6 +595,14 @@ func (s *Service) modelView(ctx context.Context, q *dbgen.Queries, m dbgen.Model
 		return ModelView{}, err
 	}
 	v := ModelView{Model: m, ProviderName: p.Name, ProviderKind: p.Kind, ProviderEnabled: p.Enabled, ProviderAccessMode: p.AccessMode}
+	if p.TeamID.Valid {
+		t, err := q.GetTeamByID(ctx, p.TeamID.UUID)
+		if err != nil {
+			return ModelView{}, err
+		}
+		v.ProviderTeam = teamOwner(t)
+		return v, nil
+	}
 	if m.Visibility == "teams" {
 		if v.Teams, err = q.ListModelTeams(ctx, m.ID); err != nil {
 			return ModelView{}, err
@@ -425,8 +618,10 @@ type ModelInput struct {
 	Images, Reasoning        bool
 	InputPrice, OutputPrice  *float64
 	Enabled                  *bool
-	Visibility               string
-	Teams                    []string // slugs or IDs, for visibility teams
+	// Visibility, Teams and Personal publish a platform provider's model;
+	// a team provider's models are its team's only (see checkTeamModelScope).
+	Visibility string
+	Teams      []string // slugs or IDs, for visibility teams
 	// Personal: available in personal workspaces (default: when visibility is all).
 	Personal *bool
 }
@@ -463,6 +658,16 @@ func modelSnapshot(m dbgen.Model, teamSlugs []string) map[string]any {
 	return out
 }
 
+// modelAudit is an audit entry about a model, in its provider's team's log
+// when a team owns the provider.
+func modelAudit(a authz.Actor, action string, id uuid.UUID, p dbgen.ModelProvider) audit.Entry {
+	e := a.Audit(action, "model", id.String())
+	if p.TeamID.Valid {
+		e.TeamID = p.TeamID.UUID
+	}
+	return e
+}
+
 // setTeams replaces a model's teams; returns their slugs.
 func setTeams(ctx context.Context, q *dbgen.Queries, modelID uuid.UUID, refs []string) ([]string, error) {
 	if err := q.ClearModelTeams(ctx, modelID); err != nil {
@@ -482,11 +687,15 @@ func setTeams(ctx context.Context, q *dbgen.Queries, modelID uuid.UUID, refs []s
 	return slugs, nil
 }
 
-// CreateModel adds a model to a provider (platform admins).
+// CreateModel adds a model to any provider (platform admins).
 func (s *Service) CreateModel(ctx context.Context, a authz.Actor, providerID uuid.UUID, in ModelInput) (ModelView, error) {
 	if err := requireAdmin(a); err != nil {
 		return ModelView{}, err
 	}
+	return s.createModel(ctx, a, adminScope, providerID, in)
+}
+
+func (s *Service) createModel(ctx context.Context, a authz.Actor, sc scope, providerID uuid.UUID, in ModelInput) (ModelView, error) {
 	in.UpstreamID = strings.TrimSpace(in.UpstreamID)
 	if n := len(in.UpstreamID); n < 1 || n > 200 || strings.ContainsAny(in.UpstreamID, " \t\r\n\x00") {
 		return ModelView{}, errBadUpstream
@@ -530,10 +739,19 @@ func (s *Service) CreateModel(ctx context.Context, a authz.Actor, providerID uui
 	}
 	var out ModelView
 	err = store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {
-		if _, err := q.LockModelProvider(ctx, providerID); errors.Is(store.NotFound(err), store.ErrNotFound) {
-			return errProviderNotFound
-		} else if err != nil {
+		prov, err := getProvider(ctx, q, sc, providerID, true)
+		if err != nil {
 			return err
+		}
+		if prov.TeamID.Valid {
+			var teams *[]string
+			if in.Teams != nil {
+				teams = &in.Teams
+			}
+			if err := checkTeamModelScope(&in.Visibility, teams, in.Personal); err != nil {
+				return err
+			}
+			p.Visibility, p.Personal = "teams", false
 		}
 		m, err := q.InsertModel(ctx, p)
 		if apperr.IsUniqueViolation(err, "models_provider_upstream_key") {
@@ -542,13 +760,14 @@ func (s *Service) CreateModel(ctx context.Context, a authz.Actor, providerID uui
 			return err
 		}
 		slugs := []string{}
-		if m.Visibility == "teams" {
+		if m.Visibility == "teams" && !prov.TeamID.Valid {
 			if slugs, err = setTeams(ctx, q, m.ID, in.Teams); err != nil {
 				return err
 			}
 		}
-		e := a.Audit("model.create", "model", m.ID.String())
-		e.After, e.Metadata = modelSnapshot(m, slugs), map[string]any{"providerId": providerID.String()}
+		e := modelAudit(a, "model.create", m.ID, prov)
+		e.After = modelSnapshot(m, slugs)
+		e.Metadata = mergeMeta(e.Metadata, map[string]any{"providerId": providerID.String()})
 		if err := audit.Record(ctx, q, e); err != nil {
 			return err
 		}
@@ -572,22 +791,48 @@ type ModelUpdate struct {
 	Personal                *bool
 }
 
-// UpdateModel changes a model (platform admins, If-Match). Disabling it
+// UpdateModel changes any model (platform admins, If-Match). Disabling it
 // stops agents using it from starting (running ones are not stopped).
 func (s *Service) UpdateModel(ctx context.Context, a authz.Actor, id uuid.UUID, in ModelUpdate, expectedRevision int64) (ModelView, error) {
 	if err := requireAdmin(a); err != nil {
 		return ModelView{}, err
 	}
+	return s.updateModel(ctx, a, adminScope, id, in, expectedRevision)
+}
+
+// lockModel locks a model the scope reaches, and returns its provider.
+func lockModel(ctx context.Context, q *dbgen.Queries, sc scope, id uuid.UUID) (dbgen.Model, dbgen.ModelProvider, error) {
+	m, err := q.LockModel(ctx, id)
+	if errors.Is(store.NotFound(err), store.ErrNotFound) {
+		return m, dbgen.ModelProvider{}, errModelNotFound
+	} else if err != nil {
+		return m, dbgen.ModelProvider{}, err
+	}
+	p, err := q.GetModelProvider(ctx, m.ProviderID)
+	if err != nil {
+		return m, p, err
+	}
+	if sc.reaches(p) != nil {
+		return m, p, errModelNotFound
+	}
+	return m, p, nil
+}
+
+func (s *Service) updateModel(ctx context.Context, a authz.Actor, sc scope, id uuid.UUID, in ModelUpdate, expectedRevision int64) (ModelView, error) {
 	var out ModelView
 	err := store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {
-		m, err := q.LockModel(ctx, id)
-		if errors.Is(store.NotFound(err), store.ErrNotFound) {
-			return errModelNotFound
-		} else if err != nil {
+		m, prov, err := lockModel(ctx, q, sc, id)
+		if err != nil {
 			return err
 		}
 		if m.Revision != expectedRevision {
 			return apperr.Stale()
+		}
+		if prov.TeamID.Valid {
+			if err := checkTeamModelScope(in.Visibility, in.Teams, in.Personal); err != nil {
+				return err
+			}
+			in.Visibility, in.Teams, in.Personal = nil, nil, nil
 		}
 		before, err := q.ListModelTeams(ctx, id)
 		if err != nil {
@@ -660,7 +905,7 @@ func (s *Service) UpdateModel(ctx context.Context, a authz.Actor, id uuid.UUID, 
 				return err
 			}
 		}
-		e := a.Audit("model.update", "model", id.String())
+		e := modelAudit(a, "model.update", id, prov)
 		e.Before, e.After = modelSnapshot(m, beforeSlugs), modelSnapshot(updated, slugs)
 		if err := audit.Record(ctx, q, e); err != nil {
 			return err
@@ -671,17 +916,19 @@ func (s *Service) UpdateModel(ctx context.Context, a authz.Actor, id uuid.UUID, 
 	return out, err
 }
 
-// DeleteModel removes a model (platform admins); refused while templates or
-// agents use it.
+// DeleteModel removes any model (platform admins); refused while templates
+// or agents use it.
 func (s *Service) DeleteModel(ctx context.Context, a authz.Actor, id uuid.UUID) error {
 	if err := requireAdmin(a); err != nil {
 		return err
 	}
+	return s.deleteModel(ctx, a, adminScope, id)
+}
+
+func (s *Service) deleteModel(ctx context.Context, a authz.Actor, sc scope, id uuid.UUID) error {
 	return store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {
-		m, err := q.LockModel(ctx, id)
-		if errors.Is(store.NotFound(err), store.ErrNotFound) {
-			return errModelNotFound
-		} else if err != nil {
+		m, prov, err := lockModel(ctx, q, sc, id)
+		if err != nil {
 			return err
 		}
 		if err := q.DeleteModel(ctx, id); apperr.IsForeignKeyViolation(err, "") {
@@ -689,14 +936,15 @@ func (s *Service) DeleteModel(ctx context.Context, a authz.Actor, id uuid.UUID) 
 		} else if err != nil {
 			return err
 		}
-		e := a.Audit("model.delete", "model", id.String())
+		e := modelAudit(a, "model.delete", id, prov)
 		e.Before = modelSnapshot(m, nil)
 		return audit.Record(ctx, q, e)
 	})
 }
 
 // TeamModels lists the models a team may use now (its members and service
-// accounts, and platform staff).
+// accounts, and platform staff): its own providers' and the platform's
+// published to it.
 func (s *Service) TeamModels(ctx context.Context, a authz.Actor, teamRef string) ([]ModelView, error) {
 	t, err := teams.Resolve(ctx, s.q, teamRef)
 	if err != nil {
@@ -722,6 +970,9 @@ func (s *Service) TeamModels(ctx context.Context, a authz.Actor, teamRef string)
 	out := make([]ModelView, len(rows))
 	for i, r := range rows {
 		out[i] = ModelView{Model: r.Model, ProviderName: r.ProviderName, ProviderKind: r.ProviderKind, ProviderEnabled: true}
+		if r.ProviderTeamID.Valid {
+			out[i].ProviderTeam = teamOwner(t)
+		}
 	}
 	return out, nil
 }
@@ -736,8 +987,9 @@ func CheckUsable(ctx context.Context, q *dbgen.Queries, modelID, teamID uuid.UUI
 }
 
 // CheckEnabled reports ErrUnavailable unless the model and its provider are
-// enabled (platform templates: which teams may use it is checked when one
-// deploys it).
+// enabled, and ErrTeamModel for a team provider's model (platform templates:
+// which teams may use it is checked when one deploys it; a team's own
+// models are never theirs).
 func CheckEnabled(ctx context.Context, q *dbgen.Queries, modelID uuid.UUID) error {
 	m, err := q.GetModelSummary(ctx, modelID)
 	if errors.Is(store.NotFound(err), store.ErrNotFound) {
@@ -745,10 +997,23 @@ func CheckEnabled(ctx context.Context, q *dbgen.Queries, modelID uuid.UUID) erro
 	} else if err != nil {
 		return err
 	}
+	if m.ProviderTeamID.Valid {
+		return ErrTeamModel
+	}
 	if !m.Enabled || !m.ProviderEnabled {
 		return ErrUnavailable
 	}
 	return nil
+}
+
+// IsTeamModel reports whether a model is of a team's own provider (false
+// for a model that doesn't exist).
+func IsTeamModel(ctx context.Context, q *dbgen.Queries, modelID uuid.UUID) (bool, error) {
+	m, err := q.GetModelSummary(ctx, modelID)
+	if errors.Is(store.NotFound(err), store.ErrNotFound) {
+		return false, nil
+	}
+	return m.ProviderTeamID.Valid, err
 }
 
 // Summary is a model's name and its provider's, for showing which model a

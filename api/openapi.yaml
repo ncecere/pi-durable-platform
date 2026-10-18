@@ -27,7 +27,9 @@ tags:
 - name: models
   description: >-
     The model catalog: providers (OpenAI, Anthropic, OpenAI- and Anthropic-compatible servers) that platform admins
-    add, the models they publish to teams, and the model each template version and agent runs on.
+    add, the models they publish to teams, and the model each template version and agent runs on. A team's owners
+    and admins may add providers and models of the team's own (proxy mode only, through the address guard), for that
+    team only.
 - name: oauth
   description: >-
     OAuth Connect: people connect apps with their own platform identity. The platform is a small OAuth 2.1
@@ -1526,6 +1528,14 @@ paths:
       - models
       operationId: adminListModelProviders
       summary: Every model provider, without its key (platform admins and auditors)
+      description: >-
+        Platform providers and teams' own (team names the owner; null for a platform provider), or one owner's.
+      parameters:
+      - name: owner
+        in: query
+        description: "all (default), platform, or a team's slug or ID: whose providers"
+        schema:
+          type: string
       responses:
         '200':
           description: Providers
@@ -1540,15 +1550,19 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/ModelProvider'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
         '401':
           $ref: '#/components/responses/ErrorReply'
         '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
           $ref: '#/components/responses/ErrorReply'
     post:
       tags:
       - models
       operationId: adminCreateModelProvider
-      summary: Add a model provider (platform admins)
+      summary: Add a platform model provider (platform admins)
       description: >-
         The API key (and any extra headers) are stored encrypted and never returned. In proxy mode agents call the
         platform, which adds the key; in direct mode agents get the provider's URL and key.
@@ -1615,6 +1629,9 @@ paths:
       - models
       operationId: adminUpdateModelProvider
       summary: Change a provider, replace its key, or turn it off (platform admins)
+      description: >-
+        Any provider, a team's own too; a team's provider stays proxy-only and a new URL goes through the address
+        guard (422 address_not_allowed).
       parameters:
       - $ref: '#/components/parameters/IfMatchHeader'
       requestBody:
@@ -1649,6 +1666,8 @@ paths:
         '409':
           $ref: '#/components/responses/ErrorReply'
         '412':
+          $ref: '#/components/responses/ErrorReply'
+        '422':
           $ref: '#/components/responses/ErrorReply'
         '428':
           $ref: '#/components/responses/ErrorReply'
@@ -1685,6 +1704,7 @@ paths:
       - models
       operationId: adminDiscoverModels
       summary: Ask the provider which models it offers (platform admins)
+      description: A team's provider is reached through the address guard (422 address_not_allowed).
       responses:
         '200':
           description: Models the provider offers
@@ -1706,6 +1726,8 @@ paths:
         '404':
           $ref: '#/components/responses/ErrorReply'
         '409':
+          $ref: '#/components/responses/ErrorReply'
+        '422':
           $ref: '#/components/responses/ErrorReply'
   /v1/admin/model-providers/{providerId}/models:
     parameters:
@@ -1777,6 +1799,13 @@ paths:
       - models
       operationId: adminListModels
       summary: Every model of every provider (platform admins and auditors)
+      description: With each model's provider's owner (providerTeam; null for a platform provider), or one owner's.
+      parameters:
+      - name: owner
+        in: query
+        description: "all (default), platform, or a team's slug or ID: whose providers' models"
+        schema:
+          type: string
       responses:
         '200':
           description: Models
@@ -1791,9 +1820,13 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Model'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
         '401':
           $ref: '#/components/responses/ErrorReply'
         '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
           $ref: '#/components/responses/ErrorReply'
   /v1/admin/models/{modelId}:
     parameters:
@@ -1872,6 +1905,9 @@ paths:
       - models
       operationId: listTeamModels
       summary: The models the team may use (its members and service accounts, platform staff)
+      description: >-
+        The team's own providers' models (providerTeam set) and the platform's published to it. A team's own models
+        are never available to another team.
       responses:
         '200':
           description: Models published to the team
@@ -1891,6 +1927,379 @@ paths:
         '403':
           $ref: '#/components/responses/ErrorReply'
         '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/model-provider-kinds:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    get:
+      tags:
+      - models
+      operationId: listTeamModelProviderKinds
+      summary: The types of model provider a team may add (its members, platform staff)
+      responses:
+        '200':
+          description: Provider types
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProviderType'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/model-providers:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    get:
+      tags:
+      - models
+      operationId: listTeamModelProviders
+      summary: The team's own model providers, without their keys (its members in a browser session, platform staff)
+      responses:
+        '200':
+          description: Providers
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ModelProvider'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - models
+      operationId: createTeamModelProvider
+      summary: Add a model provider for the team (its owners and admins, in a browser session)
+      description: >-
+        Proxy mode only. The base URL must be https and on an address teams may use: public, or private inside the
+        networks platform admins allow (422 address_not_allowed); it is checked again at every connection. Refused
+        with 409 team_providers_off while platform admins have turned team providers off, and 409 personal_workspace
+        in a personal workspace unless they let personal workspaces add providers. The key is stored encrypted and
+        never returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelProviderCreate'
+      responses:
+        '201':
+          description: Created provider
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ModelProvider'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '422':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/model-providers/{providerId}:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    - $ref: '#/components/parameters/ProviderIdParam'
+    get:
+      tags:
+      - models
+      operationId: getTeamModelProvider
+      summary: One of the team's own providers (its members in a browser session, platform staff)
+      responses:
+        '200':
+          description: Provider
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ModelProvider'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    patch:
+      tags:
+      - models
+      operationId: updateTeamModelProvider
+      summary: Change one of the team's providers, replace its key, or turn it off (its owners and admins)
+      description: Allowed even while adding team providers is turned off. Proxy mode only; a new URL is checked as on create.
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelProviderUpdate'
+      responses:
+        '200':
+          description: Updated provider
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ModelProvider'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '422':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
+          $ref: '#/components/responses/ErrorReply'
+    delete:
+      tags:
+      - models
+      operationId: deleteTeamModelProvider
+      summary: Remove one of the team's providers and its models (its owners and admins); refused while templates or agents use them
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Ok'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/model-providers/{providerId}/discover:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    - $ref: '#/components/parameters/ProviderIdParam'
+    post:
+      tags:
+      - models
+      operationId: discoverTeamModels
+      summary: Ask one of the team's providers which models it offers (its owners and admins)
+      description: Through the address guard, like every request to a team's provider.
+      responses:
+        '200':
+          description: Models the provider offers
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DiscoveredModel'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '422':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/model-providers/{providerId}/models:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    - $ref: '#/components/parameters/ProviderIdParam'
+    get:
+      tags:
+      - models
+      operationId: listTeamProviderModels
+      summary: One of the team's providers' models (its members in a browser session, platform staff)
+      responses:
+        '200':
+          description: Models
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Model'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - models
+      operationId: createTeamModel
+      summary: Add a model to one of the team's providers (its owners and admins); it is for the team only
+      description: >-
+        visibility, teams and personal don't apply to a team's own models: leave them out (400
+        team_model_visibility for visibility all, teams, or personal true).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelCreate'
+      responses:
+        '201':
+          description: Created model
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Model'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/models/{modelId}:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    - $ref: '#/components/parameters/ModelIdParam'
+    patch:
+      tags:
+      - models
+      operationId: updateTeamModel
+      summary: Change a model of one of the team's providers, or turn it off (its owners and admins)
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelUpdate'
+      responses:
+        '200':
+          description: Updated model
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Model'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
+          $ref: '#/components/responses/ErrorReply'
+    delete:
+      tags:
+      - models
+      operationId: deleteTeamModel
+      summary: Remove a model of one of the team's providers (its owners and admins); refused while templates or agents use it
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Ok'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
           $ref: '#/components/responses/ErrorReply'
   /v1/teams/{team}/usage:
     parameters:
@@ -2373,6 +2782,73 @@ paths:
                 properties:
                   data:
                     $ref: '#/components/schemas/PersonalWorkspaceSettings'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/settings/models:
+    get:
+      tags:
+      - models
+      operationId: adminGetModelSettings
+      summary: Model settings (platform admins and auditors)
+      responses:
+        '200':
+          description: Settings
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ModelSettings'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+    put:
+      tags:
+      - models
+      operationId: adminUpdateModelSettings
+      summary: Change the model settings (platform admins)
+      description: >-
+        Turning team providers off stops teams adding new ones; existing ones keep working and can still be changed
+        or deleted. privateNetworks are the private CIDRs team providers may be on (public addresses are always
+        allowed; loopback, link-local and cloud metadata addresses never).
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelSettingsUpdate'
+      responses:
+        '200':
+          description: Settings
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ModelSettings'
         '400':
           $ref: '#/components/responses/ErrorReply'
         '401':
@@ -3407,6 +3883,10 @@ components:
         enabled:
           type: boolean
           description: People get a personal workspace when they sign in
+        ownProviders:
+          type: boolean
+          x-omitempty: false
+          description: Personal workspaces may add their own model providers (while teams may)
         maxAgents:
           type: integer
           format: int32
@@ -3431,6 +3911,9 @@ components:
       properties:
         enabled:
           type: boolean
+        ownProviders:
+          type: boolean
+          description: Omitted keeps the current setting
         maxAgents:
           type: integer
           format: int32
@@ -3471,6 +3954,12 @@ components:
         runningCount:
           type: integer
           format: int64
+        canAddProviders:
+          type: boolean
+          x-omitempty: false
+          description: >-
+            Whether the caller may add a model provider for this workspace now (an owner or admin in a browser
+            session, while platform admins let teams, and personal workspaces, add them)
     WorkspaceLimitsUpdate:
       type: object
       properties:
@@ -3817,12 +4306,62 @@ components:
         revision:
           type: integer
           format: int64
+        team:
+          allOf:
+          - $ref: '#/components/schemas/ModelOwner'
+          nullable: true
+          x-omitempty: false
+          description: The team that owns the provider (null for a platform provider)
         createdAt:
           type: string
           format: date-time
         updatedAt:
           type: string
           format: date-time
+    ModelOwner:
+      type: object
+      required: [id, slug, name, kind]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [team, personal]
+    ModelSettings:
+      type: object
+      required: [teamsMayAddProviders, privateNetworks, revision, updatedAt]
+      properties:
+        teamsMayAddProviders:
+          type: boolean
+          description: Team owners and admins may add model providers for their teams
+        privateNetworks:
+          type: array
+          items:
+            type: string
+          description: Private CIDRs team providers may be on (public addresses are always allowed)
+        revision:
+          type: integer
+          format: int64
+        updatedAt:
+          type: string
+          format: date-time
+    ModelSettingsUpdate:
+      type: object
+      required: [teamsMayAddProviders, privateNetworks]
+      properties:
+        teamsMayAddProviders:
+          type: boolean
+        privateNetworks:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+          description: Private CIDRs such as 10.20.0.0/16 (not loopback, link-local or public ranges)
     ModelProviderCreate:
       type: object
       required: [name, kind, apiKey]
@@ -3844,7 +4383,7 @@ components:
         accessMode:
           type: string
           enum: [proxy, direct]
-          description: Default proxy
+          description: Default proxy (a team's providers are proxy only)
         headers:
           type: object
           additionalProperties:
@@ -3966,6 +4505,12 @@ components:
           nullable: true
           items:
             $ref: '#/components/schemas/ModelTeam'
+        providerTeam:
+          allOf:
+          - $ref: '#/components/schemas/ModelOwner'
+          nullable: true
+          x-omitempty: false
+          description: The team that owns the model's provider (null for a platform provider); its models are that team's only
         revision:
           type: integer
           format: int64

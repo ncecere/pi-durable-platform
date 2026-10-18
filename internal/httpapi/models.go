@@ -14,8 +14,10 @@ import (
 )
 
 // The model catalog (api/openapi.yaml, tag models): providers and models,
-// managed by platform admins; the models a team may use. internal/llm
-// authorizes every call. Provider keys and header values are write-only.
+// managed by platform admins; a team's own providers and models, managed by
+// its owners and admins (browser sessions only: never service accounts,
+// API keys or apps); the models a team may use. internal/llm authorizes
+// every call. Provider keys and header values are write-only.
 
 func (a *api) modelRoutes() []route {
 	const provider = "/v1/admin/model-providers/{providerId}"
@@ -33,16 +35,44 @@ func (a *api) modelRoutes() []route {
 		{"PATCH", "/v1/admin/models/{modelId}", a.admin(a.updateModel)},
 		{"DELETE", "/v1/admin/models/{modelId}", a.admin(a.deleteModel)},
 		{"GET", "/v1/teams/{team}/models", a.sessionOrKey(a.listTeamModels)},
+		{"GET", "/v1/admin/settings/models", a.admin(a.getModelSettings)},
+		{"PUT", "/v1/admin/settings/models", a.admin(a.updateModelSettings)},
 		{"GET", "/v1/teams/{team}/usage", a.sessionOrKey(a.getTeamUsage)},
 		{"GET", "/v1/admin/usage", a.admin(a.adminGetUsage)},
 	}
+}
+
+// teamModelRoutes: a team's own providers and models (browser sessions).
+func (a *api) teamModelRoutes() []route {
+	const providers = "/v1/teams/{team}/model-providers"
+	const provider = providers + "/{providerId}"
+	return []route{
+		{"GET", "/v1/teams/{team}/model-provider-kinds", a.session(a.listTeamProviderKinds)},
+		{"GET", providers, a.session(a.listTeamModelProviders)},
+		{"POST", providers, a.session(a.createTeamModelProvider)},
+		{"GET", provider, a.session(a.getTeamModelProvider)},
+		{"PATCH", provider, a.session(a.updateTeamModelProvider)},
+		{"DELETE", provider, a.session(a.deleteTeamModelProvider)},
+		{"POST", provider + "/discover", a.session(a.discoverTeamModels)},
+		{"GET", provider + "/models", a.session(a.listTeamProviderModels)},
+		{"POST", provider + "/models", a.session(a.createTeamModel)},
+		{"PATCH", "/v1/teams/{team}/models/{modelId}", a.session(a.updateTeamModel)},
+		{"DELETE", "/v1/teams/{team}/models/{modelId}", a.session(a.deleteTeamModel)},
+	}
+}
+
+func toAPIOwner(o *llm.Owner) *apitypes.ModelOwner {
+	if o == nil {
+		return nil
+	}
+	return &apitypes.ModelOwner{Id: o.ID, Slug: o.Slug, Name: o.Name, Kind: apitypes.ModelOwnerKind(o.Kind)}
 }
 
 func toAPIProvider(v llm.ProviderView) apitypes.ModelProvider {
 	p := v.Provider
 	return apitypes.ModelProvider{Id: p.ID, Name: p.Name, Kind: apitypes.ModelProviderKind(p.Kind), BaseUrl: p.BaseURL,
 		AccessMode: apitypes.ModelProviderAccessMode(p.AccessMode), Enabled: p.Enabled, HasHeaders: v.HasHeaders,
-		ModelCount: v.ModelCount, Revision: p.Revision, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt}
+		ModelCount: v.ModelCount, Revision: p.Revision, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Team: toAPIOwner(v.Team)}
 }
 
 func toAPIModel(v llm.ModelView) apitypes.Model {
@@ -50,7 +80,7 @@ func toAPIModel(v llm.ModelView) apitypes.Model {
 	out := apitypes.Model{Id: m.ID, ProviderId: m.ProviderID, ProviderName: v.ProviderName, ProviderKind: v.ProviderKind,
 		UpstreamId: m.UpstreamID, Name: m.Name, ContextWindow: m.ContextWindow, MaxTokens: m.MaxTokens, Images: m.Images,
 		Reasoning: m.Reasoning, Enabled: m.Enabled, Visibility: apitypes.ModelVisibility(m.Visibility), Personal: m.Personal, Revision: m.Revision,
-		CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt}
+		CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt, ProviderTeam: toAPIOwner(v.ProviderTeam)}
 	if m.InputPrice.Valid {
 		out.InputPrice = &m.InputPrice.Float64
 	}
@@ -63,7 +93,7 @@ func toAPIModel(v llm.ModelView) apitypes.Model {
 		enabled := v.ProviderEnabled
 		out.ProviderEnabled = &enabled
 	}
-	if m.Visibility == "teams" {
+	if m.Visibility == "teams" && v.ProviderTeam == nil {
 		teams := make([]apitypes.ModelTeam, len(v.Teams))
 		for i, t := range v.Teams {
 			teams[i] = apitypes.ModelTeam{Id: t.ID, Slug: t.Slug, Name: t.Name}
@@ -74,20 +104,31 @@ func toAPIModel(v llm.ModelView) apitypes.Model {
 }
 
 func (a *api) listProviderKinds(w http.ResponseWriter, r *http.Request) {
-	out := make([]apitypes.ProviderType, len(llm.Kinds))
-	for i, k := range llm.Kinds {
-		out[i] = apitypes.ProviderType{Id: apitypes.ProviderTypeId(k.ID), Name: k.Name, Api: k.API,
-			AuthHeader: apitypes.ProviderTypeAuthHeader(k.AuthHeader)}
-		if k.DefaultBaseURL != "" {
-			u := k.DefaultBaseURL
-			out[i].DefaultBaseUrl = &u
-		}
+	writeList(w, r, llm.Kinds, nil, toAPIKind)
+}
+
+func (a *api) listTeamProviderKinds(w http.ResponseWriter, r *http.Request) {
+	err := a.Models.CheckTeamKinds(r.Context(), a.actor(r), r.PathValue("team"))
+	writeList(w, r, llm.Kinds, err, toAPIKind)
+}
+
+func toAPIKind(k llm.Kind) apitypes.ProviderType {
+	out := apitypes.ProviderType{Id: apitypes.ProviderTypeId(k.ID), Name: k.Name, Api: k.API,
+		AuthHeader: apitypes.ProviderTypeAuthHeader(k.AuthHeader)}
+	if k.DefaultBaseURL != "" {
+		u := k.DefaultBaseURL
+		out.DefaultBaseUrl = &u
 	}
-	writeList(w, r, out, nil, func(t apitypes.ProviderType) apitypes.ProviderType { return t })
+	return out
 }
 
 func (a *api) listModelProviders(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.Models.Providers(r.Context(), a.actor(r))
+	rows, err := a.Models.Providers(r.Context(), a.actor(r), r.URL.Query().Get("owner"))
+	writeList(w, r, rows, err, toAPIProvider)
+}
+
+func (a *api) listTeamModelProviders(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.Models.TeamProviders(r.Context(), a.actor(r), r.PathValue("team"))
 	writeList(w, r, rows, err, toAPIProvider)
 }
 
@@ -103,6 +144,20 @@ func (a *api) createModelProvider(w http.ResponseWriter, r *http.Request) {
 	if !httpx.Decode(w, r, &in) {
 		return
 	}
+	v, err := a.Models.CreateProvider(r.Context(), a.actor(r), providerInput(in))
+	a.writeProvider(w, r, http.StatusCreated, v, err)
+}
+
+func (a *api) createTeamModelProvider(w http.ResponseWriter, r *http.Request) {
+	var in apitypes.ModelProviderCreate
+	if !httpx.Decode(w, r, &in) {
+		return
+	}
+	v, err := a.Models.CreateTeamProvider(r.Context(), a.actor(r), r.PathValue("team"), providerInput(in))
+	a.writeProvider(w, r, http.StatusCreated, v, err)
+}
+
+func providerInput(in apitypes.ModelProviderCreate) llm.ProviderInput {
 	pi := llm.ProviderInput{Name: in.Name, Kind: string(in.Kind), Enabled: in.Enabled}
 	setIf(&pi.BaseURL, in.BaseUrl)
 	setIf(&pi.APIKey, in.ApiKey)
@@ -112,8 +167,7 @@ func (a *api) createModelProvider(w http.ResponseWriter, r *http.Request) {
 	if in.Headers != nil {
 		pi.Headers = *in.Headers
 	}
-	v, err := a.Models.CreateProvider(r.Context(), a.actor(r), pi)
-	a.writeProvider(w, r, http.StatusCreated, v, err)
+	return pi
 }
 
 func (a *api) getModelProvider(w http.ResponseWriter, r *http.Request) {
@@ -122,6 +176,15 @@ func (a *api) getModelProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v, err := a.Models.Provider(r.Context(), a.actor(r), id)
+	a.writeProvider(w, r, http.StatusOK, v, err)
+}
+
+func (a *api) getTeamModelProvider(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "providerId")
+	if !ok {
+		return
+	}
+	v, err := a.Models.TeamProvider(r.Context(), a.actor(r), r.PathValue("team"), id)
 	a.writeProvider(w, r, http.StatusOK, v, err)
 }
 
@@ -134,13 +197,30 @@ func (a *api) updateModelProvider(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	v, err := a.Models.UpdateProvider(r.Context(), a.actor(r), id, providerUpdate(in), rev)
+	a.writeProvider(w, r, http.StatusOK, v, err)
+}
+
+func (a *api) updateTeamModelProvider(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "providerId")
+	if !ok {
+		return
+	}
+	in, rev, ok := decodeRevised[apitypes.ModelProviderUpdate](w, r)
+	if !ok {
+		return
+	}
+	v, err := a.Models.UpdateTeamProvider(r.Context(), a.actor(r), r.PathValue("team"), id, providerUpdate(in), rev)
+	a.writeProvider(w, r, http.StatusOK, v, err)
+}
+
+func providerUpdate(in apitypes.ModelProviderUpdate) llm.ProviderUpdate {
 	pu := llm.ProviderUpdate{Name: in.Name, BaseURL: in.BaseUrl, APIKey: in.ApiKey, Headers: in.Headers, Enabled: in.Enabled}
 	if in.AccessMode != nil {
 		mode := string(*in.AccessMode)
 		pu.AccessMode = &mode
 	}
-	v, err := a.Models.UpdateProvider(r.Context(), a.actor(r), id, pu, rev)
-	a.writeProvider(w, r, http.StatusOK, v, err)
+	return pu
 }
 
 func (a *api) deleteModelProvider(w http.ResponseWriter, r *http.Request) {
@@ -151,15 +231,34 @@ func (a *api) deleteModelProvider(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, r, a.Models.DeleteProvider(r.Context(), a.actor(r), id))
 }
 
+func (a *api) deleteTeamModelProvider(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "providerId")
+	if !ok {
+		return
+	}
+	writeOK(w, r, a.Models.DeleteTeamProvider(r.Context(), a.actor(r), r.PathValue("team"), id))
+}
+
+func toAPIDiscovered(d llm.Discovered) apitypes.DiscoveredModel {
+	return apitypes.DiscoveredModel{Id: d.ID, Name: d.Name, ContextWindow: d.ContextWindow, Added: d.Added}
+}
+
 func (a *api) discoverModels(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathUUID(w, r, "providerId")
 	if !ok {
 		return
 	}
 	rows, err := a.Models.Discover(r.Context(), a.actor(r), id)
-	writeList(w, r, rows, err, func(d llm.Discovered) apitypes.DiscoveredModel {
-		return apitypes.DiscoveredModel{Id: d.ID, Name: d.Name, ContextWindow: d.ContextWindow, Added: d.Added}
-	})
+	writeList(w, r, rows, err, toAPIDiscovered)
+}
+
+func (a *api) discoverTeamModels(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "providerId")
+	if !ok {
+		return
+	}
+	rows, err := a.Models.DiscoverTeam(r.Context(), a.actor(r), r.PathValue("team"), id)
+	writeList(w, r, rows, err, toAPIDiscovered)
 }
 
 func (a *api) listProviderModels(w http.ResponseWriter, r *http.Request) {
@@ -167,12 +266,21 @@ func (a *api) listProviderModels(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := a.Models.Models(r.Context(), a.actor(r), &id)
+	rows, err := a.Models.Models(r.Context(), a.actor(r), &id, "")
+	writeList(w, r, rows, err, toAPIModel)
+}
+
+func (a *api) listTeamProviderModels(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "providerId")
+	if !ok {
+		return
+	}
+	rows, err := a.Models.TeamProviderModels(r.Context(), a.actor(r), r.PathValue("team"), id)
 	writeList(w, r, rows, err, toAPIModel)
 }
 
 func (a *api) listModels(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.Models.Models(r.Context(), a.actor(r), nil)
+	rows, err := a.Models.Models(r.Context(), a.actor(r), nil, r.URL.Query().Get("owner"))
 	writeList(w, r, rows, err, toAPIModel)
 }
 
@@ -192,6 +300,24 @@ func (a *api) createModel(w http.ResponseWriter, r *http.Request) {
 	if !httpx.Decode(w, r, &in) {
 		return
 	}
+	v, err := a.Models.CreateModel(r.Context(), a.actor(r), id, modelInput(in))
+	a.writeModel(w, r, http.StatusCreated, v, err)
+}
+
+func (a *api) createTeamModel(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "providerId")
+	if !ok {
+		return
+	}
+	var in apitypes.ModelCreate
+	if !httpx.Decode(w, r, &in) {
+		return
+	}
+	v, err := a.Models.CreateTeamModel(r.Context(), a.actor(r), r.PathValue("team"), id, modelInput(in))
+	a.writeModel(w, r, http.StatusCreated, v, err)
+}
+
+func modelInput(in apitypes.ModelCreate) llm.ModelInput {
 	mi := llm.ModelInput{UpstreamID: in.UpstreamId, ContextWindow: in.ContextWindow, MaxTokens: in.MaxTokens,
 		InputPrice: in.InputPrice, OutputPrice: in.OutputPrice, Enabled: in.Enabled, Personal: in.Personal}
 	setIf(&mi.Name, in.Name)
@@ -203,8 +329,7 @@ func (a *api) createModel(w http.ResponseWriter, r *http.Request) {
 	if in.Teams != nil {
 		mi.Teams = *in.Teams
 	}
-	v, err := a.Models.CreateModel(r.Context(), a.actor(r), id, mi)
-	a.writeModel(w, r, http.StatusCreated, v, err)
+	return mi
 }
 
 func (a *api) updateModel(w http.ResponseWriter, r *http.Request) {
@@ -216,6 +341,24 @@ func (a *api) updateModel(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	v, err := a.Models.UpdateModel(r.Context(), a.actor(r), id, modelUpdate(in), rev)
+	a.writeModel(w, r, http.StatusOK, v, err)
+}
+
+func (a *api) updateTeamModel(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "modelId")
+	if !ok {
+		return
+	}
+	in, rev, ok := decodeRevised[apitypes.ModelUpdate](w, r)
+	if !ok {
+		return
+	}
+	v, err := a.Models.UpdateTeamModel(r.Context(), a.actor(r), r.PathValue("team"), id, modelUpdate(in), rev)
+	a.writeModel(w, r, http.StatusOK, v, err)
+}
+
+func modelUpdate(in apitypes.ModelUpdate) llm.ModelUpdate {
 	mu := llm.ModelUpdate{Name: in.Name, ContextWindow: in.ContextWindow, MaxTokens: in.MaxTokens, Images: in.Images,
 		Reasoning: in.Reasoning, InputPrice: in.InputPrice, OutputPrice: in.OutputPrice, Enabled: in.Enabled, Teams: in.Teams,
 		Personal: in.Personal}
@@ -223,8 +366,7 @@ func (a *api) updateModel(w http.ResponseWriter, r *http.Request) {
 		vis := string(*in.Visibility)
 		mu.Visibility = &vis
 	}
-	v, err := a.Models.UpdateModel(r.Context(), a.actor(r), id, mu, rev)
-	a.writeModel(w, r, http.StatusOK, v, err)
+	return mu
 }
 
 func (a *api) deleteModel(w http.ResponseWriter, r *http.Request) {
@@ -233,6 +375,44 @@ func (a *api) deleteModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeOK(w, r, a.Models.DeleteModel(r.Context(), a.actor(r), id))
+}
+
+func (a *api) deleteTeamModel(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "modelId")
+	if !ok {
+		return
+	}
+	writeOK(w, r, a.Models.DeleteTeamModel(r.Context(), a.actor(r), r.PathValue("team"), id))
+}
+
+func toAPIModelSettings(m llm.Settings) apitypes.ModelSettings {
+	nets := m.PrivateNetworks
+	if nets == nil {
+		nets = []string{}
+	}
+	return apitypes.ModelSettings{TeamsMayAddProviders: m.TeamsMayAddProviders, PrivateNetworks: nets, Revision: m.Revision,
+		UpdatedAt: m.UpdatedAt}
+}
+
+func (a *api) getModelSettings(w http.ResponseWriter, r *http.Request) {
+	m, err := a.Models.Settings(r.Context(), a.actor(r))
+	if failed(w, r, err) {
+		return
+	}
+	writeRevised(w, http.StatusOK, m.Revision, toAPIModelSettings(m))
+}
+
+func (a *api) updateModelSettings(w http.ResponseWriter, r *http.Request) {
+	in, rev, ok := decodeRevised[apitypes.ModelSettingsUpdate](w, r)
+	if !ok {
+		return
+	}
+	m, err := a.Models.UpdateSettings(r.Context(), a.actor(r), llm.SettingsInput{TeamsMayAddProviders: in.TeamsMayAddProviders,
+		PrivateNetworks: in.PrivateNetworks}, rev)
+	if failed(w, r, err) {
+		return
+	}
+	writeRevised(w, http.StatusOK, m.Revision, toAPIModelSettings(m))
 }
 
 func (a *api) listTeamModels(w http.ResponseWriter, r *http.Request) {

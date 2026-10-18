@@ -145,6 +145,36 @@ the gateway's `/usage` with its credential; reports for a proxied model are igno
 cost estimate from the models' current prices. Service-managed agents are named only for the team's owners, admins and
 service accounts.
 
+### Team model providers
+
+A team's **owners and admins** add providers and models of the team's own (`/v1/teams/{team}/model-providers`, the
+same shapes as Admin › Models), in a browser session only: never with a service account's key, a personal API key or
+an app's token. Its editors and members read them (keys are never returned); platform auditors read them, and platform
+admins list every owner's providers (`GET /v1/admin/model-providers?owner=all|platform|<team>`, each with its `team`)
+and may disable, change or delete a team's through the admin routes. Changes are audited under the same action names
+as the platform's, in the team's audit log.
+
+- **The team's only.** A team provider's models are available to its team alone, whatever their visibility (the API
+  refuses `visibility: all`, `teams` or `personal: true` for them). They never reach another team: not through
+  `GET /v1/teams/{team}/models`, a template, an agent's model or the model proxy.
+- **Proxy only.** Direct mode would hand agents a URL their egress rules would have to allow, which a team can't grant.
+- **Address guard.** The URL is the team's choice, so it must be https, and every request (discovery, the proxy) goes
+  through `internal/netguard`: public addresses; private ones only inside the networks platform admins list
+  (`model_settings.private_networks`); loopback, link-local and cloud metadata never. The host is checked when the URL
+  is saved (422 `address_not_allowed`) and resolved and pinned again at every connection (DNS rebinding); no redirects,
+  no proxy from the environment. With the development allowance (`DEV_AUTH` on a loopback `APP_URL`) any address and
+  plain http on a loopback host are accepted. Platform providers keep an unguarded client (admins may point them at
+  internal gateways).
+- **Settings.** Platform admins set `GET/PUT /v1/admin/settings/models` (`teamsMayAddProviders`, default on;
+  `privateNetworks`). Turned off, teams can't add providers (409 `team_providers_off`) but existing ones keep working
+  and can be changed or deleted. Personal workspaces add their own only when the personal workspace settings'
+  `ownProviders` is also on (default off; else 409 `personal_workspace`). `GET /v1/teams/{team}/limits` says whether
+  the caller may add one now (`canAddProviders`).
+- **Templates.** A team template may run on the team's own models; a platform template may not (409 `team_model`),
+  and a team template whose current version runs on one can't be submitted to, approved for, or get such a version
+  while in, the catalog (409 `team_model`).
+- Deleting a team deletes its providers and models along with its agents and templates.
+
 ## MCP servers
 
 Platform admins add remote MCP servers (Streamable HTTP; **Admin › MCP servers**) with optional headers (for example

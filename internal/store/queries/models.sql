@@ -1,7 +1,12 @@
 -- name: ListModelProviders :many
-SELECT p.*, (SELECT count(*) FROM models m WHERE m.provider_id = p.id) AS model_count
-FROM model_providers p
-ORDER BY lower(p.name), p.id;
+-- Providers with their owning team (NULL columns: a platform provider):
+-- every one, the platform's only (platform_only), or one team's (team_id).
+SELECT p.*, (SELECT count(*) FROM models m WHERE m.provider_id = p.id) AS model_count,
+       t.slug AS team_slug, t.name AS team_name, t.kind AS team_kind
+FROM model_providers p LEFT JOIN teams t ON t.id = p.team_id
+WHERE (NOT sqlc.arg(platform_only)::boolean OR p.team_id IS NULL)
+  AND (sqlc.narg(team_id)::uuid IS NULL OR p.team_id = sqlc.narg(team_id)::uuid)
+ORDER BY (p.team_id IS NOT NULL), lower(p.name), p.id;
 
 -- name: GetModelProvider :one
 SELECT * FROM model_providers WHERE id = $1;
@@ -10,8 +15,8 @@ SELECT * FROM model_providers WHERE id = $1;
 SELECT * FROM model_providers WHERE id = $1 FOR UPDATE;
 
 -- name: InsertModelProvider :one
-INSERT INTO model_providers (id, name, kind, base_url, api_key_enc, headers_enc, access_mode, enabled, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO model_providers (id, name, kind, base_url, api_key_enc, headers_enc, access_mode, enabled, created_by, team_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING *;
 
 -- name: UpdateModelProvider :one
@@ -24,12 +29,17 @@ RETURNING *;
 DELETE FROM model_providers WHERE id = $1;
 
 -- name: ListModels :many
--- Every model, or one provider's, with its provider.
+-- Every model, or one provider's, with its provider and the provider's
+-- owning team (NULL columns: a platform provider); platform_only and
+-- team_id filter by owner as ListModelProviders does.
 SELECT sqlc.embed(m), p.name AS provider_name, p.kind AS provider_kind, p.enabled AS provider_enabled,
-       p.access_mode AS provider_access_mode
-FROM models m JOIN model_providers p ON p.id = m.provider_id
-WHERE sqlc.narg(provider_id)::uuid IS NULL OR m.provider_id = sqlc.narg(provider_id)::uuid
-ORDER BY lower(p.name), lower(m.name), m.id;
+       p.access_mode AS provider_access_mode, p.team_id AS provider_team_id,
+       t.slug AS team_slug, t.name AS team_name, t.kind AS team_kind
+FROM models m JOIN model_providers p ON p.id = m.provider_id LEFT JOIN teams t ON t.id = p.team_id
+WHERE (sqlc.narg(provider_id)::uuid IS NULL OR m.provider_id = sqlc.narg(provider_id)::uuid)
+  AND (NOT sqlc.arg(platform_only)::boolean OR p.team_id IS NULL)
+  AND (sqlc.narg(team_id)::uuid IS NULL OR p.team_id = sqlc.narg(team_id)::uuid)
+ORDER BY (p.team_id IS NOT NULL), lower(p.name), lower(m.name), m.id;
 
 -- name: GetModel :one
 SELECT * FROM models WHERE id = $1;
@@ -66,26 +76,44 @@ INSERT INTO model_teams (model_id, team_id) VALUES ($1, $2) ON CONFLICT DO NOTHI
 
 -- name: ListAvailableModels :many
 -- The models a team may use now: enabled, of an enabled provider, and
--- published to every team or to this one.
-SELECT sqlc.embed(m), p.name AS provider_name, p.kind AS provider_kind
+-- either of the team's own providers, or of a platform provider and
+-- published to every team or to this one (personal workspaces: published to
+-- personal workspaces). A team provider's models are never available to
+-- another team, whatever their visibility.
+SELECT sqlc.embed(m), p.name AS provider_name, p.kind AS provider_kind, p.team_id AS provider_team_id
 FROM models m JOIN model_providers p ON p.id = m.provider_id
 WHERE m.enabled AND p.enabled
-  AND (CASE WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = sqlc.arg(team_id)) = 'personal' THEN m.personal
+  AND (CASE WHEN p.team_id IS NOT NULL THEN p.team_id = sqlc.arg(team_id)::uuid
+            WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = sqlc.arg(team_id)) = 'personal' THEN m.personal
             ELSE m.visibility = 'all' OR EXISTS (SELECT 1 FROM model_teams mt WHERE mt.model_id = m.id AND mt.team_id = sqlc.arg(team_id)) END)
-ORDER BY lower(p.name), lower(m.name), m.id;
+ORDER BY (p.team_id IS NULL), lower(p.name), lower(m.name), m.id;
 
 -- name: GetAvailableModel :one
--- One model with its provider, if the team may use it now.
+-- One model with its provider, if the team may use it now (the rule of
+-- ListAvailableModels).
 SELECT sqlc.embed(m), sqlc.embed(p)
 FROM models m JOIN model_providers p ON p.id = m.provider_id
 WHERE m.id = sqlc.arg(model_id) AND m.enabled AND p.enabled
-  AND (CASE WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = sqlc.arg(team_id)) = 'personal' THEN m.personal
+  AND (CASE WHEN p.team_id IS NOT NULL THEN p.team_id = sqlc.arg(team_id)::uuid
+            WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = sqlc.arg(team_id)) = 'personal' THEN m.personal
             ELSE m.visibility = 'all' OR EXISTS (SELECT 1 FROM model_teams mt WHERE mt.model_id = m.id AND mt.team_id = sqlc.arg(team_id)) END);
 
 -- name: GetModelSummary :one
-SELECT m.id, m.name, m.enabled, p.name AS provider_name, p.enabled AS provider_enabled
+SELECT m.id, m.name, m.enabled, p.name AS provider_name, p.enabled AS provider_enabled, p.team_id AS provider_team_id
 FROM models m JOIN model_providers p ON p.id = m.provider_id
 WHERE m.id = $1;
+
+-- name: GetModelSettings :one
+SELECT * FROM model_settings WHERE id = 1;
+
+-- name: LockModelSettings :one
+SELECT * FROM model_settings WHERE id = 1 FOR UPDATE;
+
+-- name: UpdateModelSettings :one
+UPDATE model_settings SET teams_may_add_providers = $1, private_networks = $2, updated_by = $3,
+       revision = revision + 1, updated_at = now()
+WHERE id = 1
+RETURNING *;
 
 -- name: InsertModelUsage :exec
 INSERT INTO model_usage (team_id, agent_id, model_id, source, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)

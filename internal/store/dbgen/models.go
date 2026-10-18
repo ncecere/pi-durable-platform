@@ -181,6 +181,16 @@ type ModelProvider struct {
 	CreatedBy  uuid.NullUUID
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+	TeamID     uuid.NullUUID
+}
+
+type ModelSetting struct {
+	ID                   int16
+	TeamsMayAddProviders bool
+	PrivateNetworks      []string
+	Revision             int64
+	UpdatedBy            uuid.NullUUID
+	UpdatedAt            time.Time
 }
 
 type ModelTeam struct {
@@ -268,6 +278,7 @@ type PersonalWorkspaceSetting struct {
 	MonthlyBudgetUsd pgtype.Numeric
 	Revision         int64
 	UpdatedAt        time.Time
+	OwnProviders     bool
 }
 
 type PlatformBootstrap struct {

@@ -273,10 +273,51 @@ var matrixPolicies = map[string]policy{
 	"adminUpdateModel": {own: padmin, build: func(c *mctx) request {
 		return patch("/v1/admin/models/"+c.model(true), map[string]any{"enabled": false}).h(rev1)
 	}},
-	"adminDeleteModel": {own: padmin, build: func(c *mctx) request { return del("/v1/admin/models/" + c.model(true)) }},
-	"listTeamModels":   {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.team("/models")) }},
-	"getTeamUsage":     {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.team("/usage?groupBy=agent")) }},
-	"adminGetUsage":    {own: platform, build: func(*mctx) request { return get("/v1/admin/usage?groupBy=team") }},
+	"adminDeleteModel":      {own: padmin, build: func(c *mctx) request { return del("/v1/admin/models/" + c.model(true)) }},
+	"listTeamModels":        {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.team("/models")) }},
+	"adminGetModelSettings": {own: platform, build: func(*mctx) request { return get("/v1/admin/settings/models") }},
+	"adminUpdateModelSettings": {own: padmin, build: func(*mctx) request {
+		return request{method: "PUT", path: "/v1/admin/settings/models",
+			body: map[string]any{"teamsMayAddProviders": true, "privateNetworks": []string{"10.0.0.0/8"}}}.h(rev1)
+	}},
+
+	// A team's own model providers and models: its owners and admins manage
+	// them (browser sessions only), its members and platform staff read
+	// them; platform admins manage them through the admin routes.
+	"listTeamModelProviderKinds": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request {
+		return get(c.team("/model-provider-kinds"))
+	}},
+	"listTeamModelProviders": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request {
+		return get(c.team("/model-providers"))
+	}},
+	"createTeamModelProvider": {scope: scopeTeam, own: admins, build: func(c *mctx) request {
+		return post(c.team("/model-providers"), map[string]any{"name": fmt.Sprintf("tp-%d", c.e.next()), "kind": "openai-compatible",
+			"baseUrl": matrixTeamProviderURL, "apiKey": "matrix-key"})
+	}},
+	"getTeamModelProvider": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request {
+		return get(c.team("/model-providers/" + c.tf.provider))
+	}},
+	"updateTeamModelProvider": {scope: scopeTeam, own: admins, build: func(c *mctx) request {
+		return patch(c.team("/model-providers/"+c.teamProvider(true)), map[string]any{"enabled": false}).h(rev1)
+	}},
+	"deleteTeamModelProvider": {scope: scopeTeam, own: admins, build: func(c *mctx) request {
+		return del(c.team("/model-providers/" + c.teamProvider(true)))
+	}},
+	"discoverTeamModels": {scope: scopeTeam, own: admins, build: func(c *mctx) request {
+		return post(c.team("/model-providers/"+c.tf.provider+"/discover"), nil)
+	}},
+	"listTeamProviderModels": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request {
+		return get(c.team("/model-providers/" + c.tf.provider + "/models"))
+	}},
+	"createTeamModel": {scope: scopeTeam, own: admins, build: func(c *mctx) request {
+		return post(c.team("/model-providers/"+c.tf.provider+"/models"), map[string]any{"upstreamId": fmt.Sprintf("tm-%d", c.e.next())})
+	}},
+	"updateTeamModel": {scope: scopeTeam, own: admins, build: func(c *mctx) request {
+		return patch(c.team("/models/"+c.teamModel(true)), map[string]any{"enabled": false}).h(rev1)
+	}},
+	"deleteTeamModel": {scope: scopeTeam, own: admins, build: func(c *mctx) request { return del(c.team("/models/" + c.teamModel(true))) }},
+	"getTeamUsage":    {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.team("/usage?groupBy=agent")) }},
+	"adminGetUsage":   {own: platform, build: func(*mctx) request { return get("/v1/admin/usage?groupBy=team") }},
 
 	// Personal workspaces: platform admins set the defaults and override one
 	// workspace's limits; auditors read the defaults; a workspace's members

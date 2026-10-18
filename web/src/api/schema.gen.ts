@@ -792,11 +792,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Every model provider, without its key (platform admins and auditors) */
+        /**
+         * Every model provider, without its key (platform admins and auditors)
+         * @description Platform providers and teams' own (team names the owner; null for a platform provider), or one owner's.
+         */
         get: operations["adminListModelProviders"];
         put?: never;
         /**
-         * Add a model provider (platform admins)
+         * Add a platform model provider (platform admins)
          * @description The API key (and any extra headers) are stored encrypted and never returned. In proxy mode agents call the platform, which adds the key; in direct mode agents get the provider's URL and key.
          */
         post: operations["adminCreateModelProvider"];
@@ -823,7 +826,10 @@ export interface paths {
         delete: operations["adminDeleteModelProvider"];
         options?: never;
         head?: never;
-        /** Change a provider, replace its key, or turn it off (platform admins) */
+        /**
+         * Change a provider, replace its key, or turn it off (platform admins)
+         * @description Any provider, a team's own too; a team's provider stays proxy-only and a new URL goes through the address guard (422 address_not_allowed).
+         */
         patch: operations["adminUpdateModelProvider"];
         trace?: never;
     };
@@ -838,7 +844,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Ask the provider which models it offers (platform admins) */
+        /**
+         * Ask the provider which models it offers (platform admins)
+         * @description A team's provider is reached through the address guard (422 address_not_allowed).
+         */
         post: operations["adminDiscoverModels"];
         delete?: never;
         options?: never;
@@ -873,7 +882,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Every model of every provider (platform admins and auditors) */
+        /**
+         * Every model of every provider (platform admins and auditors)
+         * @description With each model's provider's owner (providerTeam; null for a platform provider), or one owner's.
+         */
         get: operations["adminListModels"];
         put?: never;
         post?: never;
@@ -916,7 +928,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** The models the team may use (its members and service accounts, platform staff) */
+        /**
+         * The models the team may use (its members and service accounts, platform staff)
+         * @description The team's own providers' models (providerTeam set) and the platform's published to it. A team's own models are never available to another team.
+         */
         get: operations["listTeamModels"];
         put?: never;
         post?: never;
@@ -924,6 +939,147 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/v1/teams/{team}/model-provider-kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        /** The types of model provider a team may add (its members, platform staff) */
+        get: operations["listTeamModelProviderKinds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/teams/{team}/model-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        /** The team's own model providers, without their keys (its members in a browser session, platform staff) */
+        get: operations["listTeamModelProviders"];
+        put?: never;
+        /**
+         * Add a model provider for the team (its owners and admins, in a browser session)
+         * @description Proxy mode only. The base URL must be https and on an address teams may use: public, or private inside the networks platform admins allow (422 address_not_allowed); it is checked again at every connection. Refused with 409 team_providers_off while platform admins have turned team providers off, and 409 personal_workspace in a personal workspace unless they let personal workspaces add providers. The key is stored encrypted and never returned.
+         */
+        post: operations["createTeamModelProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/teams/{team}/model-providers/{providerId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        /** One of the team's own providers (its members in a browser session, platform staff) */
+        get: operations["getTeamModelProvider"];
+        put?: never;
+        post?: never;
+        /** Remove one of the team's providers and its models (its owners and admins); refused while templates or agents use them */
+        delete: operations["deleteTeamModelProvider"];
+        options?: never;
+        head?: never;
+        /**
+         * Change one of the team's providers, replace its key, or turn it off (its owners and admins)
+         * @description Allowed even while adding team providers is turned off. Proxy mode only; a new URL is checked as on create.
+         */
+        patch: operations["updateTeamModelProvider"];
+        trace?: never;
+    };
+    "/v1/teams/{team}/model-providers/{providerId}/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask one of the team's providers which models it offers (its owners and admins)
+         * @description Through the address guard, like every request to a team's provider.
+         */
+        post: operations["discoverTeamModels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/teams/{team}/model-providers/{providerId}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        /** One of the team's providers' models (its members in a browser session, platform staff) */
+        get: operations["listTeamProviderModels"];
+        put?: never;
+        /**
+         * Add a model to one of the team's providers (its owners and admins); it is for the team only
+         * @description visibility, teams and personal don't apply to a team's own models: leave them out (400 team_model_visibility for visibility all, teams, or personal true).
+         */
+        post: operations["createTeamModel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/teams/{team}/models/{modelId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                modelId: components["parameters"]["ModelIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a model of one of the team's providers (its owners and admins); refused while templates or agents use it */
+        delete: operations["deleteTeamModel"];
+        options?: never;
+        head?: never;
+        /** Change a model of one of the team's providers, or turn it off (its owners and admins) */
+        patch: operations["updateTeamModel"];
         trace?: never;
     };
     "/v1/teams/{team}/usage": {
@@ -1106,6 +1262,27 @@ export interface paths {
          * @description Turning personal workspaces off stops creating them at sign-in; existing ones stay (archive one to make it read-only). The monthly budget is recorded but not enforced yet.
          */
         put: operations["adminUpdatePersonalSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/settings/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Model settings (platform admins and auditors) */
+        get: operations["adminGetModelSettings"];
+        /**
+         * Change the model settings (platform admins)
+         * @description Turning team providers off stops teams adding new ones; existing ones keep working and can still be changed or deleted. privateNetworks are the private CIDRs team providers may be on (public addresses are always allowed; loopback, link-local and cloud metadata addresses never).
+         */
+        put: operations["adminUpdateModelSettings"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1509,6 +1686,8 @@ export interface components {
         PersonalWorkspaceSettings: {
             /** @description People get a personal workspace when they sign in */
             enabled: boolean;
+            /** @description Personal workspaces may add their own model providers (while teams may) */
+            ownProviders?: boolean;
             /** Format: int32 */
             maxAgents: number;
             /**
@@ -1528,6 +1707,8 @@ export interface components {
         };
         PersonalWorkspaceSettingsUpdate: {
             enabled: boolean;
+            /** @description Omitted keeps the current setting */
+            ownProviders?: boolean;
             /** Format: int32 */
             maxAgents: number;
             /** Format: int32 */
@@ -1550,6 +1731,8 @@ export interface components {
             agentCount: number;
             /** Format: int64 */
             runningCount: number;
+            /** @description Whether the caller may add a model provider for this workspace now (an owner or admin in a browser session, while platform admins let teams, and personal workspaces, add them) */
+            canAddProviders?: boolean;
         };
         WorkspaceLimitsUpdate: {
             /** Format: int32 */
@@ -1748,10 +1931,35 @@ export interface components {
             modelCount: number;
             /** Format: int64 */
             revision: number;
+            /** @description The team that owns the provider (null for a platform provider) */
+            team?: components["schemas"]["ModelOwner"] | null;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        ModelOwner: {
+            /** Format: uuid */
+            id: string;
+            slug: string;
+            name: string;
+            /** @enum {string} */
+            kind: "team" | "personal";
+        };
+        ModelSettings: {
+            /** @description Team owners and admins may add model providers for their teams */
+            teamsMayAddProviders: boolean;
+            /** @description Private CIDRs team providers may be on (public addresses are always allowed) */
+            privateNetworks: string[];
+            /** Format: int64 */
+            revision: number;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ModelSettingsUpdate: {
+            teamsMayAddProviders: boolean;
+            /** @description Private CIDRs such as 10.20.0.0/16 (not loopback, link-local or public ranges) */
+            privateNetworks: string[];
         };
         ModelProviderCreate: {
             name: string;
@@ -1761,7 +1969,7 @@ export interface components {
             baseUrl?: string;
             apiKey: string;
             /**
-             * @description Default proxy
+             * @description Default proxy (a team's providers are proxy only)
              * @enum {string}
              */
             accessMode?: "proxy" | "direct";
@@ -1838,6 +2046,8 @@ export interface components {
             /** @description Available in personal workspaces (when created, defaults to visibility = all) */
             personal: boolean;
             teams?: components["schemas"]["ModelTeam"][] | null;
+            /** @description The team that owns the model's provider (null for a platform provider); its models are that team's only */
+            providerTeam?: components["schemas"]["ModelOwner"] | null;
             /** Format: int64 */
             revision: number;
             /** Format: date-time */
@@ -4205,7 +4415,10 @@ export interface operations {
     };
     adminListModelProviders: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description all (default), platform, or a team's slug or ID: whose providers */
+                owner?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4223,8 +4436,10 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["ErrorReply"];
             401: components["responses"]["ErrorReply"];
             403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
         };
     };
     adminCreateModelProvider: {
@@ -4350,6 +4565,7 @@ export interface operations {
             404: components["responses"]["ErrorReply"];
             409: components["responses"]["ErrorReply"];
             412: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
             428: components["responses"]["ErrorReply"];
         };
     };
@@ -4379,6 +4595,7 @@ export interface operations {
             403: components["responses"]["ErrorReply"];
             404: components["responses"]["ErrorReply"];
             409: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
         };
     };
     adminListProviderModels: {
@@ -4444,7 +4661,10 @@ export interface operations {
     };
     adminListModels: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description all (default), platform, or a team's slug or ID: whose providers' models */
+                owner?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4462,8 +4682,10 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["ErrorReply"];
             401: components["responses"]["ErrorReply"];
             403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
         };
     };
     adminDeleteModel: {
@@ -4558,6 +4780,367 @@ export interface operations {
             401: components["responses"]["ErrorReply"];
             403: components["responses"]["ErrorReply"];
             404: components["responses"]["ErrorReply"];
+        };
+    };
+    listTeamModelProviderKinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider types */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProviderType"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    listTeamModelProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Providers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ModelProvider"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    createTeamModelProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelProviderCreate"];
+            };
+        };
+        responses: {
+            /** @description Created provider */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ModelProvider"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
+        };
+    };
+    getTeamModelProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ModelProvider"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    deleteTeamModelProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Ok"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    updateTeamModelProvider: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+                "If-Match": components["parameters"]["IfMatchHeader"];
+            };
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelProviderUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated provider */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ModelProvider"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            412: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
+            428: components["responses"]["ErrorReply"];
+        };
+    };
+    discoverTeamModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Models the provider offers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DiscoveredModel"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
+        };
+    };
+    listTeamProviderModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Models */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Model"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    createTeamModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelCreate"];
+            };
+        };
+        responses: {
+            /** @description Created model */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Model"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    deleteTeamModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                modelId: components["parameters"]["ModelIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Ok"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    updateTeamModel: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+                "If-Match": components["parameters"]["IfMatchHeader"];
+            };
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                modelId: components["parameters"]["ModelIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated model */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Model"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            412: components["responses"]["ErrorReply"];
+            428: components["responses"]["ErrorReply"];
         };
     };
     getTeamUsage: {
@@ -4977,6 +5560,66 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["PersonalWorkspaceSettings"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            412: components["responses"]["ErrorReply"];
+            428: components["responses"]["ErrorReply"];
+        };
+    };
+    adminGetModelSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Settings */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ModelSettings"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+        };
+    };
+    adminUpdateModelSettings: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+                "If-Match": components["parameters"]["IfMatchHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Settings */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ModelSettings"];
                     };
                 };
             };

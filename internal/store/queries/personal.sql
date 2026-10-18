@@ -3,7 +3,7 @@ SELECT * FROM personal_workspace_settings WHERE id;
 
 -- name: UpdatePersonalSettings :one
 UPDATE personal_workspace_settings SET enabled = $1, max_agents = $2, max_running = $3, monthly_budget_usd = $4,
-       revision = revision + 1, updated_at = now()
+       own_providers = $5, revision = revision + 1, updated_at = now()
 WHERE id
 RETURNING *;
 

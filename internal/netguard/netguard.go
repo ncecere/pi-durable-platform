@@ -1,5 +1,5 @@
 // Package netguard dials URLs that someone else chose (an OAuth client's
-// metadata document; next, team-owned model providers) without letting them
+// metadata document, a team-owned model provider) without letting them
 // reach the platform's own network. It is adapted from Open MCP Portal's
 // internal/upstream and internal/netpolicy address guard.
 //
@@ -8,7 +8,8 @@
 // Allow prefix. Loopback, link-local (including cloud metadata such as
 // 169.254.169.254), unspecified, multicast and broadcast addresses, and the
 // cloud metadata endpoints outside link-local, are never allowed, whatever
-// Allow says. The host is resolved once per connection and the connection is
+// Allow says. (Allow may come from settings read at dial time: the caller
+// builds a Dialer per connection, as internal/llm does for team providers.) The host is resolved once per connection and the connection is
 // pinned to the addresses that were checked, so a DNS answer can't change
 // between the check and the dial (DNS rebinding). AllowPrivate (the
 // development allowance) accepts every address.
@@ -25,6 +26,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"strings"
 	"time"
 )
 
@@ -183,27 +185,9 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 	if err != nil {
 		return nil, err
 	}
-	var ips []netip.Addr
-	if ip, err := netip.ParseAddr(host); err == nil {
-		ips = []netip.Addr{ip}
-	} else {
-		lookup := d.Lookup
-		if lookup == nil {
-			lookup = func(ctx context.Context, host string) ([]netip.Addr, error) {
-				return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
-			}
-		}
-		if ips, err = lookup(ctx, host); err != nil {
-			return nil, fmt.Errorf("netguard: resolve %s: %w", host, err)
-		}
-	}
-	if len(ips) == 0 {
-		return nil, fmt.Errorf("netguard: %s has no addresses", host)
-	}
-	for _, ip := range ips {
-		if !d.Allowed(ip) {
-			return nil, fmt.Errorf("%w: %s resolved to %s", ErrBlockedAddress, host, ip)
-		}
+	ips, err := d.resolve(ctx, host)
+	if err != nil {
+		return nil, err
 	}
 	connect := d.Connect
 	if connect == nil {
@@ -225,6 +209,42 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 		}
 	}
 	return nil, fmt.Errorf("netguard: dial %s: %w", host, errors.Join(errs...))
+}
+
+// Check resolves host (a name or an IP address, without a port) the way
+// DialContext does and reports whether it would be dialled: nil, an error
+// wrapping ErrBlockedAddress, or a resolution error. It is for checking a
+// URL when it is saved; DialContext checks again at every connection.
+func (d *Dialer) Check(ctx context.Context, host string) error {
+	_, err := d.resolve(ctx, host)
+	return err
+}
+
+// resolve returns host's addresses if every one is allowed.
+func (d *Dialer) resolve(ctx context.Context, host string) ([]netip.Addr, error) {
+	var ips []netip.Addr
+	if ip, err := netip.ParseAddr(strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")); err == nil {
+		ips = []netip.Addr{ip}
+	} else {
+		lookup := d.Lookup
+		if lookup == nil {
+			lookup = func(ctx context.Context, host string) ([]netip.Addr, error) {
+				return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+			}
+		}
+		if ips, err = lookup(ctx, host); err != nil {
+			return nil, fmt.Errorf("netguard: resolve %s: %w", host, err)
+		}
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("netguard: %s has no addresses", host)
+	}
+	for _, ip := range ips {
+		if !d.Allowed(ip) {
+			return nil, fmt.Errorf("%w: %s resolved to %s", ErrBlockedAddress, host, ip)
+		}
+	}
+	return ips, nil
 }
 
 // Transport returns an HTTP transport that dials through d and never uses a

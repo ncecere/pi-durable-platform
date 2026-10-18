@@ -35,6 +35,14 @@ var (
 	slugRE             = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`)
 )
 
+// A team's own models are the team's only: never in platform templates or
+// the catalog.
+var (
+	errPlatformTeamModel = apperr.Conflict("team_model", "Platform templates run on platform models, not on a team's own models")
+	errCatalogTeamModel  = apperr.Conflict("team_model",
+		"This template runs on one of the team's own models, which other teams can't use: add a version on a platform model before it goes to the catalog")
+)
+
 // TemplateView is a template with its owning team and how many agents use it.
 type TemplateView struct {
 	Template dbgen.AgentTemplate
@@ -202,8 +210,8 @@ type TemplateInput struct {
 }
 
 // checkTemplateModel checks a template version's model: a team template's
-// must be usable by the team; a platform template's must be enabled (each
-// deploying team is checked when it deploys).
+// must be usable by the team; a platform template's must be enabled and a
+// platform model (each deploying team is checked when it deploys).
 func checkTemplateModel(ctx context.Context, q *dbgen.Queries, teamID uuid.NullUUID, modelID uuid.NullUUID) error {
 	if !modelID.Valid {
 		return nil
@@ -211,7 +219,37 @@ func checkTemplateModel(ctx context.Context, q *dbgen.Queries, teamID uuid.NullU
 	if teamID.Valid {
 		return llm.CheckUsable(ctx, q, modelID.UUID, teamID.UUID)
 	}
-	return llm.CheckEnabled(ctx, q, modelID.UUID)
+	if err := llm.CheckEnabled(ctx, q, modelID.UUID); errors.Is(err, llm.ErrTeamModel) {
+		return errPlatformTeamModel
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
+
+// checkCatalogModel refuses a team model in a template that is, or is asked
+// to be, in the catalog (other teams can't use it).
+func checkCatalogModel(ctx context.Context, q *dbgen.Queries, modelID uuid.NullUUID) error {
+	if !modelID.Valid {
+		return nil
+	}
+	team, err := llm.IsTeamModel(ctx, q, modelID.UUID)
+	if err != nil {
+		return err
+	}
+	if team {
+		return errCatalogTeamModel
+	}
+	return nil
+}
+
+// checkCatalogVersion is checkCatalogModel for a template's current version.
+func checkCatalogVersion(ctx context.Context, q *dbgen.Queries, t dbgen.AgentTemplate) error {
+	cur, err := version(ctx, q, t.ID, t.CurrentVersion)
+	if err != nil {
+		return err
+	}
+	return checkCatalogModel(ctx, q, cur.ModelID)
 }
 
 func nullID(id *uuid.UUID) uuid.NullUUID {
@@ -385,6 +423,11 @@ func (s *Service) AddVersion(ctx context.Context, a authz.Actor, id uuid.UUID, i
 			} else if err := checkTemplateModel(ctx, q, t.TeamID, modelID); err != nil {
 				return t, err
 			}
+			if t.TeamID.Valid && t.Status != authz.TemplatePrivate {
+				if err := checkCatalogModel(ctx, q, modelID); err != nil {
+					return t, err
+				}
+			}
 			clientMCP := cur.ClientMcp
 			if in.ClientMCP != nil {
 				clientMCP = *in.ClientMCP
@@ -418,12 +461,16 @@ func (s *Service) AddVersion(ctx context.Context, a authz.Actor, id uuid.UUID, i
 }
 
 // RequestPublish asks a platform admin to put a private team template in the
-// catalog (the team's owners and admins).
+// catalog (the team's owners and admins); refused while its current
+// version runs on one of the team's own models (team_model).
 func (s *Service) RequestPublish(ctx context.Context, a authz.Actor, id uuid.UUID) (TemplateView, error) {
 	return s.changeTemplate(ctx, a, id, -1, "agent_template.publish_request", authz.CheckTemplatePublish,
 		func(q *dbgen.Queries, t dbgen.AgentTemplate) (dbgen.AgentTemplate, error) {
 			if t.Status != authz.TemplatePrivate {
 				return t, errNotPrivate
+			}
+			if err := checkCatalogVersion(ctx, q, t); err != nil {
+				return t, err
 			}
 			return q.SetTemplateStatus(ctx, dbgen.SetTemplateStatusParams{ID: id, Status: authz.TemplatePending})
 		})
@@ -456,6 +503,9 @@ func (s *Service) Review(ctx context.Context, a authz.Actor, id uuid.UUID, appro
 			}
 			status := authz.TemplatePrivate
 			if approve {
+				if err := checkCatalogVersion(ctx, q, t); err != nil {
+					return t, err
+				}
 				status, note = authz.TemplatePublished, ""
 			}
 			return q.SetTemplateStatus(ctx, dbgen.SetTemplateStatusParams{ID: id, Status: status, ReviewNote: note})

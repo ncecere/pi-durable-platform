@@ -55,10 +55,11 @@ func (q *Queries) DeleteModelProvider(ctx context.Context, id uuid.UUID) error {
 }
 
 const getAvailableModel = `-- name: GetAvailableModel :one
-SELECT m.id, m.provider_id, m.upstream_id, m.name, m.context_window, m.max_tokens, m.images, m.reasoning, m.input_price, m.output_price, m.enabled, m.visibility, m.revision, m.created_at, m.updated_at, m.personal, p.id, p.name, p.kind, p.base_url, p.api_key_enc, p.headers_enc, p.access_mode, p.enabled, p.revision, p.created_by, p.created_at, p.updated_at
+SELECT m.id, m.provider_id, m.upstream_id, m.name, m.context_window, m.max_tokens, m.images, m.reasoning, m.input_price, m.output_price, m.enabled, m.visibility, m.revision, m.created_at, m.updated_at, m.personal, p.id, p.name, p.kind, p.base_url, p.api_key_enc, p.headers_enc, p.access_mode, p.enabled, p.revision, p.created_by, p.created_at, p.updated_at, p.team_id
 FROM models m JOIN model_providers p ON p.id = m.provider_id
 WHERE m.id = $1 AND m.enabled AND p.enabled
-  AND (CASE WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = $2) = 'personal' THEN m.personal
+  AND (CASE WHEN p.team_id IS NOT NULL THEN p.team_id = $2::uuid
+            WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = $2) = 'personal' THEN m.personal
             ELSE m.visibility = 'all' OR EXISTS (SELECT 1 FROM model_teams mt WHERE mt.model_id = m.id AND mt.team_id = $2) END)
 `
 
@@ -72,7 +73,8 @@ type GetAvailableModelRow struct {
 	ModelProvider ModelProvider
 }
 
-// One model with its provider, if the team may use it now.
+// One model with its provider, if the team may use it now (the rule of
+// ListAvailableModels).
 func (q *Queries) GetAvailableModel(ctx context.Context, arg GetAvailableModelParams) (GetAvailableModelRow, error) {
 	row := q.db.QueryRow(ctx, getAvailableModel, arg.ModelID, arg.TeamID)
 	var i GetAvailableModelRow
@@ -105,6 +107,7 @@ func (q *Queries) GetAvailableModel(ctx context.Context, arg GetAvailableModelPa
 		&i.ModelProvider.CreatedBy,
 		&i.ModelProvider.CreatedAt,
 		&i.ModelProvider.UpdatedAt,
+		&i.ModelProvider.TeamID,
 	)
 	return i, err
 }
@@ -138,7 +141,7 @@ func (q *Queries) GetModel(ctx context.Context, id uuid.UUID) (Model, error) {
 }
 
 const getModelProvider = `-- name: GetModelProvider :one
-SELECT id, name, kind, base_url, api_key_enc, headers_enc, access_mode, enabled, revision, created_by, created_at, updated_at FROM model_providers WHERE id = $1
+SELECT id, name, kind, base_url, api_key_enc, headers_enc, access_mode, enabled, revision, created_by, created_at, updated_at, team_id FROM model_providers WHERE id = $1
 `
 
 func (q *Queries) GetModelProvider(ctx context.Context, id uuid.UUID) (ModelProvider, error) {
@@ -157,12 +160,31 @@ func (q *Queries) GetModelProvider(ctx context.Context, id uuid.UUID) (ModelProv
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TeamID,
+	)
+	return i, err
+}
+
+const getModelSettings = `-- name: GetModelSettings :one
+SELECT id, teams_may_add_providers, private_networks, revision, updated_by, updated_at FROM model_settings WHERE id = 1
+`
+
+func (q *Queries) GetModelSettings(ctx context.Context) (ModelSetting, error) {
+	row := q.db.QueryRow(ctx, getModelSettings)
+	var i ModelSetting
+	err := row.Scan(
+		&i.ID,
+		&i.TeamsMayAddProviders,
+		&i.PrivateNetworks,
+		&i.Revision,
+		&i.UpdatedBy,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const getModelSummary = `-- name: GetModelSummary :one
-SELECT m.id, m.name, m.enabled, p.name AS provider_name, p.enabled AS provider_enabled
+SELECT m.id, m.name, m.enabled, p.name AS provider_name, p.enabled AS provider_enabled, p.team_id AS provider_team_id
 FROM models m JOIN model_providers p ON p.id = m.provider_id
 WHERE m.id = $1
 `
@@ -173,6 +195,7 @@ type GetModelSummaryRow struct {
 	Enabled         bool
 	ProviderName    string
 	ProviderEnabled bool
+	ProviderTeamID  uuid.NullUUID
 }
 
 func (q *Queries) GetModelSummary(ctx context.Context, id uuid.UUID) (GetModelSummaryRow, error) {
@@ -184,6 +207,7 @@ func (q *Queries) GetModelSummary(ctx context.Context, id uuid.UUID) (GetModelSu
 		&i.Enabled,
 		&i.ProviderName,
 		&i.ProviderEnabled,
+		&i.ProviderTeamID,
 	)
 	return i, err
 }
@@ -248,9 +272,9 @@ func (q *Queries) InsertModel(ctx context.Context, arg InsertModelParams) (Model
 }
 
 const insertModelProvider = `-- name: InsertModelProvider :one
-INSERT INTO model_providers (id, name, kind, base_url, api_key_enc, headers_enc, access_mode, enabled, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, name, kind, base_url, api_key_enc, headers_enc, access_mode, enabled, revision, created_by, created_at, updated_at
+INSERT INTO model_providers (id, name, kind, base_url, api_key_enc, headers_enc, access_mode, enabled, created_by, team_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING id, name, kind, base_url, api_key_enc, headers_enc, access_mode, enabled, revision, created_by, created_at, updated_at, team_id
 `
 
 type InsertModelProviderParams struct {
@@ -263,6 +287,7 @@ type InsertModelProviderParams struct {
 	AccessMode string
 	Enabled    bool
 	CreatedBy  uuid.NullUUID
+	TeamID     uuid.NullUUID
 }
 
 func (q *Queries) InsertModelProvider(ctx context.Context, arg InsertModelProviderParams) (ModelProvider, error) {
@@ -276,6 +301,7 @@ func (q *Queries) InsertModelProvider(ctx context.Context, arg InsertModelProvid
 		arg.AccessMode,
 		arg.Enabled,
 		arg.CreatedBy,
+		arg.TeamID,
 	)
 	var i ModelProvider
 	err := row.Scan(
@@ -291,6 +317,7 @@ func (q *Queries) InsertModelProvider(ctx context.Context, arg InsertModelProvid
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TeamID,
 	)
 	return i, err
 }
@@ -358,22 +385,27 @@ func (q *Queries) InsertModelUsageBatch(ctx context.Context, arg InsertModelUsag
 }
 
 const listAvailableModels = `-- name: ListAvailableModels :many
-SELECT m.id, m.provider_id, m.upstream_id, m.name, m.context_window, m.max_tokens, m.images, m.reasoning, m.input_price, m.output_price, m.enabled, m.visibility, m.revision, m.created_at, m.updated_at, m.personal, p.name AS provider_name, p.kind AS provider_kind
+SELECT m.id, m.provider_id, m.upstream_id, m.name, m.context_window, m.max_tokens, m.images, m.reasoning, m.input_price, m.output_price, m.enabled, m.visibility, m.revision, m.created_at, m.updated_at, m.personal, p.name AS provider_name, p.kind AS provider_kind, p.team_id AS provider_team_id
 FROM models m JOIN model_providers p ON p.id = m.provider_id
 WHERE m.enabled AND p.enabled
-  AND (CASE WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = $1) = 'personal' THEN m.personal
+  AND (CASE WHEN p.team_id IS NOT NULL THEN p.team_id = $1::uuid
+            WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = $1) = 'personal' THEN m.personal
             ELSE m.visibility = 'all' OR EXISTS (SELECT 1 FROM model_teams mt WHERE mt.model_id = m.id AND mt.team_id = $1) END)
-ORDER BY lower(p.name), lower(m.name), m.id
+ORDER BY (p.team_id IS NULL), lower(p.name), lower(m.name), m.id
 `
 
 type ListAvailableModelsRow struct {
-	Model        Model
-	ProviderName string
-	ProviderKind string
+	Model          Model
+	ProviderName   string
+	ProviderKind   string
+	ProviderTeamID uuid.NullUUID
 }
 
 // The models a team may use now: enabled, of an enabled provider, and
-// published to every team or to this one.
+// either of the team's own providers, or of a platform provider and
+// published to every team or to this one (personal workspaces: published to
+// personal workspaces). A team provider's models are never available to
+// another team, whatever their visibility.
 func (q *Queries) ListAvailableModels(ctx context.Context, teamID uuid.UUID) ([]ListAvailableModelsRow, error) {
 	rows, err := q.db.Query(ctx, listAvailableModels, teamID)
 	if err != nil {
@@ -402,6 +434,7 @@ func (q *Queries) ListAvailableModels(ctx context.Context, teamID uuid.UUID) ([]
 			&i.Model.Personal,
 			&i.ProviderName,
 			&i.ProviderKind,
+			&i.ProviderTeamID,
 		); err != nil {
 			return nil, err
 		}
@@ -414,10 +447,18 @@ func (q *Queries) ListAvailableModels(ctx context.Context, teamID uuid.UUID) ([]
 }
 
 const listModelProviders = `-- name: ListModelProviders :many
-SELECT p.id, p.name, p.kind, p.base_url, p.api_key_enc, p.headers_enc, p.access_mode, p.enabled, p.revision, p.created_by, p.created_at, p.updated_at, (SELECT count(*) FROM models m WHERE m.provider_id = p.id) AS model_count
-FROM model_providers p
-ORDER BY lower(p.name), p.id
+SELECT p.id, p.name, p.kind, p.base_url, p.api_key_enc, p.headers_enc, p.access_mode, p.enabled, p.revision, p.created_by, p.created_at, p.updated_at, p.team_id, (SELECT count(*) FROM models m WHERE m.provider_id = p.id) AS model_count,
+       t.slug AS team_slug, t.name AS team_name, t.kind AS team_kind
+FROM model_providers p LEFT JOIN teams t ON t.id = p.team_id
+WHERE (NOT $1::boolean OR p.team_id IS NULL)
+  AND ($2::uuid IS NULL OR p.team_id = $2::uuid)
+ORDER BY (p.team_id IS NOT NULL), lower(p.name), p.id
 `
+
+type ListModelProvidersParams struct {
+	PlatformOnly bool
+	TeamID       uuid.NullUUID
+}
 
 type ListModelProvidersRow struct {
 	ID         uuid.UUID
@@ -432,11 +473,17 @@ type ListModelProvidersRow struct {
 	CreatedBy  uuid.NullUUID
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+	TeamID     uuid.NullUUID
 	ModelCount int64
+	TeamSlug   *string
+	TeamName   *string
+	TeamKind   *string
 }
 
-func (q *Queries) ListModelProviders(ctx context.Context) ([]ListModelProvidersRow, error) {
-	rows, err := q.db.Query(ctx, listModelProviders)
+// Providers with their owning team (NULL columns: a platform provider):
+// every one, the platform's only (platform_only), or one team's (team_id).
+func (q *Queries) ListModelProviders(ctx context.Context, arg ListModelProvidersParams) ([]ListModelProvidersRow, error) {
+	rows, err := q.db.Query(ctx, listModelProviders, arg.PlatformOnly, arg.TeamID)
 	if err != nil {
 		return nil, err
 	}
@@ -457,7 +504,11 @@ func (q *Queries) ListModelProviders(ctx context.Context) ([]ListModelProvidersR
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.TeamID,
 			&i.ModelCount,
+			&i.TeamSlug,
+			&i.TeamName,
+			&i.TeamKind,
 		); err != nil {
 			return nil, err
 		}
@@ -504,11 +555,20 @@ func (q *Queries) ListModelTeams(ctx context.Context, modelID uuid.UUID) ([]List
 
 const listModels = `-- name: ListModels :many
 SELECT m.id, m.provider_id, m.upstream_id, m.name, m.context_window, m.max_tokens, m.images, m.reasoning, m.input_price, m.output_price, m.enabled, m.visibility, m.revision, m.created_at, m.updated_at, m.personal, p.name AS provider_name, p.kind AS provider_kind, p.enabled AS provider_enabled,
-       p.access_mode AS provider_access_mode
-FROM models m JOIN model_providers p ON p.id = m.provider_id
-WHERE $1::uuid IS NULL OR m.provider_id = $1::uuid
-ORDER BY lower(p.name), lower(m.name), m.id
+       p.access_mode AS provider_access_mode, p.team_id AS provider_team_id,
+       t.slug AS team_slug, t.name AS team_name, t.kind AS team_kind
+FROM models m JOIN model_providers p ON p.id = m.provider_id LEFT JOIN teams t ON t.id = p.team_id
+WHERE ($1::uuid IS NULL OR m.provider_id = $1::uuid)
+  AND (NOT $2::boolean OR p.team_id IS NULL)
+  AND ($3::uuid IS NULL OR p.team_id = $3::uuid)
+ORDER BY (p.team_id IS NOT NULL), lower(p.name), lower(m.name), m.id
 `
+
+type ListModelsParams struct {
+	ProviderID   uuid.NullUUID
+	PlatformOnly bool
+	TeamID       uuid.NullUUID
+}
 
 type ListModelsRow struct {
 	Model              Model
@@ -516,11 +576,17 @@ type ListModelsRow struct {
 	ProviderKind       string
 	ProviderEnabled    bool
 	ProviderAccessMode string
+	ProviderTeamID     uuid.NullUUID
+	TeamSlug           *string
+	TeamName           *string
+	TeamKind           *string
 }
 
-// Every model, or one provider's, with its provider.
-func (q *Queries) ListModels(ctx context.Context, providerID uuid.NullUUID) ([]ListModelsRow, error) {
-	rows, err := q.db.Query(ctx, listModels, providerID)
+// Every model, or one provider's, with its provider and the provider's
+// owning team (NULL columns: a platform provider); platform_only and
+// team_id filter by owner as ListModelProviders does.
+func (q *Queries) ListModels(ctx context.Context, arg ListModelsParams) ([]ListModelsRow, error) {
+	rows, err := q.db.Query(ctx, listModels, arg.ProviderID, arg.PlatformOnly, arg.TeamID)
 	if err != nil {
 		return nil, err
 	}
@@ -549,6 +615,10 @@ func (q *Queries) ListModels(ctx context.Context, providerID uuid.NullUUID) ([]L
 			&i.ProviderKind,
 			&i.ProviderEnabled,
 			&i.ProviderAccessMode,
+			&i.ProviderTeamID,
+			&i.TeamSlug,
+			&i.TeamName,
+			&i.TeamKind,
 		); err != nil {
 			return nil, err
 		}
@@ -589,7 +659,7 @@ func (q *Queries) LockModel(ctx context.Context, id uuid.UUID) (Model, error) {
 }
 
 const lockModelProvider = `-- name: LockModelProvider :one
-SELECT id, name, kind, base_url, api_key_enc, headers_enc, access_mode, enabled, revision, created_by, created_at, updated_at FROM model_providers WHERE id = $1 FOR UPDATE
+SELECT id, name, kind, base_url, api_key_enc, headers_enc, access_mode, enabled, revision, created_by, created_at, updated_at, team_id FROM model_providers WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) LockModelProvider(ctx context.Context, id uuid.UUID) (ModelProvider, error) {
@@ -607,6 +677,25 @@ func (q *Queries) LockModelProvider(ctx context.Context, id uuid.UUID) (ModelPro
 		&i.Revision,
 		&i.CreatedBy,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TeamID,
+	)
+	return i, err
+}
+
+const lockModelSettings = `-- name: LockModelSettings :one
+SELECT id, teams_may_add_providers, private_networks, revision, updated_by, updated_at FROM model_settings WHERE id = 1 FOR UPDATE
+`
+
+func (q *Queries) LockModelSettings(ctx context.Context) (ModelSetting, error) {
+	row := q.db.QueryRow(ctx, lockModelSettings)
+	var i ModelSetting
+	err := row.Scan(
+		&i.ID,
+		&i.TeamsMayAddProviders,
+		&i.PrivateNetworks,
+		&i.Revision,
+		&i.UpdatedBy,
 		&i.UpdatedAt,
 	)
 	return i, err
@@ -673,7 +762,7 @@ const updateModelProvider = `-- name: UpdateModelProvider :one
 UPDATE model_providers SET name = $2, base_url = $3, api_key_enc = $4, headers_enc = $5, access_mode = $6, enabled = $7,
        revision = revision + 1, updated_at = now()
 WHERE id = $1
-RETURNING id, name, kind, base_url, api_key_enc, headers_enc, access_mode, enabled, revision, created_by, created_at, updated_at
+RETURNING id, name, kind, base_url, api_key_enc, headers_enc, access_mode, enabled, revision, created_by, created_at, updated_at, team_id
 `
 
 type UpdateModelProviderParams struct {
@@ -709,6 +798,34 @@ func (q *Queries) UpdateModelProvider(ctx context.Context, arg UpdateModelProvid
 		&i.Revision,
 		&i.CreatedBy,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TeamID,
+	)
+	return i, err
+}
+
+const updateModelSettings = `-- name: UpdateModelSettings :one
+UPDATE model_settings SET teams_may_add_providers = $1, private_networks = $2, updated_by = $3,
+       revision = revision + 1, updated_at = now()
+WHERE id = 1
+RETURNING id, teams_may_add_providers, private_networks, revision, updated_by, updated_at
+`
+
+type UpdateModelSettingsParams struct {
+	TeamsMayAddProviders bool
+	PrivateNetworks      []string
+	UpdatedBy            uuid.NullUUID
+}
+
+func (q *Queries) UpdateModelSettings(ctx context.Context, arg UpdateModelSettingsParams) (ModelSetting, error) {
+	row := q.db.QueryRow(ctx, updateModelSettings, arg.TeamsMayAddProviders, arg.PrivateNetworks, arg.UpdatedBy)
+	var i ModelSetting
+	err := row.Scan(
+		&i.ID,
+		&i.TeamsMayAddProviders,
+		&i.PrivateNetworks,
+		&i.Revision,
+		&i.UpdatedBy,
 		&i.UpdatedAt,
 	)
 	return i, err

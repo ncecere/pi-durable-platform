@@ -3,7 +3,9 @@
 // model proxy agents call when a provider is in proxy mode, and model usage.
 //
 // Platform admins manage providers and models; teams pick from the models
-// published to them, in templates and agents. A provider's API key never
+// published to them, in templates and agents. A team's owners and admins may
+// also add providers and models of the team's own, for the team only
+// (teams.go): proxy mode only, reached through the address guard. A provider's API key never
 // leaves the platform in proxy mode: agents call the platform's gateway with
 // their own credential, and the platform adds the key, checks the agent may
 // use the model, and counts the tokens. In direct mode the agent gets the

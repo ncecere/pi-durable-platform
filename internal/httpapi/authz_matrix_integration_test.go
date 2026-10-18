@@ -41,6 +41,9 @@ type teamFix struct {
 	// owner is an owner of the team; agent a team agent with a thread;
 	// template a private team template.
 	owner, agent, thread, template string
+	// provider is a model provider of the team's own, and model one of its
+	// models.
+	provider, model string
 }
 
 type matrixEnv struct {
@@ -165,6 +168,15 @@ func newMatrixEnv(t *testing.T) *matrixEnv {
 	}))
 	t.Cleanup(upstream.Close)
 	e.upstream = upstream.URL
+	// Teams' providers live at matrixTeamProviderURL: a public address, as
+	// the address guard sees it, served by a local https server.
+	teamUpstream := httptest.NewTLSServer(upstream.Config.Handler)
+	t.Cleanup(teamUpstream.Close)
+	useTeamNetwork(t, e.app, teamUpstream, map[string]string{"models.matrix.test": "93.184.216.34"})
+	for _, tf := range []*teamFix{&e.a, &e.b} {
+		tf.provider = e.newTeamProvider(*tf)
+		tf.model = e.newTeamModel(*tf)
+	}
 	e.provider = e.newProvider()
 	e.model = e.newModel(e.provider)
 	e.mcpServer = e.newMCPServer()
@@ -226,6 +238,33 @@ func (e *matrixEnv) newModel(provider string) string {
 	e.t.Helper()
 	v, err := e.app.Models.CreateModel(context.Background(), e.platformAdmin(), uuid.MustParse(provider),
 		llm.ModelInput{UpstreamID: fmt.Sprintf("model-%d", e.next())})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return v.Model.ID.String()
+}
+
+// matrixTeamProviderURL is where teams' providers are (see useTeamNetwork).
+const matrixTeamProviderURL = "https://models.matrix.test/v1"
+
+// newTeamProvider adds a model provider of the team's own, as its owner.
+func (e *matrixEnv) newTeamProvider(tf teamFix) string {
+	e.t.Helper()
+	actor := authz.Actor{UserID: uuid.MustParse(tf.owner), PlatformRole: authz.PlatformNone}
+	v, err := e.app.Models.CreateTeamProvider(context.Background(), actor, tf.slug, llm.ProviderInput{
+		Name: fmt.Sprintf("team-provider-%d", e.next()), Kind: "openai-compatible", BaseURL: matrixTeamProviderURL, APIKey: "matrix-key"})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return v.Provider.ID.String()
+}
+
+// newTeamModel adds a model to the team's fixture provider, as its owner.
+func (e *matrixEnv) newTeamModel(tf teamFix) string {
+	e.t.Helper()
+	actor := authz.Actor{UserID: uuid.MustParse(tf.owner), PlatformRole: authz.PlatformNone}
+	v, err := e.app.Models.CreateTeamModel(context.Background(), actor, tf.slug, uuid.MustParse(tf.provider),
+		llm.ModelInput{UpstreamID: fmt.Sprintf("team-model-%d", e.next())})
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -326,6 +365,24 @@ func (c *mctx) model(fresh bool) string {
 		return c.e.newModel(c.e.provider)
 	}
 	return c.e.model
+}
+
+// teamProvider is the team's fixture provider, or a fresh one for a
+// destructive call expected to succeed.
+func (c *mctx) teamProvider(fresh bool) string {
+	if fresh && c.allowed {
+		return c.e.newTeamProvider(*c.tf)
+	}
+	return c.tf.provider
+}
+
+// teamModel is the team's fixture model, or a fresh one for a destructive
+// call expected to succeed.
+func (c *mctx) teamModel(fresh bool) string {
+	if fresh && c.allowed {
+		return c.e.newTeamModel(*c.tf)
+	}
+	return c.tf.model
 }
 
 // personalTeam is a personal workspace (a fresh one when the call is

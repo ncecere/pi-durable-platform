@@ -32,7 +32,22 @@ type fakeProvider struct {
 
 func newFakeProvider(t *testing.T) *fakeProvider {
 	f := &fakeProvider{}
-	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	f.srv = httptest.NewServer(f.handler())
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+// newFakeTLSProvider is newFakeProvider over https (its certificate is
+// for example.com).
+func newFakeTLSProvider(t *testing.T) *fakeProvider {
+	f := &fakeProvider{}
+	f.srv = httptest.NewTLSServer(f.handler())
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+func (f *fakeProvider) handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == "GET" && r.URL.Path == "/v1/models":
 			if r.Header.Get("Authorization") != "Bearer "+fakeProviderKey {
@@ -70,9 +85,7 @@ func newFakeProvider(t *testing.T) *fakeProvider {
 		default:
 			http.NotFound(w, r)
 		}
-	}))
-	t.Cleanup(f.srv.Close)
-	return f
+	})
 }
 
 func (f *fakeProvider) calls() ([]string, []string) {

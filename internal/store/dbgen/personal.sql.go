@@ -24,7 +24,7 @@ func (q *Queries) CountAgentsInTeam(ctx context.Context, teamID uuid.UUID) (int6
 }
 
 const getPersonalSettings = `-- name: GetPersonalSettings :one
-SELECT id, enabled, max_agents, max_running, monthly_budget_usd, revision, updated_at FROM personal_workspace_settings WHERE id
+SELECT id, enabled, max_agents, max_running, monthly_budget_usd, revision, updated_at, own_providers FROM personal_workspace_settings WHERE id
 `
 
 func (q *Queries) GetPersonalSettings(ctx context.Context) (PersonalWorkspaceSetting, error) {
@@ -38,6 +38,7 @@ func (q *Queries) GetPersonalSettings(ctx context.Context) (PersonalWorkspaceSet
 		&i.MonthlyBudgetUsd,
 		&i.Revision,
 		&i.UpdatedAt,
+		&i.OwnProviders,
 	)
 	return i, err
 }
@@ -172,9 +173,9 @@ func (q *Queries) TeamAgentIDs(ctx context.Context, teamID uuid.UUID) ([]uuid.UU
 
 const updatePersonalSettings = `-- name: UpdatePersonalSettings :one
 UPDATE personal_workspace_settings SET enabled = $1, max_agents = $2, max_running = $3, monthly_budget_usd = $4,
-       revision = revision + 1, updated_at = now()
+       own_providers = $5, revision = revision + 1, updated_at = now()
 WHERE id
-RETURNING id, enabled, max_agents, max_running, monthly_budget_usd, revision, updated_at
+RETURNING id, enabled, max_agents, max_running, monthly_budget_usd, revision, updated_at, own_providers
 `
 
 type UpdatePersonalSettingsParams struct {
@@ -182,6 +183,7 @@ type UpdatePersonalSettingsParams struct {
 	MaxAgents        int32
 	MaxRunning       int32
 	MonthlyBudgetUsd pgtype.Numeric
+	OwnProviders     bool
 }
 
 func (q *Queries) UpdatePersonalSettings(ctx context.Context, arg UpdatePersonalSettingsParams) (PersonalWorkspaceSetting, error) {
@@ -190,6 +192,7 @@ func (q *Queries) UpdatePersonalSettings(ctx context.Context, arg UpdatePersonal
 		arg.MaxAgents,
 		arg.MaxRunning,
 		arg.MonthlyBudgetUsd,
+		arg.OwnProviders,
 	)
 	var i PersonalWorkspaceSetting
 	err := row.Scan(
@@ -200,6 +203,7 @@ func (q *Queries) UpdatePersonalSettings(ctx context.Context, arg UpdatePersonal
 		&i.MonthlyBudgetUsd,
 		&i.Revision,
 		&i.UpdatedAt,
+		&i.OwnProviders,
 	)
 	return i, err
 }

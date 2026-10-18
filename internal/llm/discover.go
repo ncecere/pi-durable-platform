@@ -14,7 +14,8 @@ import (
 
 	"github.com/ncecere/pi-durable-platform/internal/apperr"
 	"github.com/ncecere/pi-durable-platform/internal/authz"
-	"github.com/ncecere/pi-durable-platform/internal/store"
+	"github.com/ncecere/pi-durable-platform/internal/netguard"
+	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 )
 
 // newUpstreamClient calls providers: no overall timeout (replies stream for
@@ -53,15 +54,19 @@ type Discovered struct {
 	Added bool
 }
 
-// Discover asks a provider which models it offers (platform admins).
+// Discover asks any provider which models it offers (platform admins).
 func (s *Service) Discover(ctx context.Context, a authz.Actor, providerID uuid.UUID) ([]Discovered, error) {
 	if err := requireAdmin(a); err != nil {
 		return nil, err
 	}
-	p, err := s.q.GetModelProvider(ctx, providerID)
-	if errors.Is(store.NotFound(err), store.ErrNotFound) {
-		return nil, errProviderNotFound
-	} else if err != nil {
+	return s.discover(ctx, adminScope, providerID)
+}
+
+// discover asks a provider the scope reaches which models it offers; a
+// team's provider through the address guard.
+func (s *Service) discover(ctx context.Context, sc scope, providerID uuid.UUID) ([]Discovered, error) {
+	p, err := getProvider(ctx, s.q, sc, providerID, false)
+	if err != nil {
 		return nil, err
 	}
 	kind, ok := KindByID(p.Kind)
@@ -94,8 +99,16 @@ func (s *Service) Discover(ctx context.Context, a authz.Actor, providerID uuid.U
 	}
 	req.Header.Set("Accept", "application/json")
 	authenticate(req, kind, string(key), headers)
-	resp, err := s.client.Do(req)
-	if err != nil {
+	resp, err := s.clientFor(p).Do(req)
+	switch {
+	case err == nil:
+	case errors.Is(err, netguard.ErrBlockedAddress):
+		return nil, errAddressNotAllowed
+	case p.TeamID.Valid:
+		// Not the error's text: it would show a team what the platform's
+		// network looks like.
+		return nil, apperr.Conflict("discovery_failed", "Could not reach the provider (connection or TLS failed, or it took too long)")
+	default:
 		// The error names the URL, never the key.
 		return nil, apperr.Conflict("discovery_failed", fmt.Sprintf("Could not reach the provider: %v", errors.Unwrap(err)))
 	}
@@ -116,7 +129,7 @@ func (s *Service) Discover(ctx context.Context, a authz.Actor, providerID uuid.U
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&body); err != nil {
 		return nil, apperr.Conflict("discovery_failed", "The provider's model list could not be read")
 	}
-	existing, err := s.q.ListModels(ctx, uuid.NullUUID{UUID: p.ID, Valid: true})
+	existing, err := s.q.ListModels(ctx, dbgen.ListModelsParams{ProviderID: uuid.NullUUID{UUID: p.ID, Valid: true}})
 	if err != nil {
 		return nil, err
 	}

@@ -23,8 +23,9 @@ func (a *api) personalRoutes() []route {
 }
 
 func toAPIPersonalSettings(p teams.PersonalSettings) apitypes.PersonalWorkspaceSettings {
+	own := p.OwnProviders
 	return apitypes.PersonalWorkspaceSettings{Enabled: p.Enabled, MaxAgents: p.MaxAgents, MaxRunning: p.MaxRunning,
-		MonthlyBudgetUsd: teams.Dollars(p.MonthlyBudgetUsd), Revision: p.Revision, UpdatedAt: p.UpdatedAt}
+		MonthlyBudgetUsd: teams.Dollars(p.MonthlyBudgetUsd), OwnProviders: &own, Revision: p.Revision, UpdatedAt: p.UpdatedAt}
 }
 
 func (a *api) getPersonalSettings(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +42,7 @@ func (a *api) updatePersonalSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, err := a.Teams.UpdatePersonalSettings(r.Context(), a.actor(r), teams.PersonalSettingsInput{Enabled: in.Enabled,
-		MaxAgents: in.MaxAgents, MaxRunning: in.MaxRunning, MonthlyBudgetUSD: in.MonthlyBudgetUsd}, rev)
+		MaxAgents: in.MaxAgents, MaxRunning: in.MaxRunning, MonthlyBudgetUSD: in.MonthlyBudgetUsd, OwnProviders: in.OwnProviders}, rev)
 	if failed(w, r, err) {
 		return
 	}
@@ -53,8 +54,13 @@ func (a *api) writeLimits(w http.ResponseWriter, r *http.Request, t dbgen.Team, 
 	if failed(w, r, err) {
 		return
 	}
+	// Whether the caller may add a model provider here now (the UI's button).
+	canAdd, err := a.Models.CanAddProviders(r.Context(), a.actor(r), t)
+	if failed(w, r, err) {
+		return
+	}
 	out := apitypes.WorkspaceLimits{Kind: apitypes.WorkspaceLimitsKind(t.Kind), MaxAgents: l.MaxAgents, MaxRunning: l.MaxRunning,
-		MonthlyBudgetUsd: l.MonthlyBudgetUSD, Overridden: []string{}, AgentCount: agents, RunningCount: running}
+		MonthlyBudgetUsd: l.MonthlyBudgetUSD, Overridden: []string{}, AgentCount: agents, RunningCount: running, CanAddProviders: &canAdd}
 	for _, k := range []string{"maxAgents", "maxRunning", "monthlyBudgetUsd"} {
 		if l.Overridden[k] {
 			out.Overridden = append(out.Overridden, k)

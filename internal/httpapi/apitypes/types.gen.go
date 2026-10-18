@@ -396,6 +396,24 @@ func (e ModelCreateVisibility) Valid() bool {
 	}
 }
 
+// Defines values for ModelOwnerKind.
+const (
+	ModelOwnerKindPersonal ModelOwnerKind = "personal"
+	ModelOwnerKindTeam     ModelOwnerKind = "team"
+)
+
+// Valid indicates whether the value is a known member of the ModelOwnerKind enum.
+func (e ModelOwnerKind) Valid() bool {
+	switch e {
+	case ModelOwnerKindPersonal:
+		return true
+	case ModelOwnerKindTeam:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ModelProviderAccessMode.
 const (
 	ModelProviderAccessModeDirect ModelProviderAccessMode = "direct"
@@ -1638,10 +1656,13 @@ type Model struct {
 	ProviderId      openapi_types.UUID `json:"providerId"`
 	ProviderKind    string             `json:"providerKind"`
 	ProviderName    string             `json:"providerName"`
-	Reasoning       bool               `json:"reasoning"`
-	Revision        int64              `json:"revision"`
-	Teams           *[]ModelTeam       `json:"teams,omitempty"`
-	UpdatedAt       time.Time          `json:"updatedAt"`
+
+	// ProviderTeam The team that owns the model's provider (null for a platform provider); its models are that team's only
+	ProviderTeam *ModelOwner  `json:"providerTeam"`
+	Reasoning    bool         `json:"reasoning"`
+	Revision     int64        `json:"revision"`
+	Teams        *[]ModelTeam `json:"teams,omitempty"`
+	UpdatedAt    time.Time    `json:"updatedAt"`
 
 	// UpstreamId The provider's ID for the model
 	UpstreamId string `json:"upstreamId"`
@@ -1684,6 +1705,17 @@ type ModelCreate struct {
 // ModelCreateVisibility defines model for ModelCreate.Visibility.
 type ModelCreateVisibility string
 
+// ModelOwner defines model for ModelOwner.
+type ModelOwner struct {
+	Id   openapi_types.UUID `json:"id"`
+	Kind ModelOwnerKind     `json:"kind"`
+	Name string             `json:"name"`
+	Slug string             `json:"slug"`
+}
+
+// ModelOwnerKind defines model for ModelOwner.Kind.
+type ModelOwnerKind string
+
 // ModelProvider defines model for ModelProvider.
 type ModelProvider struct {
 	// AccessMode proxy: agents call the platform, which adds the key and counts usage; direct: agents get the URL and key
@@ -1699,7 +1731,10 @@ type ModelProvider struct {
 	ModelCount int64              `json:"modelCount"`
 	Name       string             `json:"name"`
 	Revision   int64              `json:"revision"`
-	UpdatedAt  time.Time          `json:"updatedAt"`
+
+	// Team The team that owns the provider (null for a platform provider)
+	Team      *ModelOwner `json:"team"`
+	UpdatedAt time.Time   `json:"updatedAt"`
 }
 
 // ModelProviderAccessMode proxy: agents call the platform, which adds the key and counts usage; direct: agents get the URL and key
@@ -1710,7 +1745,7 @@ type ModelProviderKind string
 
 // ModelProviderCreate defines model for ModelProviderCreate.
 type ModelProviderCreate struct {
-	// AccessMode Default proxy
+	// AccessMode Default proxy (a team's providers are proxy only)
 	AccessMode *ModelProviderCreateAccessMode `json:"accessMode,omitempty"`
 	ApiKey     *string                        `json:"apiKey,omitempty"`
 
@@ -1724,7 +1759,7 @@ type ModelProviderCreate struct {
 	Name    string                  `json:"name"`
 }
 
-// ModelProviderCreateAccessMode Default proxy
+// ModelProviderCreateAccessMode Default proxy (a team's providers are proxy only)
 type ModelProviderCreateAccessMode string
 
 // ModelProviderCreateKind defines model for ModelProviderCreate.Kind.
@@ -1746,6 +1781,24 @@ type ModelProviderUpdate struct {
 
 // ModelProviderUpdateAccessMode defines model for ModelProviderUpdate.AccessMode.
 type ModelProviderUpdateAccessMode string
+
+// ModelSettings defines model for ModelSettings.
+type ModelSettings struct {
+	// PrivateNetworks Private CIDRs team providers may be on (public addresses are always allowed)
+	PrivateNetworks []string `json:"privateNetworks"`
+	Revision        int64    `json:"revision"`
+
+	// TeamsMayAddProviders Team owners and admins may add model providers for their teams
+	TeamsMayAddProviders bool      `json:"teamsMayAddProviders"`
+	UpdatedAt            time.Time `json:"updatedAt"`
+}
+
+// ModelSettingsUpdate defines model for ModelSettingsUpdate.
+type ModelSettingsUpdate struct {
+	// PrivateNetworks Private CIDRs such as 10.20.0.0/16 (not loopback, link-local or public ranges)
+	PrivateNetworks      []string `json:"privateNetworks"`
+	TeamsMayAddProviders bool     `json:"teamsMayAddProviders"`
+}
 
 // ModelTeam defines model for ModelTeam.
 type ModelTeam struct {
@@ -1886,9 +1939,12 @@ type PersonalWorkspaceSettings struct {
 	MaxRunning int32 `json:"maxRunning"`
 
 	// MonthlyBudgetUsd Recorded; not enforced yet
-	MonthlyBudgetUsd *float64  `json:"monthlyBudgetUsd,omitempty"`
-	Revision         int64     `json:"revision"`
-	UpdatedAt        time.Time `json:"updatedAt"`
+	MonthlyBudgetUsd *float64 `json:"monthlyBudgetUsd,omitempty"`
+
+	// OwnProviders Personal workspaces may add their own model providers (while teams may)
+	OwnProviders *bool     `json:"ownProviders"`
+	Revision     int64     `json:"revision"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 // PersonalWorkspaceSettingsUpdate defines model for PersonalWorkspaceSettingsUpdate.
@@ -1897,6 +1953,9 @@ type PersonalWorkspaceSettingsUpdate struct {
 	MaxAgents        int32    `json:"maxAgents"`
 	MaxRunning       int32    `json:"maxRunning"`
 	MonthlyBudgetUsd *float64 `json:"monthlyBudgetUsd,omitempty"`
+
+	// OwnProviders Omitted keeps the current setting
+	OwnProviders *bool `json:"ownProviders,omitempty"`
 }
 
 // PlatformRole defines model for PlatformRole.
@@ -2192,7 +2251,10 @@ type UserUpdate struct {
 
 // WorkspaceLimits defines model for WorkspaceLimits.
 type WorkspaceLimits struct {
-	AgentCount       int64               `json:"agentCount"`
+	AgentCount int64 `json:"agentCount"`
+
+	// CanAddProviders Whether the caller may add a model provider for this workspace now (an owner or admin in a browser session, while platform admins let teams, and personal workspaces, add them)
+	CanAddProviders  *bool               `json:"canAddProviders"`
 	Kind             WorkspaceLimitsKind `json:"kind"`
 	MaxAgents        *int32              `json:"maxAgents,omitempty"`
 	MaxRunning       *int32              `json:"maxRunning,omitempty"`
@@ -2343,10 +2405,22 @@ type AdminUpdateMcpServerParams struct {
 	IfMatch IfMatchHeader `json:"If-Match"`
 }
 
+// AdminListModelProvidersParams defines parameters for AdminListModelProviders.
+type AdminListModelProvidersParams struct {
+	// Owner all (default), platform, or a team's slug or ID: whose providers
+	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+}
+
 // AdminUpdateModelProviderParams defines parameters for AdminUpdateModelProvider.
 type AdminUpdateModelProviderParams struct {
 	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
 	IfMatch IfMatchHeader `json:"If-Match"`
+}
+
+// AdminListModelsParams defines parameters for AdminListModels.
+type AdminListModelsParams struct {
+	// Owner all (default), platform, or a team's slug or ID: whose providers' models
+	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
 }
 
 // AdminUpdateModelParams defines parameters for AdminUpdateModel.
@@ -2366,6 +2440,12 @@ type AdminListServiceAccountsParams struct {
 	// Cursor nextCursor from the previous page
 	Cursor *CursorParam `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit  *LimitParam  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// AdminUpdateModelSettingsParams defines parameters for AdminUpdateModelSettings.
+type AdminUpdateModelSettingsParams struct {
+	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
+	IfMatch IfMatchHeader `json:"If-Match"`
 }
 
 // AdminUpdateTrustedClientsParams defines parameters for AdminUpdateTrustedClients.
@@ -2536,6 +2616,18 @@ type UpdateMemberParams struct {
 	IfMatch IfMatchHeader `json:"If-Match"`
 }
 
+// UpdateTeamModelProviderParams defines parameters for UpdateTeamModelProvider.
+type UpdateTeamModelProviderParams struct {
+	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
+	IfMatch IfMatchHeader `json:"If-Match"`
+}
+
+// UpdateTeamModelParams defines parameters for UpdateTeamModel.
+type UpdateTeamModelParams struct {
+	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
+	IfMatch IfMatchHeader `json:"If-Match"`
+}
+
 // UpdateServiceAccountParams defines parameters for UpdateServiceAccount.
 type UpdateServiceAccountParams struct {
 	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
@@ -2578,6 +2670,9 @@ type AdminCreateModelJSONRequestBody = ModelCreate
 
 // AdminUpdateModelJSONRequestBody defines body for AdminUpdateModel for application/json ContentType.
 type AdminUpdateModelJSONRequestBody = ModelUpdate
+
+// AdminUpdateModelSettingsJSONRequestBody defines body for AdminUpdateModelSettings for application/json ContentType.
+type AdminUpdateModelSettingsJSONRequestBody = ModelSettingsUpdate
 
 // AdminUpdateTrustedClientsJSONRequestBody defines body for AdminUpdateTrustedClients for application/json ContentType.
 type AdminUpdateTrustedClientsJSONRequestBody = TrustedClientsUpdate
@@ -2644,6 +2739,18 @@ type AddMemberJSONRequestBody = MemberAdd
 
 // UpdateMemberJSONRequestBody defines body for UpdateMember for application/json ContentType.
 type UpdateMemberJSONRequestBody = MemberUpdate
+
+// CreateTeamModelProviderJSONRequestBody defines body for CreateTeamModelProvider for application/json ContentType.
+type CreateTeamModelProviderJSONRequestBody = ModelProviderCreate
+
+// UpdateTeamModelProviderJSONRequestBody defines body for UpdateTeamModelProvider for application/json ContentType.
+type UpdateTeamModelProviderJSONRequestBody = ModelProviderUpdate
+
+// CreateTeamModelJSONRequestBody defines body for CreateTeamModel for application/json ContentType.
+type CreateTeamModelJSONRequestBody = ModelCreate
+
+// UpdateTeamModelJSONRequestBody defines body for UpdateTeamModel for application/json ContentType.
+type UpdateTeamModelJSONRequestBody = ModelUpdate
 
 // CreateServiceAccountJSONRequestBody defines body for CreateServiceAccount for application/json ContentType.
 type CreateServiceAccountJSONRequestBody = ServiceAccountCreate

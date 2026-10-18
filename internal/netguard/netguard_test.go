@@ -131,6 +131,42 @@ func TestDialContext(t *testing.T) {
 	}
 }
 
+// Check applies DialContext's rule without connecting.
+func TestCheck(t *testing.T) {
+	table := map[string][]string{
+		"public.example.com": {"8.8.8.8"},
+		"rebind.example.com": {"8.8.8.8", "169.254.169.254"},
+		"corp.example.com":   {"10.20.0.5"},
+	}
+	corp := []netip.Prefix{netip.MustParsePrefix("10.20.0.0/16")}
+	cases := []struct {
+		host    string
+		allow   []netip.Prefix
+		ok      bool
+		blocked bool
+	}{
+		{"public.example.com", nil, true, false},
+		{"8.8.4.4", nil, true, false},
+		{"[2001:4860:4860::8888]", nil, true, false},
+		{"rebind.example.com", corp, false, true},
+		{"corp.example.com", nil, false, true},
+		{"corp.example.com", corp, true, false},
+		{"10.20.0.9", corp, true, false},
+		{"127.0.0.1", []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}, false, true},
+		{"[::1]", nil, false, true},
+		{"unknown.example.com", nil, false, false},
+	}
+	for _, c := range cases {
+		var dialed []string
+		d := fakeDialer(table, "unused:1", &dialed)
+		d.Allow = c.allow
+		err := d.Check(context.Background(), c.host)
+		if c.ok != (err == nil) || errors.Is(err, ErrBlockedAddress) != c.blocked || len(dialed) != 0 {
+			t.Errorf("Check(%s) = %v (dialled %v)", c.host, err, dialed)
+		}
+	}
+}
+
 // The transport dials through the guard and ignores proxies from the
 // environment.
 func TestTransport(t *testing.T) {

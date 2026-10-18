@@ -202,6 +202,9 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (httpapi.D
 		DevAllowance: cfg.DevAuth && cfg.LoopbackAppURL()})
 	connect.Log = log
 	models := llm.New(pool, box)
+	// Team providers are reached through the address guard; the development
+	// allowance lets them live on this machine.
+	models.SetTeamNetwork(llm.TeamNetwork{DevAllowance: cfg.DevAuth && cfg.LoopbackAppURL()})
 	hosts, err := mcp.ParseHostPatterns(cfg.Agents.ClientMCPHosts)
 	if err != nil {
 		return httpapi.Deps{}, fmt.Errorf("AGENTS_CLIENT_MCP_HOSTS: %w", err)
