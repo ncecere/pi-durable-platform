@@ -33,6 +33,12 @@
   object-fit: contain;
 }
 
+.mark {
+  display: block;
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
 .title {
   margin: 0;
   font-size: var(--font-size-xl);

@@ -43,6 +43,7 @@ describe("app shell", () => {
     await screen.findByRole("heading", { level: 1, name: "Welcome, Una" });
     await waitFor(() => expect(document.title).toBe("Home · Acme Tools Hub"));
     expect(screen.getByText(/Acme Tools Hub is where your teams and services deploy/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Acme Tools Hub" }).querySelector("img")).toHaveAttribute("src", "/pi-durable-platform-mark-small.svg");
   });
 
   it("gives someone without a team a friendly explanation, their own initials and a team request only when configured", async () => {

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, LifeBuoy, LogIn } from "lucide-react";
 import { useEffect } from "react";
 import { ApiError, api, errorMessage, setCsrfToken, unwrap, type Schemas } from "./api/client";
+import { ProductMark } from "./components/layout/product-mark";
 import { applyInstance, instanceOf, tagline, type Instance } from "./lib/instance";
 import { retryDelay, shouldRetrySession } from "./lib/retry";
 import { Alert, ErrorAlert } from "@/components/ui/alert/alert";
@@ -112,7 +113,7 @@ export function SignInPage() {
     <main className={styles.page}>
       <div className={styles.column}>
         <div className={styles.brand}>
-          {instance.logoUrl && <InstanceLogo src={instance.logoUrl} className={styles.logo} />}
+          {instance.logoUrl ? <InstanceLogo src={instance.logoUrl} className={styles.logo} /> : <ProductMark small className={styles.mark} />}
           <h1 className={styles.title}>{instance.name}</h1>
           <p className={styles.subtitle}>{tagline(instance)}</p>
         </div>

@@ -16,6 +16,9 @@ the entry says how to adapt. The design is in [DESIGN.md](DESIGN.md), and each r
 - **Staff read any team's agents.** Platform admins and auditors see every team's agents read-only (`GET
   /v1/teams/{team}/agents`, `GET /v1/agents/{id}`), not only personal workspaces'. Admin › Teams › a team has an
   Agents tab linking to each agent's page (Overview and Settings; Conversations for platform admins; no Test).
+- **The product's logo, "Wake".** The sidebar, the sign-in page and the session-unavailable page show Pi Durable
+  Platform's mark when the instance has no logo of its own (`UI_LOGO_URL` still replaces it), and the favicon is the
+  mark, with a `favicon.ico` (no more `/favicon.ico` 404) and an `apple-touch-icon.png`.
 
 ### Fixed
 

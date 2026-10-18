@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/menu/menu";
 import styles from "./layout.module.css";
 import { type ActiveTeam } from "./active-team";
+import { ProductMark } from "./product-mark";
 import { useCapabilities } from "./location";
 import { AdminHeader, ModeSwitch, type Mode } from "./mode-switch";
 import { TeamSwitcher } from "./team-switcher";
@@ -56,7 +57,9 @@ export function AppSidebar({
                 src={instance.logoUrl}
                 className={styles.brandLogo}
               />
-            ) : undefined
+            ) : (
+              <ProductMark small className={styles.brandLogo} />
+            )
           }
           render={<Link to="/" />}
         />

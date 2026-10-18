@@ -12,6 +12,7 @@ import { ApiError, errorMessage } from "../../api/client";
 import { isRateLimited, MAX_RETRY_AFTER_S } from "../../lib/retry";
 import { useInstance } from "../../session";
 import { HelpButton } from "../not-found";
+import { ProductMark } from "./product-mark";
 import { Button } from "@/components/ui/button/button";
 import { Card, CardBody } from "@/components/ui/card/card";
 import styles from "./session-unavailable.module.css";
@@ -82,7 +83,7 @@ export function SessionUnavailable({ error, retrying, onRetry }: Props) {
     <main className={styles.page}>
       <Card className={styles.card}>
         <CardBody className={styles.body}>
-          {logoUrl && <img src={logoUrl} alt="" className={styles.logo} />}
+          {logoUrl ? <img src={logoUrl} alt="" className={styles.logo} /> : <ProductMark small className={styles.mark} />}
           <h1 ref={heading} tabIndex={-1} className={styles.title}>
             {title}
           </h1>
