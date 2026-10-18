@@ -1,17 +1,20 @@
 // Package doctor implements `pi-durable-platform doctor`: the configuration
 // and production safety checks, then PostgreSQL connectivity and the
 // migration state, with timings, then API key pepper rotation: keys still
-// on another pepper. It changes nothing.
+// on another pepper, then the agents database (AGENTS_DATABASE_URL): that
+// it answers and that its role may provision agents. It changes nothing.
 package doctor
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ncecere/pi-durable-platform/internal/buildinfo"
@@ -32,7 +35,7 @@ const (
 
 // Check is one line of the report.
 type Check struct {
-	Group      string  `json:"group"` // configuration, safety, postgres, keys
+	Group      string  `json:"group"` // configuration, safety, postgres, keys, agents
 	Name       string  `json:"name"`
 	Status     Status  `json:"status"`
 	Detail     string  `json:"detail"`
@@ -78,6 +81,7 @@ func Run(ctx context.Context, cfg config.Config, opts Options) Report {
 	if pool := r.postgres(ctx); pool != nil {
 		pool.Close()
 	}
+	r.agentsDatabase(ctx)
 	return r.report()
 }
 
@@ -158,6 +162,94 @@ func (r *runner) postgres(ctx context.Context) *pgxpool.Pool {
 		r.keys(cctx, pool)
 	}
 	return pool
+}
+
+// provisionMinVersion is the oldest PostgreSQL that can provision agents:
+// provisioning grants the platform's role membership of each agent role
+// WITH INHERIT TRUE, SET TRUE (PostgreSQL 16).
+const provisionMinVersion = 160000
+
+// agentsDatabase connects to the agents database and checks what
+// provisioning an agent needs of its role (internal/agenthost/provision):
+// CREATEROLE, for the agent's role, and CREATE on the database, for its
+// schema (or a superuser), on PostgreSQL 16 or later. It reads the role's
+// attributes and privileges; nothing is created. Without
+// AGENTS_DATABASE_URL the checks are skipped (the configuration checks say
+// whether the mode needs it).
+func (r *runner) agentsDatabase(ctx context.Context) {
+	if r.cfg.Agents.DatabaseURL == "" {
+		r.add(Check{Group: "agents", Name: "database", Status: Info, Detail: "skipped: AGENTS_DATABASE_URL is not set, so agents can't be deployed"})
+		return
+	}
+	// Not the URL itself or the parser's error: either may hold the password.
+	pcfg, err := pgxpool.ParseConfig(r.cfg.Agents.DatabaseURL)
+	if err != nil {
+		r.add(Check{Group: "agents", Name: "database", Status: Fail, Detail: "AGENTS_DATABASE_URL is not a valid PostgreSQL connection URL"})
+		return
+	}
+	name := pcfg.ConnConfig.Database
+	cctx, cancel := context.WithTimeout(ctx, r.opts.Timeout)
+	defer cancel()
+	start := time.Now()
+	pool, err := store.Open(cctx, r.cfg.Agents.DatabaseURL)
+	if err != nil {
+		c := Check{Group: "agents", Name: "database", Status: Fail, Detail: err.Error(), DurationMs: millis(time.Since(start)),
+			Fix: "Check AGENTS_DATABASE_URL: the agents database must exist and accept the platform's provisioning role"}
+		if missingDatabase(err) && r.cfg.Agents.CreateDatabase {
+			c.Status, c.Fix = Info, ""
+			c.Detail = fmt.Sprintf("database %s doesn't exist yet: serve creates it (AGENTS_CREATE_DATABASE)", name)
+		}
+		r.add(c)
+		return
+	}
+	defer pool.Close()
+	var (
+		role, db, version           string
+		versionNum                  int
+		super, createRole, createDB bool
+	)
+	err = pool.QueryRow(cctx, `SELECT current_user, current_database(), current_setting('server_version'),
+		current_setting('server_version_num')::int, r.rolsuper, r.rolcreaterole,
+		has_database_privilege(current_database(), 'CREATE')
+		FROM pg_roles r WHERE r.rolname = current_user`).Scan(&role, &db, &version, &versionNum, &super, &createRole, &createDB)
+	c := Check{Group: "agents", Name: "database", Status: OK, DurationMs: millis(time.Since(start)),
+		Detail: fmt.Sprintf("PostgreSQL %s, database %s as %s", version, db, role)}
+	if err != nil {
+		c.Status, c.Detail = Fail, "role and privileges: "+err.Error()
+		r.add(c)
+		return
+	}
+	r.add(c)
+	p := Check{Group: "agents", Name: "provisioning", Status: OK}
+	var missing []string
+	if !createRole {
+		missing = append(missing, "CREATEROLE")
+	}
+	if !createDB {
+		missing = append(missing, "CREATE on database "+db)
+	}
+	switch {
+	case versionNum < provisionMinVersion:
+		p.Status = Fail
+		p.Detail = fmt.Sprintf("PostgreSQL %s can't provision agents: it needs PostgreSQL 16 or later", version)
+		p.Fix = "Put the agents database on PostgreSQL 16 or later"
+	case super:
+		p.Detail = fmt.Sprintf("%s is a superuser (CREATEROLE and CREATE on %s are enough)", role, db)
+	case len(missing) > 0:
+		p.Status = Fail
+		p.Detail = fmt.Sprintf("%s can't provision agents: it lacks %s", role, strings.Join(missing, " and "))
+		p.Fix = fmt.Sprintf("ALTER ROLE %s CREATEROLE; GRANT CREATE ON DATABASE %s TO %s (or make it the database's owner)", role, db, role)
+	default:
+		p.Detail = fmt.Sprintf("%s has CREATEROLE and CREATE on %s", role, db)
+	}
+	r.add(p)
+}
+
+// missingDatabase reports whether a connection failed because the database
+// doesn't exist.
+func missingDatabase(err error) bool {
+	var pg *pgconn.PgError
+	return errors.As(err, &pg) && pg.Code == "3D000"
 }
 
 // keys reports usable API keys and service account keys by pepper.

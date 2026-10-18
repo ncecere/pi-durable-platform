@@ -100,7 +100,7 @@ Other targets (`make help` lists them all):
 | `make generate` | Regenerates sqlc queries, Go API types and the web's TypeScript API types |
 | `make web-test` | Web type-check and Vitest tests |
 | `make web-dev` | Vite with hot reload on :5176, proxying the API to :8098 |
-| `make doctor` | Checks the configuration, Postgres and migrations |
+| `make doctor` | Checks the configuration, Postgres, migrations and the agents database |
 | `make docker`, `make docker-runtime` | Build the two images locally |
 | `make deps-down` | Stops Postgres (keeps its data) |
 
@@ -134,7 +134,7 @@ their platform role, on the agent routes and a few read routes such as `GET /v1/
 ```
 pi-durable-platform serve     HTTP API, embedded UI, model gateway and background loops
 pi-durable-platform migrate   apply database migrations and exit
-pi-durable-platform doctor    check the configuration, Postgres and migrations
+pi-durable-platform doctor    check the configuration, Postgres, migrations and the agents database
 pi-durable-platform prune-agent-storage [--dry-run]
                               remove agent storage no agent owns
 pi-durable-platform version   print the version

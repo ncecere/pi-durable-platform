@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/doctor"
@@ -48,6 +52,11 @@ func TestDoctorHealthyInstall(t *testing.T) {
 			t.Errorf("keys %s = %+v", name, c)
 		}
 	}
+	for _, name := range []string{"database", "provisioning"} {
+		if c, ok := find(rep, "agents", name); !ok || c.Status != doctor.OK {
+			t.Errorf("agents %s = %+v", name, c)
+		}
+	}
 	var buf bytes.Buffer
 	if err := rep.WriteText(&buf); err != nil || !strings.Contains(buf.String(), "all checks passed") {
 		t.Errorf("text = %s %v", buf.String(), err)
@@ -55,6 +64,66 @@ func TestDoctorHealthyInstall(t *testing.T) {
 	buf.Reset()
 	if err := rep.WriteJSON(&buf); err != nil || !strings.Contains(buf.String(), `"ok": true`) {
 		t.Errorf("json = %s %v", buf.String(), err)
+	}
+}
+
+// The agents database's role: reachable but unable to provision, a database that
+// doesn't exist (yet), and no agents database at all.
+func TestDoctorAgentsDatabase(t *testing.T) {
+	pool, dbURL := testutil.NewDB(t)
+	ctx := context.Background()
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	role, password := "pdp_doctor_"+suffix, "doctor-test-"+suffix
+	if _, err := pool.Exec(ctx, fmt.Sprintf("CREATE ROLE %s LOGIN NOCREATEROLE PASSWORD '%s'", role, password)); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		c, err := pgx.Connect(context.Background(), testutil.DatabaseURL())
+		if err != nil {
+			return
+		}
+		defer c.Close(context.Background())
+		_, _ = c.Exec(context.Background(), "DROP ROLE IF EXISTS "+role)
+	})
+	u, _ := url.Parse(dbURL)
+	u.User = url.UserPassword(role, password)
+	cfg := devConfig(dbURL)
+	cfg.Agents.DatabaseURL = u.String()
+	rep := doctor.Run(ctx, cfg, doctor.Options{})
+	if c, _ := find(rep, "agents", "database"); c.Status != doctor.OK || !strings.Contains(c.Detail, "as "+role) {
+		t.Errorf("database = %+v", c)
+	}
+	c, _ := find(rep, "agents", "provisioning")
+	if rep.OK || c.Status != doctor.Fail || !strings.Contains(c.Detail, "lacks CREATEROLE and CREATE on database") || c.Fix == "" {
+		t.Errorf("provisioning without privileges = %+v", c)
+	}
+	if strings.Contains(fmt.Sprintf("%+v", rep), password) {
+		t.Error("the report shows the agents database password")
+	}
+
+	// A database that doesn't exist: broken, unless serve creates it.
+	u, _ = url.Parse(dbURL)
+	u.Path = "/pdp_doctor_missing_" + suffix
+	cfg = devConfig(dbURL)
+	cfg.Agents.DatabaseURL = u.String()
+	if c, _ := find(doctor.Run(ctx, cfg, doctor.Options{}), "agents", "database"); c.Status != doctor.Fail {
+		t.Errorf("missing database = %+v", c)
+	}
+	cfg.Agents.CreateDatabase = true
+	rep = doctor.Run(ctx, cfg, doctor.Options{})
+	if c, _ := find(rep, "agents", "database"); !rep.OK || c.Status != doctor.Info || !strings.Contains(c.Detail, "serve creates it") {
+		t.Errorf("missing database with AGENTS_CREATE_DATABASE = %+v", c)
+	}
+
+	// No agents database (migrate needs none): skipped.
+	cfg = devConfig(dbURL)
+	cfg.Agents.DatabaseURL = ""
+	rep = doctor.Run(ctx, cfg, doctor.Options{Mode: "migrate"})
+	if c, _ := find(rep, "agents", "database"); !rep.OK || c.Status != doctor.Info || !strings.HasPrefix(c.Detail, "skipped") {
+		t.Errorf("no agents database = %+v (%+v)", c, rep.Checks)
+	}
+	if _, ok := find(rep, "agents", "provisioning"); ok {
+		t.Error("provisioning checked without an agents database")
 	}
 }
 

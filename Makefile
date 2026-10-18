@@ -47,7 +47,7 @@ migrate: ## Apply migrations using .env
 	@test -f .env || cp .env.example .env
 	set -a && . ./.env && set +a && $(GO) run ./cmd/pi-durable-platform migrate
 
-doctor: ## Check the configuration, Postgres and migrations using .env
+doctor: ## Check the configuration, Postgres, migrations and the agents database using .env
 	@test -f .env || cp .env.example .env
 	set -a && . ./.env && set +a && $(GO) run ./cmd/pi-durable-platform doctor
 
