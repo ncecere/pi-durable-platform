@@ -25,7 +25,8 @@ type Post = (path: string, body: unknown) => Promise<void>;
  * live document while it runs. Reporting is best effort and retried; the next start reconciles anything missed.
  */
 export class ThreadStatusReporter {
-	private readonly watching = new Set<string>();
+	/** Threads with a reply in progress, and the submission (message) each reply answers, when known. */
+	private readonly watching = new Map<string, number | undefined>();
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private queue: Promise<void> = Promise.resolve();
 
@@ -48,9 +49,9 @@ export class ThreadStatusReporter {
 		await this.send("/threads/sync", { threads: statuses, at });
 	}
 
-	/** A message was accepted: report the reply's end. */
-	watch(threadId: string): void {
-		this.watching.add(threadId);
+	/** A message was accepted: report the reply's end (and, if it went unanswered, why). */
+	watch(threadId: string, submissionId?: number): void {
+		this.watching.set(threadId, submissionId);
 		this.timer ??= setInterval(() => void this.poll(), this.pollMs);
 	}
 
@@ -64,7 +65,7 @@ export class ThreadStatusReporter {
 		if (this.polling) return;
 		this.polling = true;
 		try {
-			for (const threadId of [...this.watching]) {
+			for (const [threadId, submissionId] of [...this.watching]) {
 				const records = await this.threads.list();
 				const record = records.find((r) => r.threadId === threadId);
 				if (record === undefined) {
@@ -80,7 +81,7 @@ export class ThreadStatusReporter {
 					createdAt: record.createdAt,
 					busy: false,
 					lastReplyAt: now,
-					lastError: await this.lastError(threadId),
+					lastError: await this.lastError(threadId, submissionId),
 					at: now,
 				} satisfies ThreadStatus);
 			}
@@ -95,8 +96,27 @@ export class ThreadStatusReporter {
 		}
 	}
 
-	/** The last reply's error, if it failed. */
-	private async lastError(threadId: string): Promise<string | undefined> {
+	/**
+	 * The last reply's error, if it failed: the error of the last assistant message, or else why the message went
+	 * unanswered. pi ends some runs without writing a reply at all (no model, a fault, a reset); then only the
+	 * submission records why.
+	 */
+	private async lastError(threadId: string, submissionId?: number): Promise<string | undefined> {
+		const fromReply = await this.replyError(threadId);
+		if (fromReply !== undefined || submissionId === undefined) return fromReply;
+		try {
+			const submission = await this.harness.submission(submissionId as never, ctx);
+			const record = submission === undefined ? undefined : await submission.status(ctx);
+			if (record?.status !== "unanswered") return undefined;
+			const detail = record.detail;
+			return unansweredError(record.reason, typeof detail === "string" || detail == null ? (detail ?? undefined) : JSON.stringify(detail));
+		} catch (error) {
+			console.error("[runtime] thread status:", (error as Error).message);
+			return undefined;
+		}
+	}
+
+	private async replyError(threadId: string): Promise<string | undefined> {
 		const conversation = await this.threads.get(threadId);
 		if (conversation === undefined) return undefined;
 		const watch = await conversation.watch(ctx);
@@ -127,6 +147,27 @@ export class ThreadStatusReporter {
 		if (this.timer) clearInterval(this.timer);
 		this.timer = undefined;
 		return this.queue;
+	}
+}
+
+/** Why a message went unanswered, for people (undefined: stopped on purpose, which isn't an error). */
+export function unansweredError(reason: string | undefined, detail: string | undefined): string | undefined {
+	const more = detail ? `: ${detail.slice(0, 1800)}` : "";
+	switch (reason) {
+		case "aborted":
+			return undefined;
+		case "no_model":
+			return "No reply: the agent's model isn't available to this conversation" + more;
+		case "model_error":
+			return "No reply: the model request failed" + more;
+		case "faulted":
+			return "No reply: the agent failed" + more;
+		case "reset":
+			return "No reply: the conversation was reset before the agent answered";
+		case "stale":
+			return "No reply: the message expired before the agent could answer";
+		default:
+			return `No reply (${reason ?? "unknown reason"})` + more;
 	}
 }
 

@@ -18,7 +18,7 @@ export type RuntimeOptions = {
 	/** Prepares a thread before a message (its MCP servers), after it exists. */
 	beforeMessage?: (threadId: string, conversation: Conversation) => Promise<void>;
 	/** A message was submitted to the thread (its reply's end is reported to the platform). */
-	afterMessage?: (threadId: string) => void;
+	afterMessage?: (threadId: string, submissionId: number) => void;
 };
 
 /**
@@ -99,7 +99,7 @@ export function createRuntimeServer(options: RuntimeOptions): { server: Server; 
 				ctx,
 			);
 			await threads.touch(threadId);
-			options.afterMessage?.(threadId);
+			options.afterMessage?.(threadId, submission.id as number);
 			return json(response, 202, { submissionId: submission.id });
 		}
 		if (method === "POST" && action === "stop") {

@@ -93,16 +93,20 @@ export async function startAgent(config: AgentConfig): Promise<RunningAgent> {
 		threads,
 		token: config.token,
 		info: { agentId: config.agentId, name: config.name, model: `${model.provider}/${model.modelId}` },
-		beforeMessage: mcpActive
-			? async (threadId, conversation) => {
-					const extensions = await mcp.forThread(threadId, [extension]).catch((error: unknown) => {
-						console.error(`[agent ${config.agentId}] MCP servers of thread ${threadId}:`, (error as Error).message);
-						return [extension, ...mcp.extensions];
-					});
-					await conversation.configure({ extensions }, ctx);
-				}
-			: undefined,
-		afterMessage: status ? (threadId) => status.watch(threadId) : undefined,
+		// pi keeps the model a conversation was created with (pi.agent), so a thread begun before the agent's model
+		// changed would keep asking for the old one, which this runtime no longer has: its turns would end unanswered
+		// (no_model) without a reply. Every message moves the thread to the agent's model now (an equal value writes
+		// nothing), with the thread's MCP servers.
+		beforeMessage: async (threadId, conversation) => {
+			const current = { provider: model.provider, modelId: model.modelId };
+			if (!mcpActive) return conversation.configure({ model: current }, ctx);
+			const extensions = await mcp.forThread(threadId, [extension]).catch((error: unknown) => {
+				console.error(`[agent ${config.agentId}] MCP servers of thread ${threadId}:`, (error as Error).message);
+				return [extension, ...mcp.extensions];
+			});
+			await conversation.configure({ model: current, extensions }, ctx);
+		},
+		afterMessage: status ? (threadId, submissionId) => status.watch(threadId, submissionId) : undefined,
 	});
 	return {
 		handler,
