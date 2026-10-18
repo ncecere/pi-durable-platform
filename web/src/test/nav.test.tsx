@@ -23,12 +23,12 @@ describe("navigation lists", () => {
       ["Catalog", "/catalog"],
     ]);
     expect(teamNavFor(meFor("none", "member"), team.slug).find((n) => n.label === "Service accounts")?.to).toBe("/teams/$team/service-accounts");
-    expect(adminNav.map((n) => n.to)).toEqual(["/admin/users", "/admin/teams", "/admin/templates", "/admin/models", "/admin/usage", "/admin/audit"]);
+    expect(adminNav.map((n) => n.to)).toEqual(["/admin/users", "/admin/teams", "/admin/templates", "/admin/models", "/admin/mcp-servers", "/admin/usage", "/admin/audit"]);
   });
 
   it("resolve the record routes the lists link to (API keys, service accounts, users, teams)", () => {
     const paths = routePaths();
-    const records = ["/settings/api-keys", "/settings/profile", "/teams/$team/service-accounts/$serviceAccountId", "/admin/users/$userId", "/admin/teams/$team", "/agents", "/teams/$team/agents", "/teams/$team/agents/$agentId", "/catalog", "/templates/$templateId", "/teams/$team/templates", "/admin/templates", "/admin/models", "/admin/models/providers/$providerId", "/teams/$team/usage", "/admin/usage"];
+    const records = ["/settings/api-keys", "/settings/profile", "/teams/$team/service-accounts/$serviceAccountId", "/admin/users/$userId", "/admin/teams/$team", "/agents", "/teams/$team/agents", "/teams/$team/agents/$agentId", "/catalog", "/templates/$templateId", "/teams/$team/templates", "/admin/templates", "/admin/models", "/admin/models/providers/$providerId", "/admin/mcp-servers", "/admin/mcp-servers/$serverId", "/teams/$team/usage", "/admin/usage"];
     for (const to of records) expect(paths, to).toContain(to);
   });
 

@@ -1,0 +1,17 @@
+/* Admin › MCP servers. Semantic tokens only. */
+
+/* Status badges side by side in a table cell or a header. */
+.badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+/* A tool's description: at most two lines in the table. */
+.toolDescription {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-width: 36rem;
+}

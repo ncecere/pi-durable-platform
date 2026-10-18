@@ -11,6 +11,10 @@ export type AdminTeamTab = (typeof adminTeamTabs)[number];
 export const providerTabs = ["models", "settings"] as const;
 export type ProviderTab = (typeof providerTabs)[number];
 
+/** Admin → MCP servers › one server: Tools · Settings. */
+export const mcpServerTabs = ["tools", "settings"] as const;
+export type McpServerTab = (typeof mcpServerTabs)[number];
+
 /** A team's service account: Overview (role and access) · Keys · Settings. */
 export const serviceAccountTabs = ["overview", "keys", "settings"] as const;
 export type ServiceAccountTab = (typeof serviceAccountTabs)[number];

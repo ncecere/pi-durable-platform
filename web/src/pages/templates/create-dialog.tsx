@@ -5,12 +5,14 @@ import { useState } from "react";
 import { templatesKey } from "../../api/templates";
 import { api, ApiError, errorMessage, unwrap } from "../../api/client";
 import { FormDialog } from "../../components/form-dialog";
+import { McpPicker, mcpProblem } from "../../components/mcp-picker";
 import { ModelSelect } from "../../components/model-select";
+import type { McpAttach } from "../../api/mcp";
 import { Field } from "@/components/ui/field/field";
 import { Input, Textarea } from "@/components/ui/input/input";
 import { toast } from "@/components/ui/toast/toast";
 import { slugProblem } from "./labels";
-import { useTemplateModels } from "./template-models";
+import { useTemplateMcpServers, useTemplateModels } from "./template-models";
 
 /** team: the owning team's slug, or undefined for a platform template. */
 export function CreateTemplateDialog({
@@ -28,6 +30,9 @@ export function CreateTemplateDialog({
   const [instructions, setInstructions] = useState("");
   const [modelId, setModelId] = useState("");
   const models = useTemplateModels(team);
+  const servers = useTemplateMcpServers(team);
+  const [mcp, setMcp] = useState<McpAttach[]>([]);
+  const [clientMcp, setClientMcp] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [taken, setTaken] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -43,7 +48,8 @@ export function CreateTemplateDialog({
   };
   const submit = async () => {
     setSubmitted(true);
-    if (slugProblem(slug) || !name.trim() || !instructions.trim()) return;
+    if (slugProblem(slug) || !name.trim() || !instructions.trim() || mcpProblem(mcp))
+      return;
     setBusy(true);
     try {
       const body = {
@@ -53,6 +59,8 @@ export function CreateTemplateDialog({
         instructions,
         notes: "Initial version",
         modelId: modelId || undefined,
+        mcp: mcp.length ? mcp : undefined,
+        clientMcp: clientMcp || undefined,
       };
       const created = team
         ? unwrap(
@@ -149,6 +157,16 @@ export function CreateTemplateDialog({
         value={modelId}
         onChange={setModelId}
         defaultLabel="Platform default"
+      />
+      <McpPicker
+        servers={servers.servers}
+        loading={servers.loading}
+        emptyText={servers.emptyText}
+        value={mcp}
+        onChange={setMcp}
+        clientMcp={clientMcp}
+        onClientMcpChange={setClientMcp}
+        showErrors={submitted}
       />
     </FormDialog>
   );

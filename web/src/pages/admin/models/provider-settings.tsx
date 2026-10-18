@@ -12,13 +12,11 @@ import { DangerAction, DangerZone, SettingsPage, SettingsSection } from "@/compo
 import { Button } from "@/components/ui/button/button";
 import { Field } from "@/components/ui/field/field";
 import { Input } from "@/components/ui/input/input";
-import { Stack } from "@/components/ui/layout/layout";
 import { RadioGroup } from "@/components/ui/radio-group/radio-group";
 import { Switch } from "@/components/ui/switch/switch";
 import { toast } from "@/components/ui/toast/toast";
 import { adminOnly } from "@/lib/terms";
-import s from "../../shared.module.css";
-import { HeadersEditor } from "./headers-editor";
+import { HeadersSetting } from "./headers-editor";
 import { type AccessMode, accessLabels, accessOptions, type HeaderRow, headersOf, headersProblem, urlProblem } from "./labels";
 
 type Form = { name: string; baseUrl: string; accessMode: AccessMode; enabled: boolean };
@@ -128,34 +126,5 @@ export function ProviderSettingsTab({ provider, isAdmin, onDelete }: Props) {
         </DangerZone>
       )}
     </SettingsPage>
-  );
-}
-
-type HeadersProps = { has: boolean; rows: HeaderRow[] | null; onChange: (rows: HeaderRow[] | null) => void; error?: string; isAdmin: boolean };
-
-/** The extra headers: whether some are set, and (admins) new ones that replace them all. */
-function HeadersSetting({ has, rows, onChange, error, isAdmin }: HeadersProps) {
-  const now = has ? "Extra headers are set. Their values aren't shown." : "No extra headers.";
-  if (rows === null)
-    return (
-      <Stack gap={2} align="start">
-        <p className={s.note}>{now}</p>
-        {isAdmin ? (
-          <Button size="sm" variant="secondary" onClick={() => onChange([{ name: "", value: "" }])}>
-            {has ? "Replace headers" : "Add headers"}
-          </Button>
-        ) : null}
-      </Stack>
-    );
-  return (
-    <Stack gap={2}>
-      <p className={s.note}>{has ? "The headers below replace the current ones. Saving with none removes them." : "Sent with every request to the provider."}</p>
-      <HeadersEditor rows={rows} onChange={onChange} error={error} />
-      <div>
-        <Button size="sm" variant="ghost" onClick={() => onChange(null)}>
-          {has ? "Keep the current headers" : "Cancel"}
-        </Button>
-      </div>
-    </Stack>
   );
 }

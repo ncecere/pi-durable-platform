@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { templateQuery } from "../../api/templates";
 import { agentQuery } from "../../api/agents";
+import { mcpServerQuery } from "../../api/mcp";
 import { providerQuery } from "../../api/models";
 import {
   adminTeamQuery,
@@ -115,6 +116,14 @@ function useTrail(
   const provider = useQuery({
     ...providerQuery(providerId ?? ""),
     enabled: canAdmin && !!providerId,
+  });
+  const serverId =
+    routeId === "/app/admin/mcp-servers/$serverId"
+      ? params.serverId
+      : undefined;
+  const server = useQuery({
+    ...mcpServerQuery(serverId ?? ""),
+    enabled: canAdmin && !!serverId,
   });
   // A service account's name, likewise.
   const serviceAccountId =
@@ -247,6 +256,13 @@ function useTrail(
         ...(isNotFound(provider.error)
           ? []
           : [{ label: provider.data?.name ?? "Provider" }]),
+      );
+    } else if (serverId) {
+      crumbs.push(
+        { label: "MCP servers", render: <Link to="/admin/mcp-servers" /> },
+        ...(isNotFound(server.error)
+          ? []
+          : [{ label: server.data?.name ?? "MCP server" }]),
       );
     } else {
       // Only the admin layout matched (an unknown admin address): the not-found page adds its own tail.

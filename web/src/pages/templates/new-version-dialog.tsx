@@ -1,38 +1,55 @@
-/* A new version of a template: its instructions and model, starting from the current version's. */
+/* A new version of a template: its instructions, model and MCP servers, starting from the current version's. */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, errorMessage, unwrap } from "../../api/client";
 import { templateVersionsQuery } from "../../api/templates";
 import { FormDialog } from "../../components/form-dialog";
+import { attachOf, McpPicker, mcpProblem, sameMcp } from "../../components/mcp-picker";
 import { ModelSelect } from "../../components/model-select";
+import type { McpAttach } from "../../api/mcp";
 import { Field } from "@/components/ui/field/field";
 import { Input, Textarea } from "@/components/ui/input/input";
 import { toast } from "@/components/ui/toast/toast";
 import { type AgentTemplate, storeTemplate } from "./labels";
-import { useTemplateModels } from "./template-models";
+import { useTemplateMcpServers, useTemplateModels } from "./template-models";
 
 export function NewVersionDialog({ template, onClose }: { template: AgentTemplate; onClose: () => void }) {
   const qc = useQueryClient();
   const versions = useQuery(templateVersionsQuery(template.id));
   const current = versions.data?.find((v) => v.version === template.currentVersion);
   const models = useTemplateModels(template.teamSlug);
+  const servers = useTemplateMcpServers(template.teamSlug);
   const [instructions, setInstructions] = useState<string | undefined>(undefined);
   // undefined: the current version's model.
   const [picked, setPicked] = useState<string | undefined>(undefined);
+  // undefined: the current version's MCP servers and setting.
+  const [pickedMcp, setPickedMcp] = useState<McpAttach[] | undefined>(undefined);
+  const [pickedClientMcp, setPickedClientMcp] = useState<boolean | undefined>(undefined);
+  const [submitted, setSubmitted] = useState(false);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const value = instructions ?? current?.instructions ?? "";
   const currentModel = current?.modelId ?? "";
   const modelId = picked ?? currentModel;
+  const currentMcp = attachOf(current?.mcp);
+  const mcp = pickedMcp ?? currentMcp;
+  const clientMcp = pickedClientMcp ?? current?.clientMcp ?? false;
   const submit = async () => {
-    if (!value.trim()) return;
+    setSubmitted(true);
+    if (!value.trim() || mcpProblem(mcp)) return;
     setBusy(true);
     try {
       const t = unwrap(
         await api.POST("/v1/agent-templates/{templateId}/versions", {
           params: { path: { templateId: template.id } },
           // Left out when unchanged, so a model that's no longer offered stays as it is.
-          body: { instructions: value, notes, modelId: modelId === currentModel ? undefined : modelId },
+          body: {
+            instructions: value,
+            notes,
+            modelId: modelId === currentModel ? undefined : modelId,
+            mcp: sameMcp(mcp, currentMcp) ? undefined : mcp,
+            clientMcp: clientMcp === (current?.clientMcp ?? false) ? undefined : clientMcp,
+          },
         }),
       );
       storeTemplate(qc, t);
@@ -66,6 +83,17 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
         onChange={setPicked}
         defaultLabel="Platform default"
         current={current?.modelId ? { id: current.modelId, name: current.modelName ?? "Unknown model", providerName: current.modelProviderName ?? "" } : null}
+      />
+      <McpPicker
+        servers={servers.servers}
+        loading={servers.loading || versions.isLoading}
+        emptyText={servers.emptyText}
+        value={mcp}
+        onChange={setPickedMcp}
+        current={current?.mcp}
+        clientMcp={clientMcp}
+        onClientMcpChange={setPickedClientMcp}
+        showErrors={submitted}
       />
       <Field label="What changed" labelHint="Optional">
         <Input value={notes} maxLength={2000} onValueChange={setNotes} />

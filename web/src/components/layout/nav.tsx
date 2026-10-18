@@ -23,6 +23,7 @@ import {
   LayoutDashboard,
   Settings,
   Sparkles,
+  Unplug,
   Users,
   UsersRound,
 } from "lucide-react";
@@ -213,6 +214,7 @@ export type AdminPath =
   | "/admin/teams"
   | "/admin/templates"
   | "/admin/models"
+  | "/admin/mcp-servers"
   | "/admin/usage"
   | "/admin/audit";
 
@@ -245,6 +247,7 @@ export const adminSections: {
     items: [
       { to: "/admin/templates", label: "Templates", icon: icon(BookOpen) },
       { to: "/admin/models", label: "Models", icon: icon(Cpu) },
+      { to: "/admin/mcp-servers", label: "MCP servers", icon: icon(Unplug) },
       { to: "/admin/usage", label: "Usage", icon: icon(ChartColumn) },
       { to: "/admin/audit", label: terms.auditLog, icon: icon(FileClock) },
     ],
@@ -293,6 +296,7 @@ export const adminKeywords: Partial<Record<AdminPath, string[]>> = {
     "discover",
     "publish",
   ],
+  "/admin/mcp-servers": ["mcp", "tools", "tool servers", "headers", "publish"],
   "/admin/usage": ["usage", "tokens", "cost", "spend", "requests", "billing", "teams", "models"],
   "/admin/audit": [
     "audit log",

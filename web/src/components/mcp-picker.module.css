@@ -1,0 +1,27 @@
+/* The MCP servers section of the template dialogs. Semantic tokens only. */
+
+.servers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* A picked server's tool choice, set in under its checkbox. */
+.choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-inline-start: var(--space-6);
+  padding-inline-start: var(--space-3);
+  border-inline-start: 1px solid var(--color-border);
+}
+
+/* The server's tools: a scrolling list of checkboxes. */
+.tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 14rem;
+  overflow-y: auto;
+  padding-block: var(--space-1);
+}

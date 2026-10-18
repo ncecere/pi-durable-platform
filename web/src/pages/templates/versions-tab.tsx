@@ -7,6 +7,7 @@ import {
   type AgentTemplateVersion,
   templateVersionsQuery,
 } from "../../api/templates";
+import { mcpSummary } from "../../api/mcp";
 import { modelLabel } from "../../components/model-select";
 import { Badge } from "@/components/ui/badge/badge";
 import { Button } from "@/components/ui/button/button";
@@ -65,6 +66,23 @@ export function VersionsTab({
                 <Badge size="sm" title="The model it runs on">
                   {modelOf(v)}
                 </Badge>{" "}
+                {(v.mcp ?? []).map((a) => (
+                  <span key={a.serverId}>
+                    <Badge size="sm" title="An MCP server its agents can call">
+                      {mcpSummary(a)}
+                    </Badge>{" "}
+                  </span>
+                ))}
+                {v.clientMcp ? (
+                  <>
+                    <Badge
+                      size="sm"
+                      title="Apps can give its agents their own MCP servers for a thread"
+                    >
+                      Apps may add MCP servers
+                    </Badge>{" "}
+                  </>
+                ) : null}
                 <span className={s.secondary}>
                   {v.notes || "No notes"} · <Time value={v.createdAt} />
                   {v.createdByName ? ` · ${v.createdByName}` : ""}
