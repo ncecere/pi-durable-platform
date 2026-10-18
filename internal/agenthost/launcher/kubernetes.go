@@ -21,8 +21,9 @@ import (
 // restricted security context, read-only root filesystem, and (optionally) a
 // sandboxing RuntimeClass such as gVisor. Secrets reach the pod through a
 // per-agent Secret, never the pod spec. It talks to the API server over REST
-// with the platform's in-cluster credentials and needs create/get/list/delete
-// on pods and secrets in its namespace only.
+// with the platform's in-cluster credentials and needs, in its namespace
+// only, get/list/watch/create/delete on pods and get/create/update/delete on
+// secrets (a Secret is replaced with PUT when it exists).
 type Kubernetes struct {
 	Namespace string
 	Image     string

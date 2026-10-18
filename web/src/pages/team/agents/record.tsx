@@ -4,9 +4,9 @@
  * members) and Settings. Service-managed agents show to the team's owners
  * and admins without Test: their conversations belong to the app's users.
  * Platform staff auditing a personal workspace see Overview and Settings,
- * read-only, without Test. Platform staff also see Conversations: every
- * thread, private ones too, which a platform admin may read with a reason
- * (recorded in the team's audit log).
+ * read-only, without Test. Platform admins also see Conversations: every
+ * thread, private ones too, which they may read with a reason (recorded in
+ * the team's audit log). Auditors don't: conversations aren't theirs to list.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
@@ -163,7 +163,8 @@ function Record({ agent }: { agent: Agent }) {
               },
             ]
           : []),
-        ...(staff
+        // Platform admins only: the conversations list is theirs (auditors are refused).
+        ...(capabilities.platformAdmin
           ? [
               {
                 value: "conversations" as const,

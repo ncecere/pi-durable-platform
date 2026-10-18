@@ -1,7 +1,7 @@
 /*
  * Private and shared threads: the visibility choice on a shared team's agent (first message only; none in a
  * personal workspace), the private badge and creator in the thread list, message authors and the reply meta
- * line, refused sends, and platform staff's Conversations tab (a platform admin's reasoned read; auditors can't).
+ * line, refused sends, and platform admins' Conversations tab (a reasoned read; auditors don't get the tab).
  */
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -274,19 +274,12 @@ describe("Conversations tab for platform staff", () => {
     expect(within(snapshot).queryByRole("textbox", { name: "Message" })).toBeNull();
   });
 
-  it("shows auditors the list without Read", async () => {
+  it("doesn't offer auditors the Conversations tab (the list is platform admins')", async () => {
     mockApi(staffRoutes("platform_auditor"));
     renderApp(`/teams/${personal.slug}/agents/${agentId}?tab=conversations`);
-    const table = await screen.findByRole("table", { name: "Conversations with Helper" });
-    expect(await within(table).findByText("Private conversation")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Read/ })).toBeNull();
-  });
-
-  it("explains it when the platform keeps the list from auditors", async () => {
-    mockApi(staffRoutes("platform_auditor", { [`GET /v1/admin/agents/${agentId}/threads`]: () => Reply.error(403, "forbidden") }));
-    renderApp(`/teams/${personal.slug}/agents/${agentId}?tab=conversations`);
-    expect(await screen.findByText("Only platform admins can see this agent's conversations.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Read/ })).toBeNull();
+    expect(await screen.findByText("You're viewing this agent as platform staff")).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /Conversations/ })).toBeNull();
+    expect(screen.queryByRole("table", { name: "Conversations with Helper" })).toBeNull();
   });
 });
 
