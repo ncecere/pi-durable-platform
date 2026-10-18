@@ -32,6 +32,7 @@ import {
   templateAbilities,
 } from "./labels";
 import { ReviewDialog } from "./review-dialog";
+import { teamModelMessage } from "./template-models";
 import { TemplateSettingsTab } from "./settings-tab";
 import { VersionsTab } from "./versions-tab";
 
@@ -78,8 +79,11 @@ function Record({ template }: { template: AgentTemplate }) {
           : "Agents deployed from it keep working.",
       );
     },
-    onError: (err) =>
-      toast.error("Couldn't change publishing", errorMessage(err)),
+    onError: (err, action) =>
+      toast.error(
+        action === "publish" ? "Couldn't submit it to the catalog" : "Couldn't change publishing",
+        teamModelMessage(err, "submit") ?? errorMessage(err),
+      ),
   });
   const primary = abilities.canReview ? (
     <Button onClick={() => setReviewing(true)}>Review request</Button>

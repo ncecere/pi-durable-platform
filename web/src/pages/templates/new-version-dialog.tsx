@@ -11,13 +11,15 @@ import { Field } from "@/components/ui/field/field";
 import { Input, Textarea } from "@/components/ui/input/input";
 import { toast } from "@/components/ui/toast/toast";
 import { type AgentTemplate, storeTemplate } from "./labels";
-import { useTemplateMcpServers, useTemplateModels } from "./template-models";
+import { catalogModelsNote, teamModelMessage, useTemplateMcpServers, useTemplateModels } from "./template-models";
 
 export function NewVersionDialog({ template, onClose }: { template: AgentTemplate; onClose: () => void }) {
   const qc = useQueryClient();
   const versions = useQuery(templateVersionsQuery(template.id));
   const current = versions.data?.find((v) => v.version === template.currentVersion);
-  const models = useTemplateModels(template.teamSlug);
+  // In the catalog (or waiting for review), only platform models.
+  const inCatalog = Boolean(template.teamSlug) && template.status !== "private";
+  const models = useTemplateModels(template.teamSlug, { catalog: inCatalog });
   const servers = useTemplateMcpServers(template.teamSlug);
   const [instructions, setInstructions] = useState<string | undefined>(undefined);
   // undefined: the current version's model.
@@ -57,7 +59,7 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
       toast.success(`v${t.currentVersion} is the current version`, "New agents get it; existing agents keep theirs until upgraded.");
       onClose();
     } catch (err) {
-      toast.error("Couldn't add the version", errorMessage(err));
+      toast.error("Couldn't add the version", teamModelMessage(err, "version") ?? errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -76,7 +78,7 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
         <Textarea value={value} rows={10} maxLength={20000} onChange={(e) => setInstructions(e.target.value)} />
       </Field>
       <ModelSelect
-        description="Agents move to it when they're upgraded to this version, unless they chose a model of their own."
+        description={`Agents move to it when they're upgraded to this version, unless they chose a model of their own.${inCatalog ? ` ${catalogModelsNote}` : ""}`}
         models={models.models}
         loading={models.loading || versions.isLoading}
         value={modelId}

@@ -1,4 +1,4 @@
-/* The model form's fields: the model and its limits, prices, and who may use it. */
+/* The model form's fields: the model and its limits, prices, and who may use it (a team's own model: its team only, so just the switch). */
 import { useQuery } from "@tanstack/react-query";
 import type { Schemas } from "@/api/client";
 import { teamChoicesQuery } from "@/api/models";
@@ -21,11 +21,13 @@ type Props = {
   /** The teams it's published to now (listed even when not among the loaded choices). */
   currentTeams: Schemas["ModelTeam"][];
   errors: ModelProblems;
+  /** A team's own provider's model: no publishing, only its team uses it ("Platform Tools"). */
+  teamOnly?: string;
 };
 
-export function ModelFields({ form, setForm, isNew, currentTeams, errors }: Props) {
+export function ModelFields({ form, setForm, isNew, currentTeams, errors, teamOnly }: Props) {
   const set = (patch: Partial<ModelForm>) => setForm({ ...form, ...patch });
-  const choices = useQuery({ ...teamChoicesQuery(), enabled: form.visibility === "teams" });
+  const choices = useQuery({ ...teamChoicesQuery(), enabled: !teamOnly && form.visibility === "teams" });
   const teams = new Map<string, string>(currentTeams.map((t) => [t.slug, t.name]));
   for (const s of choices.data ?? []) teams.set(s.team.slug, s.team.name);
   return (
@@ -58,42 +60,57 @@ export function ModelFields({ form, setForm, isNew, currentTeams, errors }: Prop
         <div className={m.wide}>
           <Switch
             label="Enabled"
-            description="Turned off, teams can't choose it, and agents running on it don't start until they're moved to another model."
+            description={
+              teamOnly
+                ? `Only ${teamOnly}'s templates and agents can use it. Turned off, the team can't choose it, and agents running on it don't start until they're moved to another model.`
+                : "Turned off, teams can't choose it, and agents running on it don't start until they're moved to another model."
+            }
             checked={form.enabled}
             onCheckedChange={(v) => set({ enabled: v })}
           />
         </div>
-        <RadioGroup
-          className={m.wide}
-          legend="Published to"
-          value={form.visibility}
-          onValueChange={(v) => set({ visibility: v })}
-          options={[
-            { value: "all", label: "All teams" },
-            { value: "teams", label: "Selected teams" },
-          ]}
-        />
-        {form.visibility === "teams" ? (
-          <Field className={m.wide} label="Teams" description="Only these teams' templates and agents can use it." error={errors.teams}>
-            <Combobox
-              multiple
-              items={[...teams].map(([value, label]) => ({ value, label, hint: value }))}
-              value={form.teams}
-              onValueChange={(v) => set({ teams: v })}
-              placeholder={choices.isLoading ? "Loading teams…" : "Choose teams"}
-              listLabel="Teams"
-              chipsLabel="Selected teams"
-            />
-          </Field>
-        ) : null}
-        <Checkbox
-          className={m.wide}
-          label={personalLabel}
-          description={personalHint}
-          checked={form.personal}
-          onCheckedChange={(v) => set({ personal: v })}
-        />
+        {teamOnly ? null : <Publishing form={form} set={set} teams={teams} loading={choices.isLoading} error={errors.teams} />}
       </FormSection>
+    </>
+  );
+}
+
+type PublishingProps = { form: ModelForm; set: (patch: Partial<ModelForm>) => void; teams: Map<string, string>; loading: boolean; error?: string };
+
+/** A platform model's audience: every team or chosen ones, and personal workspaces. */
+function Publishing({ form, set, teams, loading, error }: PublishingProps) {
+  return (
+    <>
+      <RadioGroup
+        className={m.wide}
+        legend="Published to"
+        value={form.visibility}
+        onValueChange={(v) => set({ visibility: v })}
+        options={[
+          { value: "all", label: "All teams" },
+          { value: "teams", label: "Selected teams" },
+        ]}
+      />
+      {form.visibility === "teams" ? (
+        <Field className={m.wide} label="Teams" description="Only these teams' templates and agents can use it." error={error}>
+          <Combobox
+            multiple
+            items={[...teams].map(([value, label]) => ({ value, label, hint: value }))}
+            value={form.teams}
+            onValueChange={(v) => set({ teams: v })}
+            placeholder={loading ? "Loading teams…" : "Choose teams"}
+            listLabel="Teams"
+            chipsLabel="Selected teams"
+          />
+        </Field>
+      ) : null}
+      <Checkbox
+        className={m.wide}
+        label={personalLabel}
+        description={personalHint}
+        checked={form.personal}
+        onCheckedChange={(v) => set({ personal: v })}
+      />
     </>
   );
 }

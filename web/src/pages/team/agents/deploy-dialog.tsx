@@ -110,7 +110,7 @@ export function DeployAgentDialog({ teams, templateId, templateName, onClose }: 
       </Field>
       <ModelSelect
         labelHint="Optional"
-        description="The models published to the team. You can change it later in the agent's settings."
+        description="The platform's models published to the team, and the team's own. You can change it later in the agent's settings."
         models={models.data}
         loading={models.isLoading}
         value={modelId}

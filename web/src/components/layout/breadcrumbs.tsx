@@ -13,7 +13,7 @@ import {
 import { templateQuery } from "../../api/templates";
 import { agentQuery } from "../../api/agents";
 import { mcpServerQuery } from "../../api/mcp";
-import { providerQuery } from "../../api/models";
+import { adminScope, providerQuery, teamScope } from "../../api/models";
 import {
   adminTeamQuery,
   adminUserQuery,
@@ -115,8 +115,17 @@ function useTrail(
       ? params.providerId
       : undefined;
   const provider = useQuery({
-    ...providerQuery(providerId ?? ""),
+    ...providerQuery(adminScope, providerId ?? ""),
     enabled: canAdmin && !!providerId,
+  });
+  // One of a team's own providers, likewise.
+  const teamProviderId =
+    routeId === "/app/teams/$team/models/providers/$providerId"
+      ? params.providerId
+      : undefined;
+  const teamProvider = useQuery({
+    ...providerQuery(teamScope(slug ?? ""), teamProviderId ?? ""),
+    enabled: !!slug && !!teamProviderId,
   });
   const serverId =
     routeId === "/app/admin/mcp-servers/$serverId"
@@ -206,6 +215,19 @@ function useTrail(
       if (!isNotFound(agent.error))
         crumbs.push({
           label: agent.data?.name ?? <VisuallyHidden>Agent</VisuallyHidden>,
+        });
+      return crumbs;
+    }
+    if (sub === "/models/providers/$providerId") {
+      crumbs.push({
+        label: "Models",
+        render: <Link to="/teams/$team/models" params={{ team: slug }} />,
+      });
+      if (!isNotFound(teamProvider.error))
+        crumbs.push({
+          label: teamProvider.data?.name ?? (
+            <VisuallyHidden>Provider</VisuallyHidden>
+          ),
         });
       return crumbs;
     }

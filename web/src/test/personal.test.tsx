@@ -70,7 +70,7 @@ describe("Admin › Settings", () => {
     await waitFor(() => expect(made(calls, "PUT", "/v1/admin/settings/personal-workspaces")).toHaveLength(1));
     const put = made(calls, "PUT", "/v1/admin/settings/personal-workspaces")[0]!;
     expect(put.headers.get("If-Match")).toBe('"7"');
-    expect(put.body).toEqual({ enabled: true, maxAgents: 10, maxRunning: 2, monthlyBudgetUsd: 25.5 });
+    expect(put.body).toEqual({ enabled: true, ownProviders: false, maxAgents: 10, maxRunning: 2, monthlyBudgetUsd: 25.5 });
   });
 
   it("sends null for an emptied budget and refuses a number out of range", async () => {
@@ -92,7 +92,7 @@ describe("Admin › Settings", () => {
     await u.click(screen.getByRole("switch", { name: /Give everyone/ }));
     await u.click(screen.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(made(calls, "PUT", "/v1/admin/settings/personal-workspaces")).toHaveLength(1));
-    expect(made(calls, "PUT", "/v1/admin/settings/personal-workspaces")[0]!.body).toEqual({ enabled: false, maxAgents: 5, maxRunning: 3, monthlyBudgetUsd: null });
+    expect(made(calls, "PUT", "/v1/admin/settings/personal-workspaces")[0]!.body).toEqual({ enabled: false, ownProviders: false, maxAgents: 5, maxRunning: 3, monthlyBudgetUsd: null });
   });
 
   it("is read-only for auditors", async () => {
@@ -200,7 +200,7 @@ describe("a personal workspace in the workspace", () => {
     expect(items[1]).toContain(team.name);
   });
 
-  it("shows only the overview, agents, usage and settings, with the limits and no members", async () => {
+  it("shows only the overview, agents, models, usage and settings, with the limits and no members", async () => {
     mockApi({ ...shellRoutes(), ...personalRoutes("owner"), "GET /v1/me": () => ({ ...meFor(), teams: [myPersonal] }) });
     const { router } = renderApp(`/teams/${personalTeam.slug}`);
     expect(await screen.findByRole("heading", { level: 1, name: "Personal" })).toBeInTheDocument();
@@ -208,7 +208,7 @@ describe("a personal workspace in the workspace", () => {
     expect(screen.getByRole("button", { name: /Current workspace:\s*Personal/ })).toHaveTextContent("Your personal workspace");
     const nav = screen.getByRole("navigation", { name: "Main" });
     await waitFor(() =>
-      expect(within(nav).getAllByRole("link").map((l) => l.textContent)).toEqual(["Home", "All agents", "Catalog", "Overview", "Agents", "Usage", "Settings"]),
+      expect(within(nav).getAllByRole("link").map((l) => l.textContent)).toEqual(["Home", "All agents", "Catalog", "Overview", "Agents", "Models", "Usage", "Settings"]),
     );
     expect(await screen.findByText("2 of 5 agents")).toBeInTheDocument();
     expect(screen.getByText("1 of 2 running at once")).toBeInTheDocument();

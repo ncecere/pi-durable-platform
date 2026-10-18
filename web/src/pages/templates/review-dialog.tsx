@@ -8,6 +8,7 @@ import { Field } from "@/components/ui/field/field";
 import { Textarea } from "@/components/ui/input/input";
 import { toast } from "@/components/ui/toast/toast";
 import { type AgentTemplate, storeTemplate } from "./labels";
+import { teamModelMessage } from "./template-models";
 
 export function ReviewDialog({
   template,
@@ -39,7 +40,10 @@ export function ReviewDialog({
       );
       onClose();
     } catch (err) {
-      toast.error("Couldn't review the template", errorMessage(err));
+      toast.error(
+        decision === "approve" ? "Couldn't approve the template" : "Couldn't review the template",
+        teamModelMessage(err, "approve") ?? errorMessage(err),
+      );
     } finally {
       setBusy(null);
     }

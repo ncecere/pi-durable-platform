@@ -111,6 +111,7 @@ export type TeamPath =
   | "/teams/$team"
   | "/teams/$team/agents"
   | "/teams/$team/templates"
+  | "/teams/$team/models"
   | "/teams/$team/usage"
   | "/teams/$team/service-accounts"
   | "/teams/$team/settings";
@@ -166,6 +167,14 @@ const teamNav: TeamNavItem[] = [
       "publish",
       "catalog",
     ],
+  },
+  {
+    to: "/teams/$team/models",
+    label: "Models",
+    icon: icon(Cpu),
+    // Shared teams and personal workspaces alike; platform staff read a team's providers.
+    access: (a) => a.member || a.staff,
+    keywords: ["models", "providers", "model provider", "llm", "openai", "anthropic", "litellm", "api key", "discover"],
   },
   {
     to: "/teams/$team/usage",

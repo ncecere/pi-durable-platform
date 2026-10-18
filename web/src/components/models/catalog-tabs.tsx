@@ -1,8 +1,8 @@
 /*
  * A model catalog page: Providers | Models as pill tabs (?tab=, lib/tabs.ts
  * modelCatalogTabs), under one header whose actions follow the tab (Add
- * provider on Providers). Admin › Models uses it; a team's models page can
- * pass its own lists, columns and actions (an Owner column, its own links).
+ * provider on Providers). Admin › Models and Team › Models use it, each with
+ * its own lists, columns (Owner, Source), links and actions.
  *
  *   <ModelCatalogTabs title="Models" description="…"
  *     providers={{ id: "admin-model-providers", columns, data, … }}
@@ -30,6 +30,10 @@ export type ModelCatalogTabsProps = {
   actions?: Partial<Record<ModelCatalogTab, ReactNode>>;
   /** Alerts under the header, on every tab. */
   notices?: ReactNode;
+  /** Alerts under the header on one tab, e.g. { providers: <Alert>Why you can't add one</Alert> }. */
+  tabNotices?: Partial<Record<ModelCatalogTab, ReactNode>>;
+  /** Search parameters that apply to both tabs and stay when the tab changes (Admin's ?owner=). */
+  keep?: readonly string[];
   /** Dialogs and other content outside the tabs. */
   children?: ReactNode;
 };
@@ -37,12 +41,13 @@ export type ModelCatalogTabsProps = {
 /** The count on a tab once its list has loaded. */
 const countOf = <T,>(list: CatalogList<T>) => (list.loading || list.error ? undefined : list.data.length);
 
-export function ModelCatalogTabs({ title, description, providers, models, actions, notices, children }: ModelCatalogTabsProps) {
-  const [tab, setTab] = useUrlTab(modelCatalogTabs);
+export function ModelCatalogTabs({ title, description, providers, models, actions, notices, tabNotices, keep, children }: ModelCatalogTabsProps) {
+  const [tab, setTab] = useUrlTab(modelCatalogTabs, { keep });
   return (
     <Stack gap={6} className={s.page}>
       <PageHeader title={title} description={description} actions={actions?.[tab] || undefined} />
       {notices}
+      {tabNotices?.[tab]}
       <PageTabs<ModelCatalogTab>
         label="Model catalog sections"
         value={tab}

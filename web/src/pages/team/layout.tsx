@@ -17,11 +17,11 @@ import s from "../shared.module.css";
 import { TeamContext, teamCtx, useTeam } from "./common";
 
 /**
- * Pages platform staff who aren't members may open: the overview, team settings, usage and the service accounts
- * (which platform staff read, as the API allows). Add a new team page here when platform staff may read it;
- * otherwise it is members only.
+ * Pages platform staff who aren't members may open: the overview, team settings, usage, models (the team's own
+ * providers) and the service accounts (which platform staff read, as the API allows). Add a new team page here
+ * when platform staff may read it; otherwise it is members only.
  */
-const staffPage = (path: string) => /^\/teams\/[^/]+(\/settings|\/usage|\/(service-accounts)(\/[^/]+)?)?\/?$/.test(path);
+const staffPage = (path: string) => /^\/teams\/[^/]+(\/settings|\/usage|\/models(\/providers\/[^/]+)?|\/(service-accounts)(\/[^/]+)?)?\/?$/.test(path);
 /** In a personal workspace platform staff also audit its agents (their settings and status, not their conversations). */
 const staffAuditPage = (path: string) => /^\/teams\/[^/]+\/agents(\/[^/]+)?\/?$/.test(path);
 

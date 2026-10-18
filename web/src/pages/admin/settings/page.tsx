@@ -2,8 +2,11 @@
  * Admin › Settings (/admin/settings): platform-wide settings. Personal
  * workspaces: whether everyone who signs in gets one, and the limits every
  * one starts with (max agents, max running at once, a monthly budget that is
- * recorded but not enforced yet). Trusted apps: the OAuth Connect apps that
- * skip the approval screen (trusted-apps-section.tsx). Each section saves on
+ * recorded but not enforced yet) and whether people may add model providers
+ * in theirs. Team model providers: whether teams may add their own, and the
+ * private networks they may be on (model-providers-section.tsx). Trusted
+ * apps: the OAuth Connect apps that skip the approval screen
+ * (trusted-apps-section.tsx). Each section saves on
  * its own with If-Match on its revision; platform auditors see them
  * read-only.
  */
@@ -24,17 +27,19 @@ import { adminOnly } from "@/lib/terms";
 import s from "../../shared.module.css";
 import { useIsPlatformAdmin } from "../hooks";
 import { budgetNote, budgetOf, budgetProblem, countProblem, LIMIT_MAX, text } from "./limits";
+import { ModelProviderSettings } from "./model-providers-section";
 import { TrustedAppsSettings } from "./trusted-apps-section";
 
-type Form = { enabled: boolean; maxAgents: string; maxRunning: string; monthlyBudgetUsd: string };
+type Form = { enabled: boolean; ownProviders: boolean; maxAgents: string; maxRunning: string; monthlyBudgetUsd: string };
 
 const formOf = (p: PersonalSettings): Form => ({
   enabled: p.enabled,
+  ownProviders: p.ownProviders ?? false,
   maxAgents: text(p.maxAgents),
   maxRunning: text(p.maxRunning),
   monthlyBudgetUsd: text(p.monthlyBudgetUsd),
 });
-const labels = { enabled: "Personal workspaces", maxAgents: "Max agents", maxRunning: "Max running at once", monthlyBudgetUsd: "Monthly budget" };
+const labels = { enabled: "Personal workspaces", ownProviders: "Own model providers", maxAgents: "Max agents", maxRunning: "Max running at once", monthlyBudgetUsd: "Monthly budget" };
 
 /** /admin/settings */
 export function AdminSettingsPage() {
@@ -54,6 +59,7 @@ export function AdminSettingsPage() {
       ) : (
         <ErrorAlert error={settings.error} title="Couldn't load the settings" onRetry={() => void settings.refetch()} />
       )}
+      <ModelProviderSettings />
       <TrustedAppsSettings />
     </Stack>
   );
@@ -77,6 +83,7 @@ function PersonalWorkspaceSettings({ settings }: { settings: PersonalSettings })
           params: { header: ifMatch(settings.revision) },
           body: {
             enabled: form.enabled,
+            ownProviders: form.ownProviders,
             maxAgents: Number(form.maxAgents.trim()),
             maxRunning: Number(form.maxRunning.trim()),
             monthlyBudgetUsd: budgetOf(form.monthlyBudgetUsd),
@@ -85,7 +92,7 @@ function PersonalWorkspaceSettings({ settings }: { settings: PersonalSettings })
       ),
     onSuccess: (updated) => {
       qc.setQueryData(personalSettingsQuery().queryKey, updated);
-      // Every personal workspace's limits may have changed.
+      // Every personal workspace's limits (and whether it may add a provider) may have changed.
       void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === "team" && q.queryKey[2] === "limits" });
       toast.success("Settings saved");
     },
@@ -115,6 +122,13 @@ function PersonalWorkspaceSettings({ settings }: { settings: PersonalSettings })
           disabled={!isAdmin}
           checked={form.enabled}
           onCheckedChange={(v) => set({ enabled: v })}
+        />
+        <Switch
+          label="People may add their own model providers in their personal workspace"
+          description="Their models are for that workspace only. It also needs “Teams may add their own model providers” turned on, under Team model providers."
+          disabled={!isAdmin}
+          checked={form.ownProviders}
+          onCheckedChange={(v) => set({ ownProviders: v })}
         />
         <Field label="Max agents" description="Agents one personal workspace may have." error={problems.maxAgents}>
           <NumberInput value={form.maxAgents} maximumFractionDigits={0} disabled={!isAdmin} unit="agents" onValueChange={(v) => set({ maxAgents: v })} />

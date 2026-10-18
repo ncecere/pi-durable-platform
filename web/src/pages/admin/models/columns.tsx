@@ -1,10 +1,12 @@
 /*
  * The providers' and models' columns. A page passes how a provider is linked
- * (Admin › Models opens /admin/models/providers/…), so another catalog page
- * (a team's models) can reuse them with its own links and columns added.
+ * (Admin › Models opens /admin/models/providers/…, Team › Models the team's
+ * own), and which columns it adds: Admin's Owner (linking to Admin › Teams),
+ * the team's Source; a team's providers have no Access (proxy only).
  */
+import { Link } from "@tanstack/react-router";
 import type { ReactElement } from "react";
-import type { Model, ModelProvider } from "@/api/models";
+import type { Model, ModelOwner, ModelProvider } from "@/api/models";
 import { EnabledBadge } from "@/components/enabled-badge";
 import { Badge } from "@/components/ui/badge/badge";
 import { CellText, type DataTableColumn } from "@/components/ui/data-table/data-table";
@@ -12,7 +14,7 @@ import { TextLink } from "@/components/ui/text-link/text-link";
 import { cx } from "@/lib/bitop-utils";
 import { tokens } from "@/lib/format";
 import s from "../../shared.module.css";
-import { accessLabels, kindLabel, publishedTo } from "./labels";
+import { accessLabels, kindLabel, ownerLabel, publishedTo } from "./labels";
 
 /** A link to a provider's page (rendered by TextLink and row menus). */
 export type ProviderLink = (providerId: string, search?: Record<string, string>) => ReactElement;
@@ -21,8 +23,24 @@ export function AccessBadge({ mode }: { mode: ModelProvider["accessMode"] }) {
   return <Badge tone={mode === "proxy" ? "info" : "warning"}>{accessLabels[mode]}</Badge>;
 }
 
-export function providerColumns(link: ProviderLink, kinds: Parameters<typeof kindLabel>[1]): DataTableColumn<ModelProvider>[] {
-  return [
+/** "Platform", or the owning team linked to its page in Admin › Teams. */
+export function OwnerCell({ owner }: { owner: ModelOwner | null | undefined }) {
+  if (!owner) return <span className={s.muted}>Platform</span>;
+  return <TextLink render={<Link to="/admin/teams/$team" params={{ team: owner.slug }} />}>{ownerLabel(owner)}</TextLink>;
+}
+
+const ownerColumn = <T,>(get: (row: T) => ModelOwner | null | undefined): DataTableColumn<T> => ({
+  id: "owner",
+  header: "Owner",
+  accessor: (row) => ownerLabel(get(row)),
+  sortable: true,
+  cell: (row) => <OwnerCell owner={get(row)} />,
+});
+
+type ProviderColumnOptions = { owner?: boolean; access?: boolean };
+
+export function providerColumns(link: ProviderLink, kinds: Parameters<typeof kindLabel>[1], { owner = false, access = true }: ProviderColumnOptions = {}): DataTableColumn<ModelProvider>[] {
+  const columns: (DataTableColumn<ModelProvider> | false)[] = [
     {
       id: "name",
       header: "Provider",
@@ -44,12 +62,15 @@ export function providerColumns(link: ProviderLink, kinds: Parameters<typeof kin
         </span>
       ),
     },
-    { id: "access", header: "Access", accessor: (p) => accessLabels[p.accessMode], sortable: true, cell: (p) => <AccessBadge mode={p.accessMode} /> },
+    owner && ownerColumn((p) => p.team),
+    access && { id: "access", header: "Access", accessor: (p) => accessLabels[p.accessMode], sortable: true, cell: (p) => <AccessBadge mode={p.accessMode} /> },
     { id: "enabled", header: "Status", accessor: (p) => (p.enabled ? "Enabled" : "Disabled"), sortable: true, cell: (p) => <EnabledBadge enabled={p.enabled} /> },
     { id: "models", header: "Models", accessor: (p) => p.modelCount, numeric: true, sortable: true },
   ];
+  return columns.filter((c): c is DataTableColumn<ModelProvider> => Boolean(c));
 }
 
+/** Admin › Models' every model: who owns its provider, and (a platform model) who may use it. */
 export function modelColumns(link: ProviderLink): DataTableColumn<Model>[] {
   return [
     {
@@ -69,7 +90,8 @@ export function modelColumns(link: ProviderLink): DataTableColumn<Model>[] {
       ),
     },
     { id: "provider", header: "Provider", accessor: (m) => m.providerName, sortable: true },
-    { id: "published", header: "Published to", accessor: publishedTo, sortable: true },
+    ownerColumn((m) => m.providerTeam),
+    { id: "published", header: "Published to", accessor: (m) => (m.providerTeam ? `${m.providerTeam.name} only` : publishedTo(m)), sortable: true },
     { id: "context", header: "Context", accessor: (m) => m.contextWindow, numeric: true, sortable: true, defaultHiddenNarrow: true, cell: (m) => tokens(m.contextWindow) },
     { id: "enabled", header: "Status", accessor: (m) => (m.enabled ? "Enabled" : "Disabled"), sortable: true, cell: (m) => <EnabledBadge enabled={m.enabled} /> },
   ];

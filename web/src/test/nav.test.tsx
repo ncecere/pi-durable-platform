@@ -28,16 +28,17 @@ describe("navigation lists", () => {
 
   it("resolve the record routes the lists link to (API keys, service accounts, users, teams)", () => {
     const paths = routePaths();
-    const records = ["/settings/api-keys", "/settings/profile", "/settings/connected-apps", "/connect/consent", "/teams/$team/service-accounts/$serviceAccountId", "/admin/users/$userId", "/admin/teams/$team", "/agents", "/teams/$team/agents", "/teams/$team/agents/$agentId", "/catalog", "/templates/$templateId", "/teams/$team/templates", "/admin/templates", "/admin/models", "/admin/models/providers/$providerId", "/admin/mcp-servers", "/admin/mcp-servers/$serverId", "/teams/$team/usage", "/admin/usage"];
+    const records = ["/settings/api-keys", "/settings/profile", "/settings/connected-apps", "/connect/consent", "/teams/$team/service-accounts/$serviceAccountId", "/admin/users/$userId", "/admin/teams/$team", "/agents", "/teams/$team/agents", "/teams/$team/agents/$agentId", "/catalog", "/templates/$templateId", "/teams/$team/templates", "/admin/templates", "/admin/models", "/admin/models/providers/$providerId", "/admin/mcp-servers", "/admin/mcp-servers/$serverId", "/teams/$team/usage", "/admin/usage", "/teams/$team/models", "/teams/$team/models/providers/$providerId"];
     for (const to of records) expect(paths, to).toContain(to);
   });
 
-  it("give every team role the overview, agents, templates, usage, service accounts and settings, and platform staff who aren't members all but agents", () => {
+  it("give every team role the overview, agents, templates, models, usage, service accounts and settings, and platform staff who aren't members all but agents", () => {
     for (const role of ["owner", "admin", "editor", "member"] as const) {
-      expect(teamNavFor(meFor("none", role), team.slug).map((n) => n.label)).toEqual(["Overview", "Agents", "Templates", "Usage", "Service accounts", "Team settings"]);
+      expect(teamNavFor(meFor("none", role), team.slug).map((n) => n.label)).toEqual(["Overview", "Agents", "Templates", "Models", "Usage", "Service accounts", "Team settings"]);
     }
-    // Agents and their conversations are the team's own; staff read templates (to review them).
-    expect(teamNavFor(meFor("platform_auditor", null), team.slug).map((n) => n.label)).toEqual(["Overview", "Templates", "Usage", "Service accounts", "Team settings"]);
+    expect(teamNavFor(meFor("none", "member"), team.slug).find((n) => n.label === "Models")?.to).toBe("/teams/$team/models");
+    // Agents and their conversations are the team's own; staff read templates (to review them) and the team's model providers.
+    expect(teamNavFor(meFor("platform_auditor", null), team.slug).map((n) => n.label)).toEqual(["Overview", "Templates", "Models", "Usage", "Service accounts", "Team settings"]);
     // Neither a member nor staff: nothing (the team page says "Team not found").
     expect(teamNavFor(meFor("none", null), team.slug)).toEqual([]);
   });
@@ -88,7 +89,8 @@ describe("workspace sidebar", () => {
     renderApp(`/teams/${team.slug}`);
     const nav = await screen.findByRole("navigation", { name: "Main" });
     await waitFor(() => expect(within(nav).getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page"));
-    expect(within(nav).getAllByRole("link").map((l) => l.textContent)).toEqual(["Home", "All agents", "Catalog", "Overview", "Agents", "Templates", "Usage", "Service accounts", "Team settings"]);
+    expect(within(nav).getAllByRole("link").map((l) => l.textContent)).toEqual(["Home", "All agents", "Catalog", "Overview", "Agents", "Templates", "Models", "Usage", "Service accounts", "Team settings"]);
+    expect(within(nav).getByRole("link", { name: "Models" })).toHaveAttribute("href", `/teams/${team.slug}/models`);
     expect(within(nav).getByRole("link", { name: "All agents" })).toHaveAttribute("href", "/agents");
     expect(within(nav).getByRole("link", { name: "Agents" })).toHaveAttribute("href", `/teams/${team.slug}/agents`);
     expect(within(nav).getByRole("link", { name: "Service accounts" })).toHaveAttribute("href", `/teams/${team.slug}/service-accounts`);

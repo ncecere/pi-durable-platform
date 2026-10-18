@@ -1,8 +1,8 @@
 /* Discover models: what the provider offers, with checkboxes; those already in the catalog are marked and can't be picked again. */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, errorMessage, unwrap } from "@/api/client";
-import { type DiscoveredModel, discoverQuery, invalidateModels, type ModelProvider } from "@/api/models";
+import { errorMessage } from "@/api/client";
+import { createModel, type DiscoveredModel, discoverQuery, invalidateModels, type ModelProvider, type ModelScope } from "@/api/models";
 import { FormDialog } from "@/components/form-dialog";
 import { ErrorAlert } from "@/components/ui/alert/alert";
 import { Checkbox } from "@/components/ui/checkbox/checkbox";
@@ -13,12 +13,16 @@ import { toast } from "@/components/ui/toast/toast";
 import { tokens } from "@/lib/format";
 import s from "../../shared.module.css";
 import m from "./models.module.css";
+import { isTeamOwned } from "./scope";
 
 const matches = (d: DiscoveredModel, q: string) => !q || `${d.name} ${d.id}`.toLowerCase().includes(q.toLowerCase());
 
-export function DiscoverDialog({ provider, onClose }: { provider: ModelProvider; onClose: () => void }) {
+type Props = { scope: ModelScope; provider: ModelProvider; onClose: () => void };
+
+export function DiscoverDialog({ scope, provider, onClose }: Props) {
   const qc = useQueryClient();
-  const found = useQuery({ ...discoverQuery(provider.id), retry: false });
+  const found = useQuery({ ...discoverQuery(scope, provider.id), retry: false });
+  const teamOwned = isTeamOwned(scope, provider);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
@@ -38,21 +42,16 @@ export function DiscoverDialog({ provider, onClose }: { provider: ModelProvider;
     const failed: string[] = [];
     for (const d of chosen) {
       try {
-        unwrap(
-          await api.POST("/v1/admin/model-providers/{providerId}/models", {
-            params: { path: { providerId: provider.id } },
-            body: { upstreamId: d.id, name: d.name, contextWindow: d.contextWindow ?? undefined },
-          }),
-        );
+        await createModel(scope, provider.id, { upstreamId: d.id, name: d.name, contextWindow: d.contextWindow ?? undefined });
       } catch (err) {
         failed.push(`${d.name}: ${errorMessage(err)}`);
       }
     }
-    await invalidateModels(qc);
+    await invalidateModels(qc, scope);
     setBusy(false);
     const added = chosen.length - failed.length;
     if (failed.length === 0) {
-      toast.success(added === 1 ? "1 model added" : `${added} models added`, "Edit one to change its limits, prices or who may use it.");
+      toast.success(added === 1 ? "1 model added" : `${added} models added`, `Edit one to change its limits${teamOwned ? " or prices" : ", prices or who may use it"}.`);
       onClose();
     } else {
       toast.error(added ? `${added} added, ${failed.length} not added` : "Couldn't add the models", failed.join("\n"));
@@ -63,7 +62,11 @@ export function DiscoverDialog({ provider, onClose }: { provider: ModelProvider;
   return (
     <FormDialog
       title={`Discover models from ${provider.name}`}
-      description="The models the provider offers now. New models are published to every team; edit one to change that."
+      description={
+        teamOwned
+          ? `The models the provider offers now. New models are for ${provider.team?.name ?? "the team"} only.`
+          : "The models the provider offers now. New models are published to every team; edit one to change that."
+      }
       size="lg"
       onClose={onClose}
       onSubmit={() => void submit()}

@@ -56,6 +56,7 @@ const pages = {
   teamAgents: () => import("./pages/team/agents/routes"),
   templates: () => import("./pages/templates/routes"),
   teamUsage: () => import("./pages/team/usage/page"),
+  teamModels: () => import("./pages/team/models/routes"),
 };
 const lazy = lazyRouteComponent;
 type Page = ReturnType<typeof lazyRouteComponent>;
@@ -224,6 +225,20 @@ const teamUsageRoute = createRoute({
   validateSearch: (s: Record<string, unknown>): Record<string, unknown> => s,
   component: lazy(pages.teamUsage, "TeamUsagePage"),
 });
+/** The team's models: Providers (its own) · Models (every one it may use); ?q= passes through. */
+const teamModelsRoute = createRoute({
+  getParentRoute: () => teamRoute,
+  path: "models",
+  validateSearch: tabSearch(modelCatalogTabs, { passthrough: true }),
+  component: lazy(pages.teamModels, "TeamModelsPage"),
+});
+/** One of the team's own providers: Models · Settings; the model form (?form=) passes through. */
+const teamModelProviderRoute = createRoute({
+  getParentRoute: () => teamRoute,
+  path: "models/providers/$providerId",
+  validateSearch: tabSearch(providerTabs, { passthrough: true }),
+  component: lazy(pages.teamModels, "TeamModelProviderPage"),
+});
 /** An agent: Overview · Test · Settings. */
 const teamAgentRoute = createRoute({
   getParentRoute: () => teamRoute,
@@ -285,6 +300,8 @@ const appTree = appRoute.addChildren([
     teamAgentRoute,
     teamTemplatesRoute,
     teamUsageRoute,
+    teamModelsRoute,
+    teamModelProviderRoute,
   ]),
   adminRoute.addChildren([
     adminIndexRoute,

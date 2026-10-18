@@ -5,8 +5,8 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, ifMatch, unwrap } from "@/api/client";
-import { invalidateModels, type Model, type ModelProvider, providerModelsQuery } from "@/api/models";
+import { ApiError } from "@/api/client";
+import { createModel, deleteModel, invalidateModels, type Model, type ModelProvider, type ModelScope, providerModelsQuery, updateModel } from "@/api/models";
 import { ConfirmMutationDialog } from "@/components/confirm-dialog";
 import { FormPage } from "@/components/templates/form-page";
 import { Alert, ErrorAlert } from "@/components/ui/alert/alert";
@@ -14,13 +14,14 @@ import { Button } from "@/components/ui/button/button";
 import { toast } from "@/components/ui/toast/toast";
 import { bodyOf, type ModelForm, formOf, newModelForm, problemsOf, updateOf } from "./model-form-state";
 import { ModelFields } from "./model-fields";
+import { isTeamOwned } from "./scope";
 
-type HostProps = { provider: ModelProvider; id: string; onClose: () => void };
+type HostProps = { scope: ModelScope; provider: ModelProvider; id: string; onClose: () => void };
 
 /** The form for ?form=: a new model, or the provider's model with that id once the list has loaded. */
-export function ModelFormHost({ provider, id, onClose }: HostProps) {
-  const models = useQuery({ ...providerModelsQuery(provider.id), enabled: id !== "new" });
-  if (id === "new") return <ModelFormPage provider={provider} onClose={onClose} />;
+export function ModelFormHost({ scope, provider, id, onClose }: HostProps) {
+  const models = useQuery({ ...providerModelsQuery(scope, provider.id), enabled: id !== "new" });
+  if (id === "new") return <ModelFormPage scope={scope} provider={provider} onClose={onClose} />;
   const model = models.data?.find((x) => x.id === id);
   if (!model)
     return (
@@ -28,37 +29,33 @@ export function ModelFormHost({ provider, id, onClose }: HostProps) {
         {models.isLoading ? null : <Alert tone="warning">This model isn&apos;t in {provider.name} any more.</Alert>}
       </FormPage>
     );
-  return <ModelFormPage provider={provider} model={model} onClose={onClose} />;
+  return <ModelFormPage scope={scope} provider={provider} model={model} onClose={onClose} />;
 }
 
-function ModelFormPage({ provider, model, onClose }: { provider: ModelProvider; model?: Model; onClose: () => void }) {
+function ModelFormPage({ scope, provider, model, onClose }: { scope: ModelScope; provider: ModelProvider; model?: Model; onClose: () => void }) {
   const qc = useQueryClient();
+  // A team's own provider's models are its team's only: nothing to publish.
+  const publishing = !isTeamOwned(scope, provider);
   const formRef = useRef<HTMLFormElement>(null);
   const [form, setForm] = useState<ModelForm>(() => (model ? formOf(model) : newModelForm));
   const [submitted, setSubmitted] = useState(false);
   const [done, setDone] = useState(false);
   const [deleting, setDeleting] = useState<Model | null>(null);
-  const problems = problemsOf(form, !model);
+  const problems = problemsOf(form, !model, publishing);
   const save = useMutation({
-    mutationFn: async () => {
-      if (!model)
-        return unwrap(await api.POST("/v1/admin/model-providers/{providerId}/models", { params: { path: { providerId: provider.id } }, body: bodyOf(form) }));
-      return unwrap(
-        await api.PATCH("/v1/admin/models/{modelId}", { params: { path: { modelId: model.id }, header: ifMatch(model.revision) }, body: updateOf(form, model) }),
-      );
-    },
+    mutationFn: async () => (model ? updateModel(scope, model, updateOf(form, model, publishing)) : createModel(scope, provider.id, bodyOf(form, publishing))),
     onSuccess: (saved) => {
       toast.success(model ? `${saved.name} was saved` : `${saved.name} was added`, saved.enabled ? undefined : "It's turned off: teams can't choose it yet.");
-      void invalidateModels(qc);
+      void invalidateModels(qc, scope);
       setDone(true);
     },
   });
   const del = useMutation({
-    mutationFn: async (x: Model) => unwrap(await api.DELETE("/v1/admin/models/{modelId}", { params: { path: { modelId: x.id } } })),
+    mutationFn: async (x: Model) => deleteModel(scope, x.id),
     onSuccess: (_, x) => {
       setDeleting(null);
       toast.success(`${x.name} was deleted`);
-      void invalidateModels(qc);
+      void invalidateModels(qc, scope);
       setDone(true);
     },
   });
@@ -103,6 +100,7 @@ function ModelFormPage({ provider, model, onClose }: { provider: ModelProvider; 
         }}
         isNew={!model}
         currentTeams={model?.teams ?? []}
+        teamOnly={publishing ? undefined : (provider.team?.name ?? "the team")}
         errors={{
           ...(submitted ? problems : {}),
           upstreamId: (submitted ? problems.upstreamId : undefined) ?? (taken ? `${provider.name} already has a model with this ID.` : undefined),

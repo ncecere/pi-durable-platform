@@ -1,9 +1,8 @@
-/* A provider's Models tab: each model with its limits, prices and who may use it; admins edit (a form page) and delete. */
+/* A provider's Models tab: each model with its limits, prices and who may use it (a platform model); those who manage it edit (a form page) and delete. */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cpu, Plus, Search } from "lucide-react";
 import { useState } from "react";
-import { api, unwrap } from "@/api/client";
-import { invalidateModels, type Model, type ModelProvider, providerModelsQuery } from "@/api/models";
+import { deleteModel, invalidateModels, type Model, type ModelProvider, type ModelScope, providerModelsQuery } from "@/api/models";
 import { ConfirmMutationDialog } from "@/components/confirm-dialog";
 import { EnabledBadge } from "@/components/enabled-badge";
 import { ListPage } from "@/components/templates/list-page";
@@ -17,6 +16,7 @@ import { tokens } from "@/lib/format";
 import s from "../../shared.module.css";
 import { price, publishedTo } from "./labels";
 import m from "./models.module.css";
+import { isTeamOwned } from "./scope";
 
 const columns: DataTableColumn<Model>[] = [
   {
@@ -55,21 +55,22 @@ const columns: DataTableColumn<Model>[] = [
   { id: "enabled", header: "Status", accessor: (x) => (x.enabled ? "Enabled" : "Disabled"), sortable: true, cell: (x) => <EnabledBadge enabled={x.enabled} /> },
 ];
 
-type Props = { provider: ModelProvider; isAdmin: boolean; onDiscover: () => void; onAdd: () => void; onEdit: (id: string) => void };
+type Props = { scope: ModelScope; provider: ModelProvider; canManage: boolean; onDiscover: () => void; onAdd: () => void; onEdit: (id: string) => void };
 
-export function ProviderModelsTab({ provider, isAdmin, onDiscover, onAdd, onEdit }: Props) {
+export function ProviderModelsTab({ scope, provider, canManage, onDiscover, onAdd, onEdit }: Props) {
   const qc = useQueryClient();
-  const models = useQuery(providerModelsQuery(provider.id));
+  const models = useQuery(providerModelsQuery(scope, provider.id));
+  const teamOwned = isTeamOwned(scope, provider);
   const [deleting, setDeleting] = useState<Model | null>(null);
   const del = useMutation({
-    mutationFn: async (x: Model) => unwrap(await api.DELETE("/v1/admin/models/{modelId}", { params: { path: { modelId: x.id } } })),
+    mutationFn: async (x: Model) => deleteModel(scope, x.id),
     onSuccess: (_, x) => {
       setDeleting(null);
       toast.success(`${x.name} was deleted`);
-      void invalidateModels(qc);
+      void invalidateModels(qc, scope);
     },
   });
-  const add = isAdmin && (
+  const add = canManage && (
     <Inline gap={2}>
       <Button size="sm" onClick={onDiscover}>
         <Search aria-hidden /> Discover models
@@ -80,27 +81,31 @@ export function ProviderModelsTab({ provider, isAdmin, onDiscover, onAdd, onEdit
     </Inline>
   );
   return (
-    <Card title="Models" description="Prices are in US dollars per million tokens. Teams see a model once it's enabled and published to them." actions={(models.data?.length ?? 0) > 0 ? add : undefined}>
+    <Card
+      title="Models"
+      description={`Prices are in US dollars per million tokens. ${teamOwned ? `Only ${provider.team?.name ?? "the team"} can use them, once enabled.` : "Teams see a model once it's enabled and published to them."}`}
+      actions={(models.data?.length ?? 0) > 0 ? add : undefined}
+    >
       <ListPage<Model>
-        id="admin-provider-models"
+        id={teamOwned ? "team-provider-models" : "admin-provider-models"}
         caption={`Models of ${provider.name}`}
-        columns={columns}
+        columns={teamOwned ? columns.filter((c) => c.id !== "published") : columns}
         data={models.data ?? []}
         getRowId={(x) => x.id}
         rowLabel={(x) => x.name}
         loading={models.isLoading}
         error={models.error}
         onRetry={() => void models.refetch()}
-        onRowClick={isAdmin ? (x) => onEdit(x.id) : undefined}
+        onRowClick={canManage ? (x) => onEdit(x.id) : undefined}
         rowActions={
-          isAdmin
+          canManage
             ? (x) => [
                 { label: "Edit", onSelect: () => onEdit(x.id) },
                 { label: "Delete…", danger: true, onSelect: () => setDeleting(x) },
               ]
             : undefined
         }
-        empty={{ icon: <Cpu />, title: "No models yet.", description: isAdmin ? "Ask the provider which models it offers, or add one by its model ID." : undefined, action: add || undefined }}
+        empty={{ icon: <Cpu />, title: "No models yet.", description: canManage ? "Ask the provider which models it offers, or add one by its model ID." : undefined, action: add || undefined }}
         tableProps={{ columnsMenuMin: 5 }}
       />
       <ConfirmMutationDialog
@@ -109,7 +114,7 @@ export function ProviderModelsTab({ provider, isAdmin, onDiscover, onAdd, onEdit
         mutation={del}
         onConfirm={(x) => del.mutate(x)}
         title={`Delete ${deleting?.name ?? "model"}?`}
-        description="Teams can't choose it any more. A model templates or agents still use can't be deleted: move them to another model, or turn it off instead."
+        description={`${teamOwned ? "The team can't" : "Teams can't"} choose it any more. A model templates or agents still use can't be deleted: move them to another model, or turn it off instead.`}
         confirmLabel="Delete model"
       />
     </Card>
