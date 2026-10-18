@@ -90,6 +90,7 @@ func (e ApiKeyStatus) Valid() bool {
 // Defines values for AuditActorKind.
 const (
 	AuditActorKindApiKey         AuditActorKind = "api_key"
+	AuditActorKindOauth          AuditActorKind = "oauth"
 	AuditActorKindServiceAccount AuditActorKind = "service_account"
 	AuditActorKindSystem         AuditActorKind = "system"
 	AuditActorKindUser           AuditActorKind = "user"
@@ -99,6 +100,8 @@ const (
 func (e AuditActorKind) Valid() bool {
 	switch e {
 	case AuditActorKindApiKey:
+		return true
+	case AuditActorKindOauth:
 		return true
 	case AuditActorKindServiceAccount:
 		return true
@@ -114,6 +117,7 @@ func (e AuditActorKind) Valid() bool {
 // Defines values for AuditEntryActorKind.
 const (
 	AuditEntryActorKindApiKey AuditEntryActorKind = "api_key"
+	AuditEntryActorKindOauth  AuditEntryActorKind = "oauth"
 	AuditEntryActorKindSystem AuditEntryActorKind = "system"
 	AuditEntryActorKindUser   AuditEntryActorKind = "user"
 )
@@ -122,6 +126,8 @@ const (
 func (e AuditEntryActorKind) Valid() bool {
 	switch e {
 	case AuditEntryActorKindApiKey:
+		return true
+	case AuditEntryActorKindOauth:
 		return true
 	case AuditEntryActorKindSystem:
 		return true
@@ -135,6 +141,7 @@ func (e AuditEntryActorKind) Valid() bool {
 // Defines values for AuditViaKind.
 const (
 	AuditViaKindApiKey  AuditViaKind = "api_key"
+	AuditViaKindOauth   AuditViaKind = "oauth"
 	AuditViaKindSession AuditViaKind = "session"
 )
 
@@ -142,6 +149,8 @@ const (
 func (e AuditViaKind) Valid() bool {
 	switch e {
 	case AuditViaKindApiKey:
+		return true
+	case AuditViaKindOauth:
 		return true
 	case AuditViaKindSession:
 		return true
@@ -525,6 +534,42 @@ func (e MyTeamKind) Valid() bool {
 	case MyTeamKindPersonal:
 		return true
 	case MyTeamKindTeam:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OAuthClientInfoKind.
+const (
+	Metadata   OAuthClientInfoKind = "metadata"
+	Registered OAuthClientInfoKind = "registered"
+)
+
+// Valid indicates whether the value is a known member of the OAuthClientInfoKind enum.
+func (e OAuthClientInfoKind) Valid() bool {
+	switch e {
+	case Metadata:
+		return true
+	case Registered:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OAuthConsentDecisionDecision.
+const (
+	Allow OAuthConsentDecisionDecision = "allow"
+	Deny  OAuthConsentDecisionDecision = "deny"
+)
+
+// Valid indicates whether the value is a known member of the OAuthConsentDecisionDecision enum.
+func (e OAuthConsentDecisionDecision) Valid() bool {
+	switch e {
+	case Allow:
+		return true
+	case Deny:
 		return true
 	default:
 		return false
@@ -1160,10 +1205,13 @@ type ApiKeyCreated struct {
 // AuditActor Who made the change, resolved when the log is read
 type AuditActor struct {
 	// ApiKeyName The API key used (api_key actors)
-	ApiKeyName  *string             `json:"apiKeyName,omitempty"`
-	DisplayName *string             `json:"displayName,omitempty"`
-	Email       *string             `json:"email,omitempty"`
-	Kind        AuditActorKind      `json:"kind"`
+	ApiKeyName  *string        `json:"apiKeyName,omitempty"`
+	DisplayName *string        `json:"displayName,omitempty"`
+	Email       *string        `json:"email,omitempty"`
+	Kind        AuditActorKind `json:"kind"`
+
+	// OauthClient The connected app the person acted through (oauth actors)
+	OauthClient *string             `json:"oauthClient,omitempty"`
 	UserId      *openapi_types.UUID `json:"userId,omitempty"`
 }
 
@@ -1223,18 +1271,20 @@ type AuditPage struct {
 
 // AuditVia defines model for AuditVia.
 type AuditVia struct {
-	// Kind session: signed in to the web app; api_key: with an API key.
+	// Kind session: signed in to the web app; api_key: with an API key; oauth: through an app the person connected.
 	Kind AuditViaKind `json:"kind"`
 
-	// Name The API key's name, when known
+	// Name The API key's or the app's name, when known
 	Name *string `json:"name,omitempty"`
 }
 
-// AuditViaKind session: signed in to the web app; api_key: with an API key.
+// AuditViaKind session: signed in to the web app; api_key: with an API key; oauth: through an app the person connected.
 type AuditViaKind string
 
 // AuthConfig defines model for AuthConfig.
 type AuthConfig struct {
+	// Connect OAuth Connect, for apps that act as the people who connect them (see DESIGN.md)
+	Connect        *ConnectInfo `json:"connect,omitempty"`
 	DevAccounts    []DevAccount `json:"devAccounts"`
 	DevAuthEnabled bool         `json:"devAuthEnabled"`
 
@@ -1311,6 +1361,16 @@ type ClientMcpServer struct {
 	// Name Shown to the model; names the server's tools (mcpc__<slug>__<tool>)
 	Name string `json:"name"`
 	Url  string `json:"url"`
+}
+
+// ConnectInfo OAuth Connect, for apps that act as the people who connect them (see DESIGN.md)
+type ConnectInfo struct {
+	AuthorizationEndpoint string   `json:"authorizationEndpoint"`
+	Issuer                string   `json:"issuer"`
+	RegistrationEndpoint  string   `json:"registrationEndpoint"`
+	RevocationEndpoint    string   `json:"revocationEndpoint"`
+	Scopes                []string `json:"scopes"`
+	TokenEndpoint         string   `json:"tokenEndpoint"`
 }
 
 // DevAccount defines model for DevAccount.
@@ -1735,6 +1795,71 @@ type MyTeam struct {
 // MyTeamKind team: shared; personal: one person's own workspace
 type MyTeamKind string
 
+// OAuthClientInfo An app, as it identifies itself
+type OAuthClientInfo struct {
+	// Host The metadata document's host, or a registered app's (unverified) home page host
+	Host string `json:"host"`
+
+	// Id Its client_id
+	Id string `json:"id"`
+
+	// Kind metadata: identified by a Client ID Metadata Document, whose host vouches for it; registered: it registered itself, so its name is unverified.
+	Kind OAuthClientInfoKind `json:"kind"`
+
+	// LogoUrl Its logo (https)
+	LogoUrl *string `json:"logoUrl,omitempty"`
+	Name    string  `json:"name"`
+
+	// Trusted On the platform's trusted list (skips the consent screen)
+	Trusted bool `json:"trusted"`
+
+	// Uri Its home page (https)
+	Uri *string `json:"uri,omitempty"`
+}
+
+// OAuthClientInfoKind metadata: identified by a Client ID Metadata Document, whose host vouches for it; registered: it registered itself, so its name is unverified.
+type OAuthClientInfoKind string
+
+// OAuthConsent defines model for OAuthConsent.
+type OAuthConsent struct {
+	// Client An app, as it identifies itself
+	Client            OAuthClientInfo       `json:"client"`
+	PersonalWorkspace *PersonalWorkspaceRef `json:"personalWorkspace,omitempty"`
+	RedirectHost      string                `json:"redirectHost"`
+	RedirectUri       string                `json:"redirectUri"`
+
+	// Remembered The person already allowed this app
+	Remembered bool     `json:"remembered"`
+	Scopes     []string `json:"scopes"`
+}
+
+// OAuthConsentDecision defines model for OAuthConsentDecision.
+type OAuthConsentDecision struct {
+	Decision OAuthConsentDecisionDecision `json:"decision"`
+
+	// Query The authorization request's query string, as the consent page received it
+	Query string `json:"query"`
+}
+
+// OAuthConsentDecisionDecision defines model for OAuthConsentDecision.Decision.
+type OAuthConsentDecisionDecision string
+
+// OAuthConsentResult defines model for OAuthConsentResult.
+type OAuthConsentResult struct {
+	// RedirectUrl The app's redirect URI with a code, or with error=access_denied
+	RedirectUrl string `json:"redirectUrl"`
+}
+
+// OAuthGrant A connected app
+type OAuthGrant struct {
+	// Client An app, as it identifies itself
+	Client     OAuthClientInfo    `json:"client"`
+	CreatedAt  time.Time          `json:"createdAt"`
+	Id         openapi_types.UUID `json:"id"`
+	LastUsedAt *time.Time         `json:"lastUsedAt,omitempty"`
+	Scopes     []string           `json:"scopes"`
+}
+
 // Ok defines model for Ok.
 type Ok struct {
 	Ok bool `json:"ok"`
@@ -1743,6 +1868,12 @@ type Ok struct {
 // OwnerAssign defines model for OwnerAssign.
 type OwnerAssign struct {
 	Email openapi_types.Email `json:"email"`
+}
+
+// PersonalWorkspaceRef defines model for PersonalWorkspaceRef.
+type PersonalWorkspaceRef struct {
+	Name string `json:"name"`
+	Slug string `json:"slug"`
 }
 
 // PersonalWorkspaceSettings defines model for PersonalWorkspaceSettings.
@@ -1960,6 +2091,25 @@ type ThreadMcpServer struct {
 	Url       string    `json:"url"`
 }
 
+// TrustedClient defines model for TrustedClient.
+type TrustedClient struct {
+	// ClientId The https URL of the app's Client ID Metadata Document
+	ClientId string  `json:"clientId"`
+	Label    *string `json:"label,omitempty"`
+}
+
+// TrustedClients defines model for TrustedClients.
+type TrustedClients struct {
+	Clients   []TrustedClient `json:"clients"`
+	Revision  int64           `json:"revision"`
+	UpdatedAt time.Time       `json:"updatedAt"`
+}
+
+// TrustedClientsUpdate defines model for TrustedClientsUpdate.
+type TrustedClientsUpdate struct {
+	Clients []TrustedClient `json:"clients"`
+}
+
 // UsageReport defines model for UsageReport.
 type UsageReport struct {
 	From    openapi_types.Date `json:"from"`
@@ -2090,6 +2240,9 @@ type AuditToParam = time.Time
 // CursorParam defines model for CursorParam.
 type CursorParam = string
 
+// GrantIdParam defines model for GrantIdParam.
+type GrantIdParam = openapi_types.UUID
+
 // IfMatchHeader defines model for IfMatchHeader.
 type IfMatchHeader = string
 
@@ -2215,6 +2368,12 @@ type AdminListServiceAccountsParams struct {
 	Limit  *LimitParam  `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// AdminUpdateTrustedClientsParams defines parameters for AdminUpdateTrustedClients.
+type AdminUpdateTrustedClientsParams struct {
+	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
+	IfMatch IfMatchHeader `json:"If-Match"`
+}
+
 // AdminUpdatePersonalSettingsParams defines parameters for AdminUpdatePersonalSettings.
 type AdminUpdatePersonalSettingsParams struct {
 	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
@@ -2325,6 +2484,18 @@ type GetMeParams struct {
 	Optional *bool `form:"optional,omitempty" json:"optional,omitempty"`
 }
 
+// GetOAuthConsentParams defines parameters for GetOAuthConsent.
+type GetOAuthConsentParams struct {
+	ClientId            *string `form:"client_id,omitempty" json:"client_id,omitempty"`
+	RedirectUri         *string `form:"redirect_uri,omitempty" json:"redirect_uri,omitempty"`
+	ResponseType        *string `form:"response_type,omitempty" json:"response_type,omitempty"`
+	CodeChallenge       *string `form:"code_challenge,omitempty" json:"code_challenge,omitempty"`
+	CodeChallengeMethod *string `form:"code_challenge_method,omitempty" json:"code_challenge_method,omitempty"`
+	State               *string `form:"state,omitempty" json:"state,omitempty"`
+	Scope               *string `form:"scope,omitempty" json:"scope,omitempty"`
+	Resource            *string `form:"resource,omitempty" json:"resource,omitempty"`
+}
+
 // ListTeamAgentsParams defines parameters for ListTeamAgents.
 type ListTeamAgentsParams struct {
 	IncludeManaged *bool `form:"includeManaged,omitempty" json:"includeManaged,omitempty"`
@@ -2408,6 +2579,9 @@ type AdminCreateModelJSONRequestBody = ModelCreate
 // AdminUpdateModelJSONRequestBody defines body for AdminUpdateModel for application/json ContentType.
 type AdminUpdateModelJSONRequestBody = ModelUpdate
 
+// AdminUpdateTrustedClientsJSONRequestBody defines body for AdminUpdateTrustedClients for application/json ContentType.
+type AdminUpdateTrustedClientsJSONRequestBody = TrustedClientsUpdate
+
 // AdminUpdatePersonalSettingsJSONRequestBody defines body for AdminUpdatePersonalSettings for application/json ContentType.
 type AdminUpdatePersonalSettingsJSONRequestBody = PersonalWorkspaceSettingsUpdate
 
@@ -2452,6 +2626,9 @@ type SendAgentMessageJSONRequestBody = AgentMessageCreate
 
 // CreateMyApiKeyJSONRequestBody defines body for CreateMyApiKey for application/json ContentType.
 type CreateMyApiKeyJSONRequestBody = ApiKeyCreate
+
+// DecideOAuthConsentJSONRequestBody defines body for DecideOAuthConsent for application/json ContentType.
+type DecideOAuthConsentJSONRequestBody = OAuthConsentDecision
 
 // CreateTeamTemplateJSONRequestBody defines body for CreateTeamTemplate for application/json ContentType.
 type CreateTeamTemplateJSONRequestBody = AgentTemplateCreate

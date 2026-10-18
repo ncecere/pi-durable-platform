@@ -78,6 +78,11 @@ Agents made this way are service-managed: only the team's service accounts talk 
 admins see them in the console (status, last use) but not their conversations, and can delete them. Personal API
 keys (`pdp_…`) work too, acting as their person.
 
+To act as a person instead (their personal workspace and their teams' agents), have them connect the app with **OAuth
+Connect**: the platform is an OAuth 2.1 authorization server (`/.well-known/oauth-authorization-server`, PKCE, a Client
+ID Metadata Document or Dynamic Client Registration), and the app's `pdpat_…` access token acts as the person, without
+their platform role, on the agent routes and `GET /v1/me`, `/v1/teams`. See DESIGN.md, "OAuth Connect".
+
 ## Commands
 
 ```

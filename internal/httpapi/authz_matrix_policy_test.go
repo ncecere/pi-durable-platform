@@ -311,4 +311,26 @@ var matrixPolicies = map[string]policy{
 	"setThreadMcpServers": {scope: scopeTeam, own: members, build: func(c *mctx) request {
 		return request{method: "PUT", path: c.thread("/mcp-servers", false), body: map[string]any{"servers": []any{}}}
 	}},
+
+	// OAuth Connect: everyone signed in sees an app's request and decides
+	// it, and lists and disconnects their own apps; platform staff read
+	// anyone's apps and the trusted list; only platform admins disconnect
+	// another person's apps or change the list.
+	"getOAuthConsent": {own: signedIn, build: func(c *mctx) request { return get("/v1/oauth/consent?" + c.e.consentQuery()) }},
+	"decideOAuthConsent": {own: signedIn, build: func(c *mctx) request {
+		return post("/v1/oauth/consent", map[string]any{"query": c.e.consentQuery(), "decision": "deny"})
+	}},
+	"listMyOAuthGrants":  {own: signedIn, build: func(*mctx) request { return get("/v1/me/oauth-grants") }},
+	"revokeMyOAuthGrant": {own: signedIn, build: func(c *mctx) request { return del("/v1/me/oauth-grants/" + c.myGrant()) }},
+	"adminListUserOAuthGrants": {own: platform, build: func(c *mctx) request {
+		return get("/v1/admin/users/" + c.e.spareUser + "/oauth-grants")
+	}},
+	"adminRevokeUserOAuthGrant": {own: padmin, build: func(c *mctx) request {
+		return del("/v1/admin/users/" + c.e.spareUser + "/oauth-grants/" + c.spareGrant())
+	}},
+	"adminGetTrustedClients": {own: platform, build: func(*mctx) request { return get("/v1/admin/settings/oauth-clients") }},
+	"adminUpdateTrustedClients": {own: padmin, build: func(*mctx) request {
+		return request{method: "PUT", path: "/v1/admin/settings/oauth-clients",
+			body: map[string]any{"clients": []any{map[string]any{"clientId": "https://chat.example.com/client.json"}}}}.h(rev1)
+	}},
 }

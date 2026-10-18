@@ -202,6 +202,64 @@ type ModelUsage struct {
 	Requests         int32
 }
 
+type OauthClient struct {
+	ID           uuid.UUID
+	ClientID     string
+	ClientName   string
+	RedirectUris []string
+	ClientUri    *string
+	LogoUri      *string
+	CreatedAt    time.Time
+	LastUsedAt   time.Time
+}
+
+type OauthCode struct {
+	CodeHash      string
+	GrantID       uuid.UUID
+	ClientID      string
+	RedirectUri   string
+	CodeChallenge string
+	Resource      string
+	ExpiresAt     time.Time
+	CreatedAt     time.Time
+}
+
+type OauthGrant struct {
+	ID            uuid.UUID
+	UserID        uuid.UUID
+	ClientID      string
+	ClientKind    string
+	ClientName    string
+	ClientUri     *string
+	LogoUri       *string
+	Scopes        []string
+	Resource      string
+	CreatedAt     time.Time
+	LastUsedAt    *time.Time
+	RevokedAt     *time.Time
+	RevokedReason *string
+}
+
+type OauthSetting struct {
+	ID             int16
+	TrustedClients json.RawMessage
+	Revision       int64
+	UpdatedBy      uuid.NullUUID
+	UpdatedAt      time.Time
+}
+
+type OauthToken struct {
+	ID        uuid.UUID
+	GrantID   uuid.UUID
+	Kind      string
+	TokenHash string
+	PepperID  []byte
+	Resource  string
+	ExpiresAt time.Time
+	RotatedAt *time.Time
+	CreatedAt time.Time
+}
+
 type PersonalWorkspaceSetting struct {
 	ID               bool
 	Enabled          bool

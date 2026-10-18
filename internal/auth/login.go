@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ncecere/pi-durable-platform/internal/audit"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
+	"github.com/ncecere/pi-durable-platform/internal/oauth"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 	"github.com/ncecere/pi-durable-platform/internal/teams"
 )
@@ -154,11 +156,20 @@ func (s *Service) AuthConfig(w http.ResponseWriter, r *http.Request) {
 		LoginUrl:       "/auth/login",
 		DevAccounts:    []apitypes.DevAccount{},
 		TeamRequestUrl: nilIfEmpty(s.cfg.TeamRequestURL),
+		Connect:        connectInfo(s.cfg.AppURL),
 	}
 	if s.cfg.DevAuth {
 		out.DevAccounts = s.devPersonas(r.Context())
 	}
 	httpx.JSON(w, http.StatusOK, out)
+}
+
+// connectInfo is OAuth Connect's endpoints (internal/oauth), for apps and
+// for the web app's connected-apps page. The issuer is APP_URL.
+func connectInfo(appURL string) *apitypes.ConnectInfo {
+	iss := strings.TrimRight(appURL, "/")
+	return &apitypes.ConnectInfo{Issuer: iss, AuthorizationEndpoint: iss + "/oauth/authorize", TokenEndpoint: iss + "/oauth/token",
+		RevocationEndpoint: iss + "/oauth/revoke", RegistrationEndpoint: iss + "/oauth/register", Scopes: oauth.Scopes}
 }
 
 func nilIfEmpty(s string) *string {

@@ -29,9 +29,11 @@ const (
 )
 
 // Actor is the principal performing an operation, plus request metadata for
-// the audit log: a person (browser session or personal API key), or a team's
-// service account (its key). A service account has no user ID and no
-// platform role; it acts in its own team with its own team role.
+// the audit log: a person (browser session, personal API key, or an app they
+// connected with OAuth Connect), or a team's service account (its key). A
+// service account has no user ID and no platform role; it acts in its own
+// team with its own team role. A connected app acts as its person with no
+// platform role.
 type Actor struct {
 	UserID       uuid.UUID
 	PlatformRole string
@@ -41,6 +43,11 @@ type Actor struct {
 	// APIKey is the personal API key the person used (zero: a session).
 	APIKeyID   uuid.UUID
 	APIKeyName string
+
+	// OAuthGrantID is the connected app's grant the person acts through
+	// (zero: not an app), and OAuthClientName the app's name.
+	OAuthGrantID    uuid.UUID
+	OAuthClientName string
 
 	// Service is set for a service account.
 	Service *ServiceActor
@@ -77,6 +84,9 @@ func (a Actor) Audit(action, targetType, targetID string) audit.Entry {
 	case a.APIKeyID != uuid.Nil:
 		e.ActorKind = audit.ActorAPIKey
 		e.Metadata = map[string]any{"apiKeyId": a.APIKeyID.String(), "apiKeyName": a.APIKeyName}
+	case a.OAuthGrantID != uuid.Nil:
+		e.ActorKind = audit.ActorOAuth
+		e.Metadata = map[string]any{"oauthGrantId": a.OAuthGrantID.String(), "oauthClient": a.OAuthClientName}
 	}
 	return e
 }

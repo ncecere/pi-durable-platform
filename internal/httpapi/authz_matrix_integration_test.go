@@ -56,7 +56,10 @@ type matrixEnv struct {
 	// upstream serves the provider's model list.
 	provider, model, upstream, mcpServer string
 	personal                             string
-	n                                    int
+	// oauthClient is a registered OAuth Connect client; spareGrant one of
+	// spareUser's connected apps.
+	oauthClient, spareGrant string
+	n                       int
 }
 
 func (e *matrixEnv) next() int { e.n++; return e.n }
@@ -165,7 +168,30 @@ func newMatrixEnv(t *testing.T) *matrixEnv {
 	e.provider = e.newProvider()
 	e.model = e.newModel(e.provider)
 	e.mcpServer = e.newMCPServer()
+	e.oauthClient = e.newOAuthClient()
+	e.spareGrant = e.newOAuthGrant(e.spareUser)
 	return e
+}
+
+// newOAuthClient registers an OAuth Connect client (as Dynamic Client
+// Registration would) with a loopback redirect URI.
+func (e *matrixEnv) newOAuthClient() string {
+	id := fmt.Sprintf("pdpcl_matrix%d", e.next())
+	return e.exec(`INSERT INTO oauth_clients (client_id, client_name, redirect_uris) VALUES ($1, 'Matrix app', '{http://127.0.0.1/cb}')
+		RETURNING client_id`, id)
+}
+
+// consentQuery is an authorization request for the matrix's client.
+func (e *matrixEnv) consentQuery() string {
+	return "client_id=" + e.oauthClient + "&redirect_uri=http%3A%2F%2F127.0.0.1%2Fcb&response_type=code&code_challenge_method=S256" +
+		"&code_challenge=" + strings.Repeat("A", 43) + "&state=s"
+}
+
+// newOAuthGrant is a connected app of a person (each with its own client,
+// since a person has one active grant per client).
+func (e *matrixEnv) newOAuthGrant(userID string) string {
+	return e.exec(`INSERT INTO oauth_grants (user_id, client_id, client_kind, client_name, resource)
+		VALUES ($1, $2, 'registered', 'Matrix app', $3) RETURNING id::text`, userID, fmt.Sprintf("pdpcl_grant%d", e.next()), e.app.URL)
 }
 
 // newMCPServer adds an MCP server (its tools can't be read: the upstream is
@@ -372,6 +398,24 @@ func (c *mctx) serviceAccountKey() (sa, key string) {
 		return sa, c.e.newServiceAccountKey(sa)
 	}
 	return c.tf.serviceAccount, c.tf.saKey
+}
+
+// myGrant is a fresh connected app of the caller when the call is expected
+// to succeed, else another person's.
+func (c *mctx) myGrant() string {
+	if c.allowed {
+		return c.e.newOAuthGrant(c.e.userIDs[c.who])
+	}
+	return c.e.spareGrant
+}
+
+// spareGrant is a fresh connected app of spareUser when the call is
+// expected to succeed, else the fixture one.
+func (c *mctx) spareGrant() string {
+	if c.allowed {
+		return c.e.newOAuthGrant(c.e.spareUser)
+	}
+	return c.e.spareGrant
 }
 
 func (c *mctx) user() string {

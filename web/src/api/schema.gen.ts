@@ -130,7 +130,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The signed-in user, CSRF token and capabilities */
+        /**
+         * The signed-in user, CSRF token and capabilities
+         * @description Also takes `Authorization: Bearer` with a personal API key or an app's OAuth Connect access token (its person; csrfToken is empty, and an app's capabilities are none), never a service account key (403 person_required).
+         */
         get: operations["getMe"];
         put?: never;
         post?: never;
@@ -147,7 +150,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Teams the caller belongs to */
+        /**
+         * Teams the caller belongs to
+         * @description Also takes `Authorization: Bearer` with a personal API key or an app's OAuth Connect access token, never a service account key (403 person_required).
+         */
         get: operations["listMyTeams"];
         put?: never;
         post?: never;
@@ -167,7 +173,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** A team the caller belongs to (platform admins and auditors see any team) */
+        /**
+         * A team the caller belongs to (platform admins and auditors see any team)
+         * @description Also takes `Authorization: Bearer` with a personal API key or an app's OAuth Connect access token, never a service account key (403 person_required).
+         */
         get: operations["getTeam"];
         put?: never;
         post?: never;
@@ -1373,6 +1382,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/oauth/consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The consent page's view of an app's authorization request (the person signed in)
+         * @description The query is the authorization request the app sent to /oauth/authorize, unchanged (the platform redirects the browser to the web app's /connect/consent with it). A request that isn't valid is a 400 whose code starts with oauth_ (the page shows the reason and never sends the browser anywhere).
+         */
+        get: operations["getOAuthConsent"];
+        put?: never;
+        /**
+         * Allow or deny an app's authorization request; returns where to send the browser
+         * @description Allowing records the person's consent (a connected app, remembered until revoked) and returns the app's redirect URI with an authorization code; denying returns it with error=access_denied.
+         */
+        post: operations["decideOAuthConsent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/oauth-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The apps the caller connected (newest first) */
+        get: operations["listMyOAuthGrants"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/oauth-grants/{grantId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grantId: components["parameters"]["GrantIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Disconnect an app; its tokens stop working at once and its consent is forgotten */
+        delete: operations["revokeMyOAuthGrant"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/users/{userId}/oauth-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserIdParam"];
+            };
+            cookie?: never;
+        };
+        /** The apps a person connected (platform admins and auditors) */
+        get: operations["adminListUserOAuthGrants"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/users/{userId}/oauth-grants/{grantId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserIdParam"];
+                grantId: components["parameters"]["GrantIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Disconnect one of a person's apps (platform admins) */
+        delete: operations["adminRevokeUserOAuthGrant"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/settings/oauth-clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Trusted apps, which skip the consent screen (platform admins and auditors) */
+        get: operations["adminGetTrustedClients"];
+        /**
+         * Replace the trusted apps (platform admins)
+         * @description Only apps identified by a Client ID Metadata Document (an https URL with a path) can be trusted: a registered app's ID changes, and anyone can register any name. A trusted app skips the consent screen, never the sign-in.
+         */
+        put: operations["adminUpdateTrustedClients"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2042,13 +2171,15 @@ export interface components {
         /** @description Who made the change, resolved when the log is read */
         AuditActor: {
             /** @enum {string} */
-            kind: "user" | "api_key" | "service_account" | "system";
+            kind: "user" | "api_key" | "service_account" | "oauth" | "system";
             /** Format: uuid */
             userId?: string;
             displayName?: string;
             email?: string;
             /** @description The API key used (api_key actors) */
             apiKeyName?: string;
+            /** @description The connected app the person acted through (oauth actors) */
+            oauthClient?: string;
         };
         AuditEntry: {
             /** Format: int64 */
@@ -2056,7 +2187,7 @@ export interface components {
             /** Format: date-time */
             occurredAt: string;
             /** @enum {string} */
-            actorKind: "user" | "api_key" | "system";
+            actorKind: "user" | "api_key" | "oauth" | "system";
             /** Format: uuid */
             actorUserId?: string | null;
             /** Format: uuid */
@@ -2093,11 +2224,11 @@ export interface components {
         };
         AuditVia: {
             /**
-             * @description session: signed in to the web app; api_key: with an API key.
+             * @description session: signed in to the web app; api_key: with an API key; oauth: through an app the person connected.
              * @enum {string}
              */
-            kind: "session" | "api_key";
-            /** @description The API key's name, when known */
+            kind: "session" | "api_key" | "oauth";
+            /** @description The API key's or the app's name, when known */
             name?: string;
         };
         AuthConfig: {
@@ -2108,6 +2239,7 @@ export interface components {
             devAccounts: components["schemas"]["DevAccount"][];
             /** @description Where people request a new team (only platform admins create teams) */
             teamRequestUrl?: string | null;
+            connect?: components["schemas"]["ConnectInfo"];
         };
         Capabilities: {
             platformAdmin: boolean;
@@ -2449,6 +2581,83 @@ export interface components {
             /** @description The full key, shown only now */
             secret: string;
         };
+        /** @description OAuth Connect, for apps that act as the people who connect them (see DESIGN.md) */
+        ConnectInfo: {
+            issuer: string;
+            authorizationEndpoint: string;
+            tokenEndpoint: string;
+            revocationEndpoint: string;
+            registrationEndpoint: string;
+            scopes: string[];
+        };
+        /** @description An app, as it identifies itself */
+        OAuthClientInfo: {
+            /** @description Its client_id */
+            id: string;
+            /**
+             * @description metadata: identified by a Client ID Metadata Document, whose host vouches for it; registered: it registered itself, so its name is unverified.
+             * @enum {string}
+             */
+            kind: "metadata" | "registered";
+            name: string;
+            /** @description The metadata document's host, or a registered app's (unverified) home page host */
+            host: string;
+            /** @description Its home page (https) */
+            uri?: string;
+            /** @description Its logo (https) */
+            logoUrl?: string;
+            /** @description On the platform's trusted list (skips the consent screen) */
+            trusted: boolean;
+        };
+        PersonalWorkspaceRef: {
+            slug: string;
+            name: string;
+        };
+        OAuthConsent: {
+            client: components["schemas"]["OAuthClientInfo"];
+            redirectUri: string;
+            redirectHost: string;
+            scopes: string[];
+            /** @description The person already allowed this app */
+            remembered: boolean;
+            personalWorkspace?: components["schemas"]["PersonalWorkspaceRef"];
+        };
+        OAuthConsentDecision: {
+            /** @description The authorization request's query string, as the consent page received it */
+            query: string;
+            /** @enum {string} */
+            decision: "allow" | "deny";
+        };
+        OAuthConsentResult: {
+            /** @description The app's redirect URI with a code, or with error=access_denied */
+            redirectUrl: string;
+        };
+        /** @description A connected app */
+        OAuthGrant: {
+            /** Format: uuid */
+            id: string;
+            client: components["schemas"]["OAuthClientInfo"];
+            scopes: string[];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            lastUsedAt?: string | null;
+        };
+        TrustedClient: {
+            /** @description The https URL of the app's Client ID Metadata Document */
+            clientId: string;
+            label?: string;
+        };
+        TrustedClients: {
+            clients: components["schemas"]["TrustedClient"][];
+            /** Format: int64 */
+            revision: number;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        TrustedClientsUpdate: {
+            clients: components["schemas"]["TrustedClient"][];
+        };
     };
     responses: {
         /** @description A page of audit entries, newest first */
@@ -2524,6 +2733,7 @@ export interface components {
         SearchParam: string;
         /** @description Team slug or ID */
         TeamParam: string;
+        GrantIdParam: string;
         UserIdParam: string;
         ServiceAccountIdParam: string;
     };
@@ -2709,6 +2919,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
         };
     };
     getTeam: {
@@ -5303,6 +5514,219 @@ export interface operations {
             404: components["responses"]["ErrorReply"];
             409: components["responses"]["ErrorReply"];
             503: components["responses"]["ErrorReply"];
+        };
+    };
+    getOAuthConsent: {
+        parameters: {
+            query?: {
+                client_id?: string;
+                redirect_uri?: string;
+                response_type?: string;
+                code_challenge?: string;
+                code_challenge_method?: string;
+                state?: string;
+                scope?: string;
+                resource?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The app, where it will send the person back, and what it asks for */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OAuthConsent"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+        };
+    };
+    decideOAuthConsent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OAuthConsentDecision"];
+            };
+        };
+        responses: {
+            /** @description Where to send the browser */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OAuthConsentResult"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    listMyOAuthGrants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connected apps */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OAuthGrant"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+        };
+    };
+    revokeMyOAuthGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grantId: components["parameters"]["GrantIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["OkReply"];
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    adminListUserOAuthGrants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connected apps */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OAuthGrant"][];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    adminRevokeUserOAuthGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserIdParam"];
+                grantId: components["parameters"]["GrantIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["OkReply"];
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    adminGetTrustedClients: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Trusted apps */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["TrustedClients"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+        };
+    };
+    adminUpdateTrustedClients: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+                "If-Match": components["parameters"]["IfMatchHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrustedClientsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Trusted apps */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["TrustedClients"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            412: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
+            428: components["responses"]["ErrorReply"];
         };
     };
 }

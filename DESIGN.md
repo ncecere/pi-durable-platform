@@ -38,7 +38,7 @@ Later: teams build and upload their own agents (self-service). That requires str
 
 ```text
 Browser / chat app / service ──► Platform (Go)
-                                   ├─ auth, teams, roles, service accounts, audit
+                                   ├─ auth, teams, roles, service accounts, OAuth Connect, audit
                                    ├─ templates, agents (owner: a person or a team)
                                    ├─ provisioner: per-agent schema + role in the agents database
                                    ├─ launcher: start / stop agent runtimes (local processes | Kubernetes pods | Agent Sandbox)
@@ -58,6 +58,65 @@ running at once, a monthly cost budget that is recorded but not enforced yet) an
 workspace. Models and MCP servers have a `personal` flag: whether personal workspaces may use them (shared teams follow
 their visibility). Platform admins and auditors audit personal workspaces: they see the workspace, its agents, usage
 and audit log, but not conversations. Sign-in can be limited to IdP groups (`OIDC_ALLOWED_GROUPS`).
+
+## OAuth Connect
+
+People connect an app (a chat app, a desktop tool) with their own platform identity: the platform is a small OAuth 2.1
+authorization server (`internal/oauth`, ported from Open MCP Portal) and the app gets the platform's own opaque
+tokens, so it works whatever the identity provider issues (OIDC, Shibboleth's opaque tokens). The protected resource
+is the platform itself: `APP_URL`.
+
+**How an app integrates.**
+
+1. Discover: `GET /.well-known/oauth-authorization-server` (RFC 8414; also in `GET /v1/auth/config` under `connect`)
+   and `GET /.well-known/oauth-protected-resource` (RFC 9728). A refused app token gets
+   `WWW-Authenticate: Bearer resource_metadata="<APP_URL>/.well-known/oauth-protected-resource", error="invalid_token"`.
+2. Identify itself, as a public client (no secret), either with a **Client ID Metadata Document**: its `client_id` is
+   an https URL with a path, serving JSON with that same `client_id`, `client_name`, `redirect_uris` (https, or http
+   on a loopback host), optional `client_uri` and `logo_uri`. The platform fetches it from public addresses only
+   (`internal/netguard`: loopback, private, link-local and metadata addresses are refused, the connection is pinned to
+   the checked address, no redirects or proxies), at most 16 KiB, cached for its max-age (1 min to 1 h). Or with
+   **Dynamic Client Registration**: `POST /oauth/register` (RFC 7591) returns a `pdpcl_…` client ID, deleted after 30
+   days unused. Metadata documents are preferred: their host vouches for the name; a registered name is unverified
+   and the consent page says so.
+3. Send the person to `GET /oauth/authorize` with `response_type=code`, `client_id`, `redirect_uri`, `state`, PKCE
+   (`code_challenge`, `code_challenge_method=S256`, required), optional `scope=agents` (the only scope; omitted means
+   agents) and optional `resource=<APP_URL>` (anything else is `invalid_target`). Loopback redirect URIs match on any
+   port (RFC 8252). The person signs in with the platform's normal sign-in (so `OIDC_ALLOWED_GROUPS` and suspension
+   apply; their personal workspace exists from then on), and sees the consent page (`/connect/consent` in the web
+   app). Errors before the client and redirect URI are known good (unknown client, unregistered redirect URI, a
+   repeated parameter) are shown as a page and never redirected; later ones go back to the app. The redirect carries
+   `code`, `state` and `iss` (RFC 9207).
+4. Exchange the code at `POST /oauth/token` (form-encoded, `grant_type=authorization_code`, `client_id`, `code`,
+   `redirect_uri`, `code_verifier`). Codes live 60 seconds and work once (they are deleted before anything is
+   checked). The answer: a `pdpat_…` access token (1 hour), a `pdprt_…` refresh token (30 days) and `scope: agents`.
+5. Refresh with `grant_type=refresh_token`: each use returns a new pair and retires the old refresh token. Presenting a
+   retired refresh token again within 30 seconds (two refreshes at once) gets a pair; later, it is treated as stolen
+   and the whole connection is revoked.
+6. Revoke at `POST /oauth/revoke` (RFC 7009): a refresh token ends the connection, an access token only itself.
+
+**What a token can reach.** It acts as the person, **without their platform role** (an app acting for a platform
+admin gets no admin powers), on the routes that take bearer credentials: the agent routes (agents, threads, events,
+thread MCP servers), template listings, a team's models, usage, limits and MCP servers, plus `GET /v1/me`,
+`GET /v1/teams` and `GET /v1/teams/{team}`. Those last three refuse service account keys (403 `person_required`):
+they are about a person. Everything else (administration, members, invites, keys, service accounts, connected apps,
+consent) takes browser sessions only. Agents with an external key (`PUT …/agents/by-key/…`) stay service-account
+only: an app acting as a person creates ordinary agents (for example in the person's personal workspace). Every
+request re-checks the token, its connection and the person (suspended: refused) and is rate-limited as the person.
+Tokens and codes are stored as HMAC-SHA256 digests (label `oauth:`) under `API_KEY_PEPPER`, and
+`API_KEY_PEPPER_PREVIOUS` is accepted during a rotation; they are never logged.
+
+**Consent and trust.** Allowing an app records a connection (a grant), remembered until revoked, so connecting again
+skips the consent page. Platform admins can mark apps **trusted** (`PUT /v1/admin/settings/oauth-clients`,
+If-Match; the list is empty by default): trusted apps skip the consent page, never the
+sign-in. Only metadata-document apps can be trusted, since a registered app's ID changes and its name is anyone's
+choice.
+
+**Revoking.** People see and disconnect their apps (`GET`/`DELETE /v1/me/oauth-grants`); platform admins and auditors
+see anyone's (`GET /v1/admin/users/{userId}/oauth-grants`) and platform admins disconnect them. Disconnecting ends
+every token at once. The audit log records `oauth.consent`, `oauth.token_issue`, `oauth.revoke` (reason `user`,
+`admin`, `client` or `refresh_reuse`), `oauth.client_register` and `oauth.trusted_clients_update`; what an app does
+is recorded with actor kind `oauth`: the person, through the app.
 
 ## Models
 

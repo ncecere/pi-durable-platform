@@ -57,6 +57,10 @@ CROSS JOIN LATERAL (
         WHEN 'platform' THEN CASE a.target_id WHEN 'personal-workspaces' THEN 'Personal workspace settings' END
         WHEN 'service_account_key' THEN (SELECT sa.name || ' · ' || k.name FROM service_account_keys k
                                          JOIN service_accounts sa ON sa.id = k.service_account_id WHERE k.id = ids.target_uuid)
+        WHEN 'oauth_grant' THEN (SELECT og.client_name || ' · ' || COALESCE(NULLIF(gu.display_name, ''), gu.email::text)
+                                 FROM oauth_grants og JOIN users gu ON gu.id = og.user_id WHERE og.id = ids.target_uuid)
+        WHEN 'oauth_client' THEN (SELECT oc.client_name FROM oauth_clients oc WHERE oc.id = ids.target_uuid)
+        WHEN 'oauth_settings' THEN CASE a.target_id WHEN 'trusted-clients' THEN 'Trusted apps' END
     END)::text AS label
 ) live
 WHERE (sqlc.narg(team_id)::uuid IS NULL OR a.team_id = sqlc.narg(team_id)::uuid)

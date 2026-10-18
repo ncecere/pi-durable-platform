@@ -24,6 +24,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/httpapi"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
 	"github.com/ncecere/pi-durable-platform/internal/mcp"
+	"github.com/ncecere/pi-durable-platform/internal/oauth"
 	"github.com/ncecere/pi-durable-platform/internal/platform"
 	"github.com/ncecere/pi-durable-platform/internal/ratelimit"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
@@ -42,8 +43,8 @@ const (
 // dbConnectWait is how long a process waits for Postgres at start-up.
 const dbConnectWait = 3 * time.Minute
 
-// cleanupInterval is how often expired sessions and abandoned sign-ins are
-// deleted.
+// cleanupInterval is how often expired sessions, abandoned sign-ins and
+// expired OAuth codes and tokens are deleted.
 const cleanupInterval = 15 * time.Minute
 
 // Run starts the given mode and blocks until ctx is cancelled (or the mode
@@ -116,7 +117,7 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	}
 	loopCtx, stopLoops := context.WithCancel(ctx)
 	defer stopLoops()
-	go cleanupLoop(loopCtx, deps.Auth, log)
+	go cleanupLoop(loopCtx, deps.Auth, deps.OAuth, log)
 	go rateCounterLoop(loopCtx, deps.RateStore, log)
 	go deps.Agents.Host().ReapLoop(loopCtx, 30*time.Second)
 	go deps.Agents.RunThreadEvents(loopCtx, log.With("component", "thread-events"))
@@ -194,6 +195,12 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (httpapi.D
 	}
 	authSvc := auth.NewService(cfg, pool, log)
 	authSvc.SetRateStore(rates)
+	// OAuth Connect: apps act as the people who connect them. Its tokens are
+	// digested under the API key pepper, like keys. The development allowance
+	// lets a metadata document live on this machine.
+	connect := oauth.New(pool, oauth.Config{Issuer: cfg.AppURL, Pepper: pep.Current, PepperPrevious: pep.Previous,
+		DevAllowance: cfg.DevAuth && cfg.LoopbackAppURL()})
+	connect.Log = log
 	models := llm.New(pool, box)
 	hosts, err := mcp.ParseHostPatterns(cfg.Agents.ClientMCPHosts)
 	if err != nil {
@@ -213,6 +220,7 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (httpapi.D
 		Platform:        platform.NewService(pool),
 		APIKeys:         keys,
 		ServiceAccounts: sas,
+		OAuth:           connect,
 		Agents:          agentSvc,
 		Models:          models,
 		MCP:             servers,
@@ -238,9 +246,10 @@ func secretBox(cfg config.Config) (*secrets.Box, error) {
 	return secrets.New(key, previous...)
 }
 
-// cleanupLoop deletes expired sessions and sign-in states. Deletes are
+// cleanupLoop deletes expired sessions and sign-in states, and expired
+// OAuth codes and tokens and unused registered OAuth clients. Deletes are
 // idempotent, so every replica may run it; no leader election is needed.
-func cleanupLoop(ctx context.Context, a *auth.Service, log *slog.Logger) {
+func cleanupLoop(ctx context.Context, a *auth.Service, o *oauth.Service, log *slog.Logger) {
 	t := time.NewTicker(cleanupInterval)
 	defer t.Stop()
 	for {
@@ -250,6 +259,13 @@ func cleanupLoop(ctx context.Context, a *auth.Service, log *slog.Logger) {
 			log.Warn("session cleanup failed", "err", err)
 		case sessions+logins > 0:
 			log.Debug("expired sessions deleted", "sessions", sessions, "loginStates", logins)
+		}
+		n, err := o.Cleanup(ctx)
+		switch {
+		case err != nil && ctx.Err() == nil:
+			log.Warn("oauth cleanup failed", "err", err)
+		case n > 0:
+			log.Debug("expired oauth codes, tokens and clients deleted", "rows", n)
 		}
 		select {
 		case <-ctx.Done():

@@ -195,6 +195,12 @@ func toAPIAudit(e dbgen.ListAuditRow, platform bool) apitypes.AuditEntry {
 			v.Name = &name
 		}
 		out.Via = &v
+	case e.ActorKind == "oauth":
+		v := apitypes.AuditVia{Kind: apitypes.AuditViaKindOauth}
+		if name, ok := out.Metadata["oauthClient"].(string); ok && name != "" {
+			v.Name = &name
+		}
+		out.Via = &v
 	}
 	if platform && e.ClientIP != "" {
 		out.ClientIp = &e.ClientIP
@@ -220,6 +226,11 @@ func toAPIAuditActor(e dbgen.ListAuditRow) apitypes.AuditActor {
 	if e.ActorKind == "api_key" {
 		if name, ok := meta["apiKeyName"].(string); ok && name != "" {
 			actor.ApiKeyName = &name
+		}
+	}
+	if e.ActorKind == "oauth" {
+		if name, ok := meta["oauthClient"].(string); ok && name != "" {
+			actor.OauthClient = &name
 		}
 	}
 	return actor

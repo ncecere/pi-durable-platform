@@ -38,11 +38,22 @@ func TestRoutesMatchOpenAPI(t *testing.T) {
 		Auth:   &auth.Service{},
 	}
 	served := map[string]bool{}
+	seen := map[string]bool{}
 	for _, r := range apiRoutes(deps) {
-		if served[r.pattern()] {
+		if seen[r.pattern()] {
 			t.Errorf("route registered twice: %s", r.pattern())
 		}
-		served[r.pattern()] = true
+		seen[r.pattern()] = true
+		// OAuth Connect's protocol endpoints speak OAuth, not the /v1
+		// envelope; they are documented in DESIGN.md instead.
+		if !protocolRoutes[r.pattern()] {
+			served[r.pattern()] = true
+		}
+	}
+	for p := range protocolRoutes {
+		if !seen[p] {
+			t.Errorf("protocolRoutes lists %s, which is not served", p)
+		}
 	}
 
 	var missing, extra []string

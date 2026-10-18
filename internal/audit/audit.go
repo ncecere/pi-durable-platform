@@ -18,7 +18,10 @@ const (
 	ActorUser           = "user"
 	ActorAPIKey         = "api_key"
 	ActorServiceAccount = "service_account"
-	ActorSystem         = "system"
+	// ActorOAuth is a person acting through an app they connected (OAuth
+	// Connect): ActorUserID is the person.
+	ActorOAuth  = "oauth"
+	ActorSystem = "system"
 )
 
 // Entry is one audited event. Before/After hold configuration snapshots and

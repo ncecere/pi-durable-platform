@@ -24,6 +24,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
 	"github.com/ncecere/pi-durable-platform/internal/mcp"
+	"github.com/ncecere/pi-durable-platform/internal/oauth"
 	"github.com/ncecere/pi-durable-platform/internal/platform"
 	"github.com/ncecere/pi-durable-platform/internal/ratelimit"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
@@ -45,6 +46,9 @@ type Deps struct {
 	APIKeys *apikeys.Service
 	// ServiceAccounts manages team service accounts and their keys.
 	ServiceAccounts *serviceaccounts.Service
+	// OAuth is OAuth Connect: the authorization server whose tokens let an
+	// app act as the person who connected it.
+	OAuth *oauth.Service
 	// Agents manages agents and relays conversations to their runtimes.
 	Agents *agents.Service
 	// Models is the model catalog and the model proxy.
@@ -69,6 +73,9 @@ type Deps struct {
 type api struct {
 	Deps
 	q *dbgen.Queries
+	// limiter counts the OAuth protocol endpoints' requests per address:
+	// RateStore, or in memory without one.
+	limiter ratelimit.Store
 }
 
 // route is one entry in the served surface.
@@ -89,14 +96,18 @@ func opsRoutes(d Deps) []route {
 
 // apiRoutes is the full served surface, grouped by area.
 func apiRoutes(d Deps) []route {
-	a := &api{Deps: d}
+	a := &api{Deps: d, limiter: d.RateStore}
 	if d.Pool != nil {
 		a.q = dbgen.New(d.Pool)
+	}
+	if a.limiter == nil {
+		a.limiter = ratelimit.New()
 	}
 	routes := opsRoutes(d)
 	// Add a new area's route groups here (and its paths to api/openapi.yaml).
 	for _, group := range [][]route{a.authRoutes(), a.teamRoutes(), a.platformAdminRoutes(), a.apiKeyRoutes(),
-		a.serviceAccountRoutes(), a.serviceAccountAdminRoutes(), a.agentRoutes(), a.templateRoutes(), a.modelRoutes(), a.mcpRoutes(), a.personalRoutes()} {
+		a.serviceAccountRoutes(), a.serviceAccountAdminRoutes(), a.agentRoutes(), a.templateRoutes(), a.modelRoutes(), a.mcpRoutes(), a.personalRoutes(),
+		a.oauthRoutes(), a.oauthRESTRoutes()} {
 		routes = append(routes, group...)
 	}
 	return routes
@@ -124,8 +135,8 @@ func (a *api) authRoutes() []route {
 // teamRoutes: teams, members, invites and the team audit log.
 func (a *api) teamRoutes() []route {
 	return []route{
-		{"GET", "/v1/teams", a.session(a.listMyTeams)},
-		{"GET", "/v1/teams/{team}", a.session(a.getTeam)},
+		{"GET", "/v1/teams", a.person(a.listMyTeams)},
+		{"GET", "/v1/teams/{team}", a.person(a.getTeam)},
 		{"GET", "/v1/teams/{team}/members", a.session(a.listMembers)},
 		{"POST", "/v1/teams/{team}/members", a.session(a.addMember)},
 		{"PATCH", "/v1/teams/{team}/members/{userId}", a.session(a.updateMember)},

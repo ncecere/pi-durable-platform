@@ -21,8 +21,10 @@ const contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 
 	"img-src %IMG%; font-src 'self'; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 
 // apiPrefixes never fall back to the app: unknown API paths are JSON 404s.
-// /.well-known/ is reserved for protocol metadata.
-var apiPrefixes = []string{"/v1/", "/auth/", "/healthz", "/readyz", "/.well-known/"}
+// /.well-known/ is reserved for protocol metadata, and /oauth/ for OAuth
+// Connect's protocol endpoints (its consent page is the app's
+// /connect/consent).
+var apiPrefixes = []string{"/v1/", "/auth/", "/healthz", "/readyz", "/.well-known/", "/oauth/"}
 
 // spaOptions personalise index.html for this instance.
 type spaOptions struct {

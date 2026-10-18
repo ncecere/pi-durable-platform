@@ -28,12 +28,19 @@ tags:
   description: >-
     The model catalog: providers (OpenAI, Anthropic, OpenAI- and Anthropic-compatible servers) that platform admins
     add, the models they publish to teams, and the model each template version and agent runs on.
+- name: oauth
+  description: >-
+    OAuth Connect: people connect apps with their own platform identity. The platform is a small OAuth 2.1
+    authorization server (its protocol endpoints, /oauth/* and /.well-known/oauth-*, are outside this document); an
+    app's access token acts as the person, without their platform role, on the routes that take bearer credentials.
+    These operations are the consent page, people's connected apps, and the trusted-app list.
 - name: agents
   description: >-
     Durable Pi agents that teams deploy from templates, their conversations (threads) and templates. Every agent
     operation also accepts
     `Authorization: Bearer <key>`: a personal API key acts as its person; a team service account key acts in its
-    team with the account's role.
+    team with the account's role; an app's OAuth Connect access token acts as the person who connected it (without
+    their platform role).
 paths:
   /healthz:
     get:
@@ -150,6 +157,9 @@ paths:
       - me
       operationId: getMe
       summary: The signed-in user, CSRF token and capabilities
+      description: >-
+        Also takes `Authorization: Bearer` with a personal API key or an app's OAuth Connect access token (its person;
+        csrfToken is empty, and an app's capabilities are none), never a service account key (403 person_required).
       parameters:
       - name: optional
         in: query
@@ -182,6 +192,9 @@ paths:
       - teams
       operationId: listMyTeams
       summary: Teams the caller belongs to
+      description: >-
+        Also takes `Authorization: Bearer` with a personal API key or an app's OAuth Connect access token, never a
+        service account key (403 person_required).
       responses:
         '200':
           description: Memberships
@@ -198,6 +211,8 @@ paths:
                       $ref: '#/components/schemas/MyTeam'
         '401':
           $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
   /v1/teams/{team}:
     parameters:
     - $ref: '#/components/parameters/TeamParam'
@@ -206,6 +221,9 @@ paths:
       - teams
       operationId: getTeam
       summary: A team the caller belongs to (platform admins and auditors see any team)
+      description: >-
+        Also takes `Authorization: Bearer` with a personal API key or an app's OAuth Connect access token, never a
+        service account key (403 person_required).
       responses:
         '200':
           description: Team
@@ -2904,6 +2922,272 @@ paths:
           $ref: '#/components/responses/ErrorReply'
         '503':
           $ref: '#/components/responses/ErrorReply'
+  /v1/oauth/consent:
+    get:
+      tags:
+      - oauth
+      operationId: getOAuthConsent
+      summary: The consent page's view of an app's authorization request (the person signed in)
+      description: >-
+        The query is the authorization request the app sent to /oauth/authorize, unchanged (the platform redirects the
+        browser to the web app's /connect/consent with it). A request that isn't valid is a 400 whose code starts with
+        oauth_ (the page shows the reason and never sends the browser anywhere).
+      parameters:
+      - name: client_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: redirect_uri
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: response_type
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: code_challenge
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: code_challenge_method
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: state
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: scope
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: resource
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The app, where it will send the person back, and what it asks for
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/OAuthConsent'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - oauth
+      operationId: decideOAuthConsent
+      summary: Allow or deny an app's authorization request; returns where to send the browser
+      description: >-
+        Allowing records the person's consent (a connected app, remembered until revoked) and returns the app's
+        redirect URI with an authorization code; denying returns it with error=access_denied.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthConsentDecision'
+      responses:
+        '200':
+          description: Where to send the browser
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/OAuthConsentResult'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/me/oauth-grants:
+    get:
+      tags:
+      - oauth
+      operationId: listMyOAuthGrants
+      summary: The apps the caller connected (newest first)
+      responses:
+        '200':
+          description: Connected apps
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OAuthGrant'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/me/oauth-grants/{grantId}:
+    parameters:
+    - $ref: '#/components/parameters/GrantIdParam'
+    delete:
+      tags:
+      - oauth
+      operationId: revokeMyOAuthGrant
+      summary: Disconnect an app; its tokens stop working at once and its consent is forgotten
+      responses:
+        '200':
+          $ref: '#/components/responses/OkReply'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/users/{userId}/oauth-grants:
+    parameters:
+    - $ref: '#/components/parameters/UserIdParam'
+    get:
+      tags:
+      - oauth
+      - admin
+      operationId: adminListUserOAuthGrants
+      summary: The apps a person connected (platform admins and auditors)
+      responses:
+        '200':
+          description: Connected apps
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OAuthGrant'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/users/{userId}/oauth-grants/{grantId}:
+    parameters:
+    - $ref: '#/components/parameters/UserIdParam'
+    - $ref: '#/components/parameters/GrantIdParam'
+    delete:
+      tags:
+      - oauth
+      - admin
+      operationId: adminRevokeUserOAuthGrant
+      summary: Disconnect one of a person's apps (platform admins)
+      responses:
+        '200':
+          $ref: '#/components/responses/OkReply'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/settings/oauth-clients:
+    get:
+      tags:
+      - oauth
+      - admin
+      operationId: adminGetTrustedClients
+      summary: Trusted apps, which skip the consent screen (platform admins and auditors)
+      responses:
+        '200':
+          description: Trusted apps
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TrustedClients'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+    put:
+      tags:
+      - oauth
+      - admin
+      operationId: adminUpdateTrustedClients
+      summary: Replace the trusted apps (platform admins)
+      description: >-
+        Only apps identified by a Client ID Metadata Document (an https URL with a path) can be trusted: a registered
+        app's ID changes, and anyone can register any name. A trusted app skips the consent screen, never the sign-in.
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrustedClientsUpdate'
+      responses:
+        '200':
+          description: Trusted apps
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TrustedClients'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '422':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
+          $ref: '#/components/responses/ErrorReply'
 components:
   headers:
     ETag:
@@ -3054,6 +3338,13 @@ components:
       description: Team slug or ID
       schema:
         type: string
+    GrantIdParam:
+      name: grantId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     UserIdParam:
       name: userId
       in: path
@@ -4224,6 +4515,7 @@ components:
           - user
           - api_key
           - service_account
+          - oauth
           - system
         userId:
           type: string
@@ -4235,6 +4527,9 @@ components:
         apiKeyName:
           type: string
           description: The API key used (api_key actors)
+        oauthClient:
+          type: string
+          description: The connected app the person acted through (oauth actors)
     AuditEntry:
       type: object
       required:
@@ -4261,6 +4556,7 @@ components:
           enum:
           - user
           - api_key
+          - oauth
           - system
         actorUserId:
           type: string
@@ -4338,10 +4634,12 @@ components:
           enum:
           - session
           - api_key
-          description: 'session: signed in to the web app; api_key: with an API key.'
+          - oauth
+          description: 'session: signed in to the web app; api_key: with an API key; oauth: through an app the person
+            connected.'
         name:
           type: string
-          description: The API key's name, when known
+          description: The API key's or the app's name, when known
     AuthConfig:
       type: object
       required:
@@ -4367,6 +4665,8 @@ components:
           type: string
           nullable: true
           description: Where people request a new team (only platform admins create teams)
+        connect:
+          $ref: '#/components/schemas/ConnectInfo'
     Capabilities:
       type: object
       required:
@@ -5074,3 +5374,184 @@ components:
         secret:
           type: string
           description: The full key, shown only now
+    ConnectInfo:
+      type: object
+      description: OAuth Connect, for apps that act as the people who connect them (see DESIGN.md)
+      required:
+      - issuer
+      - authorizationEndpoint
+      - tokenEndpoint
+      - revocationEndpoint
+      - registrationEndpoint
+      - scopes
+      properties:
+        issuer:
+          type: string
+        authorizationEndpoint:
+          type: string
+        tokenEndpoint:
+          type: string
+        revocationEndpoint:
+          type: string
+        registrationEndpoint:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+    OAuthClientInfo:
+      type: object
+      description: An app, as it identifies itself
+      required:
+      - id
+      - kind
+      - name
+      - host
+      - trusted
+      properties:
+        id:
+          type: string
+          description: Its client_id
+        kind:
+          type: string
+          enum:
+          - metadata
+          - registered
+          description: >-
+            metadata: identified by a Client ID Metadata Document, whose host vouches for it; registered: it registered
+            itself, so its name is unverified.
+        name:
+          type: string
+        host:
+          type: string
+          description: The metadata document's host, or a registered app's (unverified) home page host
+        uri:
+          type: string
+          description: Its home page (https)
+        logoUrl:
+          type: string
+          description: Its logo (https)
+        trusted:
+          type: boolean
+          description: On the platform's trusted list (skips the consent screen)
+    PersonalWorkspaceRef:
+      type: object
+      required:
+      - slug
+      - name
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+    OAuthConsent:
+      type: object
+      required:
+      - client
+      - redirectUri
+      - redirectHost
+      - scopes
+      - remembered
+      properties:
+        client:
+          $ref: '#/components/schemas/OAuthClientInfo'
+        redirectUri:
+          type: string
+        redirectHost:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        remembered:
+          type: boolean
+          description: The person already allowed this app
+        personalWorkspace:
+          $ref: '#/components/schemas/PersonalWorkspaceRef'
+    OAuthConsentDecision:
+      type: object
+      required:
+      - query
+      - decision
+      properties:
+        query:
+          type: string
+          maxLength: 8000
+          description: The authorization request's query string, as the consent page received it
+        decision:
+          type: string
+          enum:
+          - allow
+          - deny
+    OAuthConsentResult:
+      type: object
+      required:
+      - redirectUrl
+      properties:
+        redirectUrl:
+          type: string
+          description: The app's redirect URI with a code, or with error=access_denied
+    OAuthGrant:
+      type: object
+      description: A connected app
+      required:
+      - id
+      - client
+      - scopes
+      - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        client:
+          $ref: '#/components/schemas/OAuthClientInfo'
+        scopes:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+    TrustedClient:
+      type: object
+      required:
+      - clientId
+      properties:
+        clientId:
+          type: string
+          maxLength: 500
+          description: The https URL of the app's Client ID Metadata Document
+        label:
+          type: string
+          maxLength: 100
+    TrustedClients:
+      type: object
+      required:
+      - clients
+      - revision
+      - updatedAt
+      properties:
+        clients:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrustedClient'
+        revision:
+          type: integer
+          format: int64
+        updatedAt:
+          type: string
+          format: date-time
+    TrustedClientsUpdate:
+      type: object
+      required:
+      - clients
+      properties:
+        clients:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/TrustedClient'
