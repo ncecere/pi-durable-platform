@@ -85,8 +85,11 @@ export function ThreadAudience({ thread, viewerId }: { thread: AgentThread; view
   const by = startedBy(thread, viewerId);
   const people = thread.participants.length;
   return (
-    <span className={s.hint}>
-      <UsersRound aria-hidden className={s.threadIcon} /> Shared
+    <span className={s.audience}>
+      {/* The icon and its word stay on one line; who started it and the people wrap after them. */}
+      <span className={s.audienceLabel}>
+        <UsersRound aria-hidden className={s.threadIcon} /> Shared
+      </span>
       {by ? ` · ${by}` : ""}
       {people > 1 ? ` · ${plural(people, "person", "people")}` : ""}
     </span>

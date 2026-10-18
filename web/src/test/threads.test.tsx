@@ -197,6 +197,10 @@ describe("test chat: threads and messages", () => {
     expect(within(mine).getByText("via Slack")).toBeInTheDocument();
     expect(screen.getByText("fake-one · 1,234 tokens · 3.2s · Length limit")).toBeInTheDocument();
     expect(screen.getByText("1.5s")).toBeInTheDocument();
+    // The header's Shared keeps its icon with the word (one unbreakable label), whatever follows it.
+    const shared = within(screen.getByRole("region", { name: "Helper" })).getByText("Shared");
+    expect(shared.querySelector("svg")).not.toBeNull();
+    expect(shared.parentElement).toHaveTextContent(/^Shared · Started by you · 2 people$/);
   });
 
   it("leaves your own name out when you're the only one in the thread", async () => {

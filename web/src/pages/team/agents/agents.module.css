@@ -215,3 +215,17 @@
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
 }
+
+/* The open thread's header: "Shared · started by … · N people", beside the title. */
+.audience {
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.audienceLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  white-space: nowrap;
+}
