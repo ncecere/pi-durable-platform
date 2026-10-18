@@ -12,8 +12,56 @@ import (
 	"github.com/google/uuid"
 )
 
-const deleteAgentThread = `-- name: DeleteAgentThread :exec
-DELETE FROM agent_threads WHERE agent_id = $1 AND thread_id = $2
+const claimAgentThread = `-- name: ClaimAgentThread :one
+INSERT INTO agent_threads (agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, status_at, visibility)
+VALUES ($1, $2, $3, $4, $5,
+        $6, $6, false, $6, $7)
+ON CONFLICT (agent_id, thread_id) DO NOTHING
+RETURNING agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at, visibility
+`
+
+type ClaimAgentThreadParams struct {
+	AgentID          uuid.UUID
+	ThreadID         string
+	Title            string
+	CreatedByUser    uuid.NullUUID
+	CreatedByService uuid.NullUUID
+	At               time.Time
+	Visibility       string
+}
+
+// The record of a thread a first message is about to be relayed to, written
+// before relaying (its creator and visibility). Nothing when it exists.
+func (q *Queries) ClaimAgentThread(ctx context.Context, arg ClaimAgentThreadParams) (AgentThread, error) {
+	row := q.db.QueryRow(ctx, claimAgentThread,
+		arg.AgentID,
+		arg.ThreadID,
+		arg.Title,
+		arg.CreatedByUser,
+		arg.CreatedByService,
+		arg.At,
+		arg.Visibility,
+	)
+	var i AgentThread
+	err := row.Scan(
+		&i.AgentID,
+		&i.ThreadID,
+		&i.Title,
+		&i.CreatedByUser,
+		&i.CreatedByService,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Busy,
+		&i.LastReplyAt,
+		&i.LastError,
+		&i.StatusAt,
+		&i.Visibility,
+	)
+	return i, err
+}
+
+const deleteAgentThread = `-- name: DeleteAgentThread :many
+DELETE FROM agent_threads WHERE agent_id = $1 AND thread_id = $2 RETURNING agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at, visibility
 `
 
 type DeleteAgentThreadParams struct {
@@ -21,14 +69,43 @@ type DeleteAgentThreadParams struct {
 	ThreadID string
 }
 
-func (q *Queries) DeleteAgentThread(ctx context.Context, arg DeleteAgentThreadParams) error {
-	_, err := q.db.Exec(ctx, deleteAgentThread, arg.AgentID, arg.ThreadID)
-	return err
+func (q *Queries) DeleteAgentThread(ctx context.Context, arg DeleteAgentThreadParams) ([]AgentThread, error) {
+	rows, err := q.db.Query(ctx, deleteAgentThread, arg.AgentID, arg.ThreadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentThread{}
+	for rows.Next() {
+		var i AgentThread
+		if err := rows.Scan(
+			&i.AgentID,
+			&i.ThreadID,
+			&i.Title,
+			&i.CreatedByUser,
+			&i.CreatedByService,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Busy,
+			&i.LastReplyAt,
+			&i.LastError,
+			&i.StatusAt,
+			&i.Visibility,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const deleteAgentThreadsNotIn = `-- name: DeleteAgentThreadsNotIn :execrows
 DELETE FROM agent_threads
-WHERE agent_id = $1 AND created_at < $2 AND NOT (thread_id = ANY($3::text[]))
+WHERE agent_id = $1 AND created_at < $2::timestamptz - interval '5 minutes'
+  AND NOT (thread_id = ANY($3::text[]))
 `
 
 type DeleteAgentThreadsNotInParams struct {
@@ -38,7 +115,12 @@ type DeleteAgentThreadsNotInParams struct {
 }
 
 // Threads the runtime no longer has (deleted while the platform missed it),
-// recorded before the runtime's report.
+// recorded well before the runtime's report: a thread recorded while the
+// agent was starting (the platform records it before relaying its first
+// message, which waits for the start) may be missing from a list the runtime
+// took a moment earlier, and must not be forgotten (a private thread would
+// come back shared when the runtime next reports it). The next start
+// reconciles those.
 func (q *Queries) DeleteAgentThreadsNotIn(ctx context.Context, arg DeleteAgentThreadsNotInParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteAgentThreadsNotIn, arg.AgentID, arg.Before, arg.Keep)
 	if err != nil {
@@ -48,7 +130,7 @@ func (q *Queries) DeleteAgentThreadsNotIn(ctx context.Context, arg DeleteAgentTh
 }
 
 const getAgentThread = `-- name: GetAgentThread :one
-SELECT agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at FROM agent_threads WHERE agent_id = $1 AND thread_id = $2
+SELECT agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at, visibility FROM agent_threads WHERE agent_id = $1 AND thread_id = $2
 `
 
 type GetAgentThreadParams struct {
@@ -71,14 +153,16 @@ func (q *Queries) GetAgentThread(ctx context.Context, arg GetAgentThreadParams) 
 		&i.LastReplyAt,
 		&i.LastError,
 		&i.StatusAt,
+		&i.Visibility,
 	)
 	return i, err
 }
 
 const listAgentThreads = `-- name: ListAgentThreads :many
-SELECT agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at FROM agent_threads WHERE agent_id = $1 ORDER BY updated_at DESC, thread_id
+SELECT agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at, visibility FROM agent_threads WHERE agent_id = $1 ORDER BY updated_at DESC, thread_id
 `
 
+// Every thread of the agent, private ones too (platform admins).
 func (q *Queries) ListAgentThreads(ctx context.Context, agentID uuid.UUID) ([]AgentThread, error) {
 	rows, err := q.db.Query(ctx, listAgentThreads, agentID)
 	if err != nil {
@@ -100,6 +184,96 @@ func (q *Queries) ListAgentThreads(ctx context.Context, agentID uuid.UUID) ([]Ag
 			&i.LastReplyAt,
 			&i.LastError,
 			&i.StatusAt,
+			&i.Visibility,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listThreadParticipants = `-- name: ListThreadParticipants :many
+SELECT agent_id, thread_id, user_id, service_account_id, first_sent_at, last_sent_at FROM agent_thread_participants
+WHERE agent_id = $1 AND thread_id = ANY($2::text[])
+ORDER BY thread_id, first_sent_at, user_id, service_account_id
+`
+
+type ListThreadParticipantsParams struct {
+	AgentID   uuid.UUID
+	ThreadIds []string
+}
+
+// Who has sent to the threads, first sender first.
+func (q *Queries) ListThreadParticipants(ctx context.Context, arg ListThreadParticipantsParams) ([]AgentThreadParticipant, error) {
+	rows, err := q.db.Query(ctx, listThreadParticipants, arg.AgentID, arg.ThreadIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentThreadParticipant{}
+	for rows.Next() {
+		var i AgentThreadParticipant
+		if err := rows.Scan(
+			&i.AgentID,
+			&i.ThreadID,
+			&i.UserID,
+			&i.ServiceAccountID,
+			&i.FirstSentAt,
+			&i.LastSentAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listVisibleAgentThreads = `-- name: ListVisibleAgentThreads :many
+SELECT agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at, visibility FROM agent_threads
+WHERE agent_id = $1
+  AND (visibility = 'shared'
+       OR ($2::uuid IS NOT NULL AND created_by_user = $2::uuid)
+       OR ($3::uuid IS NOT NULL AND created_by_service = $3::uuid))
+ORDER BY updated_at DESC, thread_id
+`
+
+type ListVisibleAgentThreadsParams struct {
+	AgentID       uuid.UUID
+	ViewerUser    uuid.NullUUID
+	ViewerService uuid.NullUUID
+}
+
+// The agent's shared threads and the viewer's own private ones (viewer_user
+// for a person, viewer_service for a service account).
+func (q *Queries) ListVisibleAgentThreads(ctx context.Context, arg ListVisibleAgentThreadsParams) ([]AgentThread, error) {
+	rows, err := q.db.Query(ctx, listVisibleAgentThreads, arg.AgentID, arg.ViewerUser, arg.ViewerService)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentThread{}
+	for rows.Next() {
+		var i AgentThread
+		if err := rows.Scan(
+			&i.AgentID,
+			&i.ThreadID,
+			&i.Title,
+			&i.CreatedByUser,
+			&i.CreatedByService,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Busy,
+			&i.LastReplyAt,
+			&i.LastError,
+			&i.StatusAt,
+			&i.Visibility,
 		); err != nil {
 			return nil, err
 		}
@@ -121,7 +295,7 @@ func (q *Queries) NotifyThreads(ctx context.Context, payload string) error {
 }
 
 const renameAgentThread = `-- name: RenameAgentThread :one
-UPDATE agent_threads SET title = $3 WHERE agent_id = $1 AND thread_id = $2 RETURNING agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at
+UPDATE agent_threads SET title = $3 WHERE agent_id = $1 AND thread_id = $2 RETURNING agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at, visibility
 `
 
 type RenameAgentThreadParams struct {
@@ -145,8 +319,86 @@ func (q *Queries) RenameAgentThread(ctx context.Context, arg RenameAgentThreadPa
 		&i.LastReplyAt,
 		&i.LastError,
 		&i.StatusAt,
+		&i.Visibility,
 	)
 	return i, err
+}
+
+const serviceAccountNames = `-- name: ServiceAccountNames :many
+SELECT id, name FROM service_accounts WHERE id = ANY($1::uuid[])
+`
+
+type ServiceAccountNamesRow struct {
+	ID   uuid.UUID
+	Name string
+}
+
+func (q *Queries) ServiceAccountNames(ctx context.Context, ids []uuid.UUID) ([]ServiceAccountNamesRow, error) {
+	rows, err := q.db.Query(ctx, serviceAccountNames, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ServiceAccountNamesRow{}
+	for rows.Next() {
+		var i ServiceAccountNamesRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const threadParticipantService = `-- name: ThreadParticipantService :exec
+INSERT INTO agent_thread_participants (agent_id, thread_id, service_account_id, first_sent_at, last_sent_at)
+VALUES ($1, $2, $3, $4, $4)
+ON CONFLICT (agent_id, thread_id, service_account_id) WHERE service_account_id IS NOT NULL
+DO UPDATE SET last_sent_at = greatest(agent_thread_participants.last_sent_at, EXCLUDED.last_sent_at)
+`
+
+type ThreadParticipantServiceParams struct {
+	AgentID          uuid.UUID
+	ThreadID         string
+	ServiceAccountID uuid.NullUUID
+	At               time.Time
+}
+
+func (q *Queries) ThreadParticipantService(ctx context.Context, arg ThreadParticipantServiceParams) error {
+	_, err := q.db.Exec(ctx, threadParticipantService,
+		arg.AgentID,
+		arg.ThreadID,
+		arg.ServiceAccountID,
+		arg.At,
+	)
+	return err
+}
+
+const threadParticipantUser = `-- name: ThreadParticipantUser :exec
+INSERT INTO agent_thread_participants (agent_id, thread_id, user_id, first_sent_at, last_sent_at)
+VALUES ($1, $2, $3, $4, $4)
+ON CONFLICT (agent_id, thread_id, user_id) WHERE user_id IS NOT NULL
+DO UPDATE SET last_sent_at = greatest(agent_thread_participants.last_sent_at, EXCLUDED.last_sent_at)
+`
+
+type ThreadParticipantUserParams struct {
+	AgentID  uuid.UUID
+	ThreadID string
+	UserID   uuid.NullUUID
+	At       time.Time
+}
+
+func (q *Queries) ThreadParticipantUser(ctx context.Context, arg ThreadParticipantUserParams) error {
+	_, err := q.db.Exec(ctx, threadParticipantUser,
+		arg.AgentID,
+		arg.ThreadID,
+		arg.UserID,
+		arg.At,
+	)
+	return err
 }
 
 const threadReported = `-- name: ThreadReported :one
@@ -161,7 +413,7 @@ ON CONFLICT (agent_id, thread_id) DO UPDATE SET
                          THEN coalesce(EXCLUDED.last_reply_at, agent_threads.last_reply_at) ELSE agent_threads.last_reply_at END,
     last_error    = CASE WHEN EXCLUDED.status_at >= agent_threads.status_at THEN EXCLUDED.last_error ELSE agent_threads.last_error END,
     status_at     = greatest(agent_threads.status_at, EXCLUDED.status_at)
-RETURNING agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at
+RETURNING agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at, visibility
 `
 
 type ThreadReportedParams struct {
@@ -201,20 +453,21 @@ func (q *Queries) ThreadReported(ctx context.Context, arg ThreadReportedParams) 
 		&i.LastReplyAt,
 		&i.LastError,
 		&i.StatusAt,
+		&i.Visibility,
 	)
 	return i, err
 }
 
 const threadSent = `-- name: ThreadSent :one
-INSERT INTO agent_threads (agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, status_at)
+INSERT INTO agent_threads (agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, status_at, visibility)
 VALUES ($1, $2, $3, $4, $5,
-        $6, $6, true, $6)
+        $6, $6, true, $6, $7)
 ON CONFLICT (agent_id, thread_id) DO UPDATE SET
     updated_at = greatest(agent_threads.updated_at, EXCLUDED.updated_at),
     busy       = CASE WHEN EXCLUDED.status_at >= agent_threads.status_at THEN true ELSE agent_threads.busy END,
     last_error = CASE WHEN EXCLUDED.status_at >= agent_threads.status_at THEN NULL ELSE agent_threads.last_error END,
     status_at  = greatest(agent_threads.status_at, EXCLUDED.status_at)
-RETURNING agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at
+RETURNING agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at, visibility
 `
 
 type ThreadSentParams struct {
@@ -224,10 +477,13 @@ type ThreadSentParams struct {
 	CreatedByUser    uuid.NullUUID
 	CreatedByService uuid.NullUUID
 	At               time.Time
+	Visibility       string
 }
 
 // A message was relayed to the thread: it exists (titled after its first
 // message), was used now, and is working (unless a newer report says otherwise).
+// The record normally exists (ClaimAgentThread); visibility is for a record
+// that went missing meanwhile, and never changes an existing one.
 func (q *Queries) ThreadSent(ctx context.Context, arg ThreadSentParams) (AgentThread, error) {
 	row := q.db.QueryRow(ctx, threadSent,
 		arg.AgentID,
@@ -236,6 +492,7 @@ func (q *Queries) ThreadSent(ctx context.Context, arg ThreadSentParams) (AgentTh
 		arg.CreatedByUser,
 		arg.CreatedByService,
 		arg.At,
+		arg.Visibility,
 	)
 	var i AgentThread
 	err := row.Scan(
@@ -250,6 +507,60 @@ func (q *Queries) ThreadSent(ctx context.Context, arg ThreadSentParams) (AgentTh
 		&i.LastReplyAt,
 		&i.LastError,
 		&i.StatusAt,
+		&i.Visibility,
 	)
 	return i, err
+}
+
+const unclaimAgentThread = `-- name: UnclaimAgentThread :execrows
+DELETE FROM agent_threads t
+WHERE t.agent_id = $1 AND t.thread_id = $2
+  AND t.created_at = $3 AND t.status_at = $3 AND t.last_reply_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM agent_thread_participants p WHERE p.agent_id = t.agent_id AND p.thread_id = t.thread_id)
+`
+
+type UnclaimAgentThreadParams struct {
+	AgentID  uuid.UUID
+	ThreadID string
+	At       time.Time
+}
+
+// Removes a claimed record when its first message was refused, unless the
+// runtime has reported the thread since.
+func (q *Queries) UnclaimAgentThread(ctx context.Context, arg UnclaimAgentThreadParams) (int64, error) {
+	result, err := q.db.Exec(ctx, unclaimAgentThread, arg.AgentID, arg.ThreadID, arg.At)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const userNames = `-- name: UserNames :many
+SELECT id, COALESCE(NULLIF(display_name, ''), email::text)::text AS name FROM users WHERE id = ANY($1::uuid[])
+`
+
+type UserNamesRow struct {
+	ID   uuid.UUID
+	Name string
+}
+
+// People's names as threads show them (their display name, else email).
+func (q *Queries) UserNames(ctx context.Context, ids []uuid.UUID) ([]UserNamesRow, error) {
+	rows, err := q.db.Query(ctx, userNames, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UserNamesRow{}
+	for rows.Next() {
+		var i UserNamesRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

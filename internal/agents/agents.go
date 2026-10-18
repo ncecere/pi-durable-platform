@@ -838,7 +838,8 @@ func (s *Service) AuthenticateMCP(ctx context.Context, agentID uuid.UUID, token 
 }
 
 // SetThreadMCP replaces the MCP servers an app gives one of the agent's
-// threads (anyone who may use the agent; its template version must allow it).
+// threads (anyone who may use the agent and reach the thread; its template
+// version must allow it).
 func (s *Service) SetThreadMCP(ctx context.Context, a authz.Actor, agentID uuid.UUID, threadID string, servers []mcp.ClientServer) error {
 	ag, err := s.load(ctx, s.q, agentID)
 	if err != nil {
@@ -849,6 +850,9 @@ func (s *Service) SetThreadMCP(ctx context.Context, a authz.Actor, agentID uuid.
 		return err
 	}
 	if err := authz.CheckAgentUse(sub); err != nil {
+		return err
+	}
+	if err := s.ThreadAccess(ctx, a, agentID, threadID); err != nil {
 		return err
 	}
 	tv, err := version(ctx, s.q, ag.TemplateID, ag.TemplateVersion)
@@ -869,6 +873,9 @@ func (s *Service) ThreadMCP(ctx context.Context, a authz.Actor, agentID uuid.UUI
 		return nil, err
 	}
 	if err := authz.CheckAgentUse(sub); err != nil {
+		return nil, err
+	}
+	if err := s.ThreadAccess(ctx, a, agentID, threadID); err != nil {
 		return nil, err
 	}
 	return s.mcp.ThreadServers(ctx, agentID, threadID)

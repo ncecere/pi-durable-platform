@@ -159,6 +159,24 @@ func (e AuditViaKind) Valid() bool {
 	}
 }
 
+// Defines values for ChatAuthorKind.
+const (
+	ChatAuthorKindServiceAccount ChatAuthorKind = "service_account"
+	ChatAuthorKindUser           ChatAuthorKind = "user"
+)
+
+// Valid indicates whether the value is a known member of the ChatAuthorKind enum.
+func (e ChatAuthorKind) Valid() bool {
+	switch e {
+	case ChatAuthorKindServiceAccount:
+		return true
+	case ChatAuthorKindUser:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ChatMessageRole.
 const (
 	ChatMessageRoleAssistant ChatMessageRole = "assistant"
@@ -759,6 +777,60 @@ func (e TeamStatus) Valid() bool {
 	}
 }
 
+// Defines values for ThreadParticipantKind.
+const (
+	ThreadParticipantKindServiceAccount ThreadParticipantKind = "service_account"
+	ThreadParticipantKindUser           ThreadParticipantKind = "user"
+)
+
+// Valid indicates whether the value is a known member of the ThreadParticipantKind enum.
+func (e ThreadParticipantKind) Valid() bool {
+	switch e {
+	case ThreadParticipantKindServiceAccount:
+		return true
+	case ThreadParticipantKindUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ThreadPrincipalKind.
+const (
+	ThreadPrincipalKindServiceAccount ThreadPrincipalKind = "service_account"
+	ThreadPrincipalKindUser           ThreadPrincipalKind = "user"
+)
+
+// Valid indicates whether the value is a known member of the ThreadPrincipalKind enum.
+func (e ThreadPrincipalKind) Valid() bool {
+	switch e {
+	case ThreadPrincipalKindServiceAccount:
+		return true
+	case ThreadPrincipalKindUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ThreadVisibility.
+const (
+	ThreadVisibilityPrivate ThreadVisibility = "private"
+	ThreadVisibilityShared  ThreadVisibility = "shared"
+)
+
+// Valid indicates whether the value is a known member of the ThreadVisibility enum.
+func (e ThreadVisibility) Valid() bool {
+	switch e {
+	case ThreadVisibilityPrivate:
+		return true
+	case ThreadVisibilityShared:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UsageReportGroupBy.
 const (
 	UsageReportGroupByAgent UsageReportGroupBy = "agent"
@@ -945,6 +1017,29 @@ func (e GetTeamUsageParamsGroupBy) Valid() bool {
 	}
 }
 
+// AdminAgentThread A thread as platform admins list it. The title of a private thread, and of every thread of a personal workspace's agent, is withheld (null, titleHidden): reading one takes a reason (adminReadAgentThread).
+type AdminAgentThread struct {
+	Busy         bool                `json:"busy"`
+	CreatedAt    int64               `json:"createdAt"`
+	CreatedBy    *ThreadPrincipal    `json:"createdBy,omitempty"`
+	LastError    *string             `json:"lastError,omitempty"`
+	LastReplyAt  *int64              `json:"lastReplyAt,omitempty"`
+	Participants []ThreadParticipant `json:"participants"`
+	ThreadId     string              `json:"threadId"`
+	Title        *string             `json:"title"`
+	TitleHidden  bool                `json:"titleHidden"`
+	UpdatedAt    int64               `json:"updatedAt"`
+
+	// Visibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen with the first message; it never changes.
+	Visibility ThreadVisibility `json:"visibility"`
+}
+
+// AdminThreadRead defines model for AdminThreadRead.
+type AdminThreadRead struct {
+	// Reason Why the conversation is opened; recorded in the agent's team's audit log
+	Reason string `json:"reason"`
+}
+
 // Agent defines model for Agent.
 type Agent struct {
 	CreatedAt   time.Time `json:"createdAt"`
@@ -1013,7 +1108,7 @@ type AgentMessageAccepted struct {
 	SubmissionId int64 `json:"submissionId"`
 }
 
-// AgentMessageCreate defines model for AgentMessageCreate.
+// AgentMessageCreate The platform records the thread (its creator and visibility) before relaying the first message. Another's private thread reads as not found (404 thread_not_found), on this and every thread route.
 type AgentMessageCreate struct {
 	// McpServers The MCP servers this thread's user enabled in the app (replaces the thread's; [] removes them). For template versions with clientMcp, on hosts the platform allows. Never forwarded to the agent: the platform keeps them.
 	McpServers *[]ClientMcpServer `json:"mcpServers,omitempty"`
@@ -1021,6 +1116,9 @@ type AgentMessageCreate struct {
 	// RequestId Idempotency key; a repeated one is not submitted again
 	RequestId *string `json:"requestId,omitempty"`
 	Text      string  `json:"text"`
+
+	// Visibility The thread's visibility, chosen with its first message (default shared). On a later message it may be omitted; a different value is refused (409 visibility_fixed). The message's author is always the caller: author fields a client sends are ignored.
+	Visibility *ThreadVisibility `json:"visibility,omitempty"`
 }
 
 // AgentModel defines model for AgentModel.
@@ -1146,16 +1244,25 @@ type AgentThread struct {
 	// CreatedAt Unix milliseconds
 	CreatedAt int64 `json:"createdAt"`
 
+	// CreatedBy Who started the thread (absent when unknown, such as threads begun before the platform recorded it)
+	CreatedBy *ThreadPrincipal `json:"createdBy,omitempty"`
+
 	// LastError Why the last reply failed (absent when it succeeded)
 	LastError *string `json:"lastError,omitempty"`
 
 	// LastReplyAt When the last reply finished (Unix milliseconds)
 	LastReplyAt *int64 `json:"lastReplyAt,omitempty"`
-	ThreadId    string `json:"threadId"`
-	Title       string `json:"title"`
+
+	// Participants Everyone who has sent to the thread, first sender first
+	Participants []ThreadParticipant `json:"participants"`
+	ThreadId     string              `json:"threadId"`
+	Title        string              `json:"title"`
 
 	// UpdatedAt Unix milliseconds; moves when a message is sent and when a reply finishes
 	UpdatedAt int64 `json:"updatedAt"`
+
+	// Visibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen with the first message; it never changes.
+	Visibility ThreadVisibility `json:"visibility"`
 }
 
 // AgentThreadEvent defines model for AgentThreadEvent.
@@ -1321,30 +1428,68 @@ type Capabilities struct {
 	PlatformAuditor bool `json:"platformAuditor"`
 }
 
+// ChatAuthor Who sent a user message, as the platform recorded it
+type ChatAuthor struct {
+	Id   string         `json:"id"`
+	Kind ChatAuthorKind `json:"kind"`
+	Name string         `json:"name"`
+
+	// Via The app a person sent it through (OAuth Connect)
+	Via *string `json:"via,omitempty"`
+}
+
+// ChatAuthorKind defines model for ChatAuthor.Kind.
+type ChatAuthorKind string
+
 // ChatMessage defines model for ChatMessage.
 type ChatMessage struct {
+	// At When the message was sent or the reply started (Unix milliseconds)
+	At *int64 `json:"at,omitempty"`
+
+	// Author Who sent a user message, as the platform recorded it
+	Author *ChatAuthor `json:"author,omitempty"`
+
 	// Error An assistant reply that failed or was interrupted
-	Error   *string `json:"error,omitempty"`
-	Id      string  `json:"id"`
-	IsError *bool   `json:"isError,omitempty"`
+	Error   *string    `json:"error,omitempty"`
+	Id      string     `json:"id"`
+	IsError *bool      `json:"isError,omitempty"`
+	Model   *ChatModel `json:"model,omitempty"`
 
 	// Name Tool name (tool results)
-	Name       *string         `json:"name,omitempty"`
-	Role       ChatMessageRole `json:"role"`
+	Name *string         `json:"name,omitempty"`
+	Role ChatMessageRole `json:"role"`
+
+	// StopReason Why an assistant reply ended (stop, length, toolUse, error, aborted)
+	StopReason *string         `json:"stopReason,omitempty"`
 	Text       *string         `json:"text,omitempty"`
 	Thinking   *string         `json:"thinking,omitempty"`
 	ToolCallId *string         `json:"toolCallId,omitempty"`
 	ToolCalls  *[]ChatToolCall `json:"toolCalls,omitempty"`
+
+	// Usage Tokens of one model response
+	Usage *ChatUsage `json:"usage,omitempty"`
 }
 
 // ChatMessageRole defines model for ChatMessage.Role.
 type ChatMessageRole string
 
+// ChatModel defines model for ChatModel.
+type ChatModel struct {
+	Id       string `json:"id"`
+	Provider string `json:"provider"`
+}
+
 // ChatToolCall defines model for ChatToolCall.
 type ChatToolCall struct {
 	Arguments map[string]interface{} `json:"arguments"`
-	Id        string                 `json:"id"`
-	Name      string                 `json:"name"`
+
+	// EndedAt When its result arrived (Unix milliseconds; absent while it runs)
+	EndedAt *int64 `json:"endedAt,omitempty"`
+	Id      string `json:"id"`
+	Name    string `json:"name"`
+
+	// StartedAt When the call was made (the assistant message's time, Unix milliseconds)
+	StartedAt *int64 `json:"startedAt,omitempty"`
 }
 
 // ChatToolSlot defines model for ChatToolSlot.
@@ -1353,6 +1498,15 @@ type ChatToolSlot struct {
 	Name   string  `json:"name"`
 	Output *string `json:"output,omitempty"`
 	Status string  `json:"status"`
+}
+
+// ChatUsage Tokens of one model response
+type ChatUsage struct {
+	CacheRead  int64 `json:"cacheRead"`
+	CacheWrite int64 `json:"cacheWrite"`
+	Input      int64 `json:"input"`
+	Output     int64 `json:"output"`
+	Total      int64 `json:"total"`
 }
 
 // ChatView defines model for ChatView.
@@ -2165,6 +2319,34 @@ type ThreadMcpServer struct {
 	Url       string    `json:"url"`
 }
 
+// ThreadParticipant defines model for ThreadParticipant.
+type ThreadParticipant struct {
+	Id   openapi_types.UUID    `json:"id"`
+	Kind ThreadParticipantKind `json:"kind"`
+
+	// LastSentAt When they last sent to the thread (Unix milliseconds)
+	LastSentAt int64  `json:"lastSentAt"`
+	Name       string `json:"name"`
+}
+
+// ThreadParticipantKind defines model for ThreadParticipant.Kind.
+type ThreadParticipantKind string
+
+// ThreadPrincipal defines model for ThreadPrincipal.
+type ThreadPrincipal struct {
+	Id   openapi_types.UUID  `json:"id"`
+	Kind ThreadPrincipalKind `json:"kind"`
+
+	// Name A person's display name (else email), or a service account's name
+	Name string `json:"name"`
+}
+
+// ThreadPrincipalKind defines model for ThreadPrincipal.Kind.
+type ThreadPrincipalKind string
+
+// ThreadVisibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen with the first message; it never changes.
+type ThreadVisibility string
+
 // TrustedClient defines model for TrustedClient.
 type TrustedClient struct {
 	// ClientId The https URL of the app's Client ID Metadata Document
@@ -2682,6 +2864,9 @@ type GetTeamUsageParamsGroupBy string
 
 // DevLoginJSONRequestBody defines body for DevLogin for application/json ContentType.
 type DevLoginJSONRequestBody = DevLoginRequest
+
+// AdminReadAgentThreadJSONRequestBody defines body for AdminReadAgentThread for application/json ContentType.
+type AdminReadAgentThreadJSONRequestBody = AdminThreadRead
 
 // AdminCreateMcpServerJSONRequestBody defines body for AdminCreateMcpServer for application/json ContentType.
 type AdminCreateMcpServerJSONRequestBody = McpServerCreate

@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type RequestListener, type Server, 
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type Harness, LiveDoc, type Conversation } from "@earendil-works/pi-durable";
 import type { ThreadStore } from "./threads.ts";
-import { buildView, type ChatView } from "./view.ts";
+import { type Author, buildView, type ChatView, USER_ENTRY, type UserEntryData } from "./view.ts";
 
 const ctx = BACKGROUND_CONTEXT;
 const MAX_BODY = 256 * 1024;
@@ -95,15 +95,25 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		}
 		if (method === "POST" && action === "messages") {
 			touch();
-			const body = (await readJson(request)) as { text?: unknown; requestId?: unknown };
+			const body = (await readJson(request)) as { text?: unknown; requestId?: unknown; author?: unknown; announceAuthor?: unknown };
 			const text = typeof body.text === "string" ? body.text.trim() : "";
 			const requestId = typeof body.requestId === "string" ? body.requestId : undefined;
 			if (text.length === 0 || text.length > 32_000) return fail(response, 400, "invalid_text", "text is required (at most 32,000 characters)");
 			if (requestId !== undefined && !THREAD_ID.test(requestId)) return fail(response, 400, "invalid_request_id", "requestId must be 1-64 letters, digits, dashes or underscores");
+			// The platform (the only caller) says who sent the message, and whether the model is told (shared threads).
+			const author = parseAuthor(body.author);
 			const conversation = await threads.ensure(threadId, text);
 			await options.beforeMessage?.(threadId, conversation);
+			const data: UserEntryData = { text, at: Date.now(), ...(author === undefined ? {} : { author }) };
+			const content = author !== undefined && body.announceAuthor === true ? `${speakerLine(author)}\n${text}` : text;
 			const submission = await conversation.submit(
-				{ type: "input", content: text, whenBusy: "followUp", ...(requestId === undefined ? {} : { requestId }) },
+				{
+					type: "input",
+					content,
+					whenBusy: "followUp",
+					entry: { kind: USER_ENTRY, data },
+					...(requestId === undefined ? {} : { requestId }),
+				},
 				ctx,
 			);
 			await threads.touch(threadId);
@@ -169,6 +179,26 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		});
 	};
 	return { server: createServer(handler), handler, lastActivity: () => lastActivity, touch };
+}
+
+/** The author the platform sent, or undefined when absent or malformed. */
+function parseAuthor(value: unknown): Author | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const { kind, id, name, via } = value as Record<string, unknown>;
+	if ((kind !== "user" && kind !== "service_account") || typeof id !== "string" || typeof name !== "string") return undefined;
+	const clean = (s: string) => s.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 200);
+	return {
+		kind,
+		id: id.slice(0, 64),
+		name: clean(name),
+		...(typeof via === "string" && clean(via) !== "" ? { via: clean(via) } : {}),
+	};
+}
+
+/** The line that tells the model who is speaking (shared threads, where several people talk to the agent). */
+export function speakerLine(author: Author): string {
+	const name = author.name === "" ? "someone" : author.name;
+	return `[Message from ${name}${author.via === undefined ? "" : ` via ${author.via}`}]`;
 }
 
 class RequestError extends Error {

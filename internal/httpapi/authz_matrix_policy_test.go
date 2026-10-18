@@ -245,6 +245,14 @@ var matrixPolicies = map[string]policy{
 	}},
 	"stopAgentThread":   {scope: scopeTeam, own: members, build: func(c *mctx) request { return post(c.thread("/stop", false), nil) }},
 	"streamAgentThread": {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.thread("/events?once=true", false)) }},
+	// Platform admins (not auditors) list every thread of any agent, and read
+	// any conversation with a reason (audited in the agent's team's log).
+	"adminListAgentThreads": {scope: scopeTeam, foreign: padmin, build: func(c *mctx) request {
+		return get("/v1/admin/agents/" + c.tf.agent + "/threads")
+	}},
+	"adminReadAgentThread": {scope: scopeTeam, foreign: padmin, build: func(c *mctx) request {
+		return post(c.adminThread("/read"), map[string]any{"reason": "Checking a reported problem"})
+	}},
 
 	// The model catalog: platform admins manage providers and models,
 	// auditors read them; a team's members (and platform staff) see the

@@ -57,7 +57,8 @@ deploys catalog templates only (for now). Platform admins set defaults for every
 running at once, a monthly cost budget that is recorded but not enforced yet) and may override them for one
 workspace. Models and MCP servers have a `personal` flag: whether personal workspaces may use them (shared teams follow
 their visibility). Platform admins and auditors audit personal workspaces: they see the workspace, its agents, usage
-and audit log, but not conversations. Sign-in can be limited to IdP groups (`OIDC_ALLOWED_GROUPS`).
+and audit log, but not conversations (platform admins may open one with a stated reason, which the owner sees: see
+Threads). Sign-in can be limited to IdP groups (`OIDC_ALLOWED_GROUPS`).
 
 ## OAuth Connect
 
@@ -230,6 +231,41 @@ team's audit log.
 - Deleting a team deletes its servers along with its templates (`template_version_mcp` also cascades from its
   template, so the attachments go before the servers' `ON DELETE RESTRICT` check).
 
+## Threads
+
+A conversation with an agent is a thread, named by the client (`/v1/agents/{id}/threads/{threadId}`). The runtime
+keeps the conversation; the platform keeps a record of each thread (`agent_threads`) so listing doesn't wake the
+agent, and announces changes on `GET /v1/agents/events`.
+
+- **Shared or private.** The first message chooses (`visibility`, default `shared`; it never changes: a different
+  value later is 409 `visibility_fixed`). A shared thread is seen by everyone who may use the agent. A private one is
+  listed and read only by the person or service account that started it: not other members, not the team's owners
+  or admins, not another person's test chat in the console. On every thread route (read, send, stop, events, rename,
+  delete, the thread's MCP servers), in listings and in event streams, another's private thread reads as not found
+  (404 `thread_not_found`, the same as a missing one). A thread the runtime has but the platform has no record of
+  (older threads) is shared. Personal workspaces' threads default to shared too: only the owner reaches the agent.
+- **Recorded before relaying.** On a thread's first message the platform writes its record (creator, visibility)
+  before relaying, so a private thread is never briefly shared; a message the runtime refuses (4xx), or that couldn't
+  wake the agent (503), removes the record again unless the runtime has reported the thread since. Other failures
+  keep it; the runtime's thread list at its next start reconciles it. That reconciliation ignores records younger than
+  five minutes, since a record written while the agent starts may be missing from the list the runtime just took.
+- **Authors.** The platform sets each message's author (`{kind: user | service_account, id, name, via?}`; `via` is
+  the app's name for OAuth Connect tokens) and drops any author a client sends. The runtime places the message as a
+  `pdp.user` entry whose data is the text as sent, its time and its author; the chat view shows them on user messages.
+  On shared threads of shared teams' agents the model is told who is speaking: its copy starts with a line
+  `[Message from <name>]` (names are kept to one line). Threads list `createdBy` and `participants` (everyone who has
+  sent, with when they last did); names are display names (else email) and service account names.
+- **Message metadata.** User and assistant messages carry `at` (Unix ms: sent, or the reply's start); assistant
+  messages `model` ({provider, id}), `usage` (input, output, cache read and write, total tokens) and `stopReason`; tool
+  calls `startedAt` (the reply's end) and `endedAt` (when the result arrived). Older entries show what they have.
+- **Platform admins' reasoned reads.** `GET /v1/admin/agents/{id}/threads` lists every thread of any agent, private
+  ones too, with visibility, creator and participants; the titles of private threads, and of every thread of a
+  personal workspace's agent, are withheld (titles are content). `POST .../threads/{thread}/read {reason}` (10-500
+  characters) returns the conversation once, waking the agent like any read, and records `thread.admin_read` (target
+  `agent_thread` `<agentId>/<threadId>`, with the reason, the thread's visibility and whether the workspace is personal)
+  in the agent's team's audit log, where its owners see it, before returning it. Platform admins only, with a browser
+  session; auditors can't. Otherwise platform roles still never reach conversations.
+
 ## Launchers
 
 | `AGENTS_LAUNCHER` | Runtime per active agent | Hibernate | Wake |
@@ -276,3 +312,6 @@ sandboxes.
   the conformance suite guards every upgrade.
 - Scheduled work while an agent hibernates needs the platform to know the next wake time (not built yet).
 - Hostile-code isolation (gVisor/Kata on Talos) is required before self-service uploads.
+- Thread IDs are chosen by clients. Anyone who may use an agent can set the MCP servers of a thread that doesn't exist
+  yet (`PUT .../mcp-servers`), which a later private thread with that ID would inherit; clients should use random
+  thread IDs.

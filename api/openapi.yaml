@@ -728,6 +728,76 @@ paths:
           $ref: '#/components/responses/ErrorReply'
         '409':
           $ref: '#/components/responses/ErrorReply'
+  /v1/admin/agents/{agentId}/threads:
+    parameters:
+    - $ref: '#/components/parameters/AgentIdParam'
+    get:
+      tags:
+      - admin
+      operationId: adminListAgentThreads
+      summary: Every thread of an agent, private ones too (platform admins)
+      description: >-
+        Does not wake the agent. Titles of private threads, and of every thread of a personal workspace's agent, are
+        withheld; reading such a conversation takes a reason (adminReadAgentThread).
+      responses:
+        '200':
+          description: Threads
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminAgentThread'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/agents/{agentId}/threads/{threadId}/read:
+    parameters:
+    - $ref: '#/components/parameters/AgentIdParam'
+    - $ref: '#/components/parameters/ThreadIdParam'
+    post:
+      tags:
+      - admin
+      operationId: adminReadAgentThread
+      summary: Read any conversation, with a reason (platform admins)
+      description: >-
+        The conversation now (one snapshot; wakes the agent like any read). Each read is recorded as thread.admin_read in
+        the agent's team's audit log, with the reason, before the conversation is returned. The way platform admins
+        read private threads and conversations of personal workspaces' agents.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminThreadRead'
+      responses:
+        '200':
+          description: The conversation
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ChatView'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '503':
+          $ref: '#/components/responses/ErrorReply'
   /v1/admin/audit:
     get:
       tags:
@@ -2931,7 +3001,8 @@ paths:
       description: >-
         `event: ready` first, then `event: thread` (an AgentThreadEvent) whenever a thread is created, renamed, starts
         or finishes a reply, or is deleted. One stream follows every conversation, so a client need not open one per
-        thread. `agentId` limits it to one agent; `once=true` sends `ready` and ends. A keep-alive comment comes every
+        thread (shared threads and the caller's own private ones). `agentId` limits it to one agent; `once=true` sends
+        `ready` and ends. A keep-alive comment comes every
         15 seconds; reconnect when the stream ends (it does when the platform restarts).
       parameters:
       - name: agentId
@@ -3439,7 +3510,8 @@ paths:
       summary: The agent's conversations, most recently used first, with their status (does not wake the agent)
       description: >-
         From the platform's record of each thread, kept as messages are relayed and as the agent reports replies
-        ending. A thread whose agent has not run since this record began appears after the agent's next start.
+        ending. A thread whose agent has not run since this record began appears after the agent's next start. Shared
+        threads and the caller's own private ones; others' private threads are never listed.
       responses:
         '200':
           description: Threads
@@ -5158,7 +5230,7 @@ components:
           description: A model published to the team, or "" for its template's; applies when the agent next starts
     AgentThread:
       type: object
-      required: [threadId, title, createdAt, updatedAt, busy]
+      required: [threadId, title, createdAt, updatedAt, busy, visibility, participants]
       properties:
         threadId:
           type: string
@@ -5184,6 +5256,101 @@ components:
           type: string
           nullable: true
           description: Why the last reply failed (absent when it succeeded)
+        visibility:
+          $ref: '#/components/schemas/ThreadVisibility'
+        createdBy:
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/ThreadPrincipal'
+          description: Who started the thread (absent when unknown, such as threads begun before the platform recorded it)
+        participants:
+          type: array
+          description: Everyone who has sent to the thread, first sender first
+          items:
+            $ref: '#/components/schemas/ThreadParticipant'
+    ThreadVisibility:
+      type: string
+      enum: [shared, private]
+      description: >-
+        shared: everyone who may use the agent sees the thread. private: only the person or service account that started
+        it (not other members, not the team's owners or admins). Chosen with the first message; it never changes.
+    ThreadPrincipal:
+      type: object
+      required: [kind, id, name]
+      properties:
+        kind:
+          type: string
+          enum: [user, service_account]
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: A person's display name (else email), or a service account's name
+    ThreadParticipant:
+      type: object
+      required: [kind, id, name, lastSentAt]
+      properties:
+        kind:
+          type: string
+          enum: [user, service_account]
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        lastSentAt:
+          type: integer
+          format: int64
+          description: When they last sent to the thread (Unix milliseconds)
+    AdminAgentThread:
+      type: object
+      description: >-
+        A thread as platform admins list it. The title of a private thread, and of every thread of a personal
+        workspace's agent, is withheld (null, titleHidden): reading one takes a reason (adminReadAgentThread).
+      required: [threadId, title, titleHidden, createdAt, updatedAt, busy, visibility, participants]
+      properties:
+        threadId:
+          type: string
+        title:
+          type: string
+          nullable: true
+        titleHidden:
+          type: boolean
+        createdAt:
+          type: integer
+          format: int64
+        updatedAt:
+          type: integer
+          format: int64
+        busy:
+          type: boolean
+        lastReplyAt:
+          type: integer
+          format: int64
+          nullable: true
+        lastError:
+          type: string
+          nullable: true
+        visibility:
+          $ref: '#/components/schemas/ThreadVisibility'
+        createdBy:
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/ThreadPrincipal'
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ThreadParticipant'
+    AdminThreadRead:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 500
+          description: Why the conversation is opened; recorded in the agent's team's audit log
     AgentThreadUpdate:
       type: object
       required: [title]
@@ -5210,6 +5377,9 @@ components:
     AgentMessageCreate:
       type: object
       required: [text]
+      description: >-
+        The platform records the thread (its creator and visibility) before relaying the first message. Another's
+        private thread reads as not found (404 thread_not_found), on this and every thread route.
       properties:
         text:
           type: string
@@ -5226,6 +5396,13 @@ components:
           description: >-
             The MCP servers this thread's user enabled in the app (replaces the thread's; [] removes them). For template
             versions with clientMcp, on hosts the platform allows. Never forwarded to the agent: the platform keeps them.
+        visibility:
+          allOf:
+          - $ref: '#/components/schemas/ThreadVisibility'
+          description: >-
+            The thread's visibility, chosen with its first message (default shared). On a later message it may be
+            omitted; a different value is refused (409 visibility_fixed). The message's author is always the caller:
+            author fields a client sends are ignored.
     AgentMessageAccepted:
       type: object
       required: [submissionId]
@@ -5244,6 +5421,57 @@ components:
         arguments:
           type: object
           additionalProperties: true
+        startedAt:
+          type: integer
+          format: int64
+          description: When the call was made (the assistant message's time, Unix milliseconds)
+        endedAt:
+          type: integer
+          format: int64
+          description: When its result arrived (Unix milliseconds; absent while it runs)
+    ChatAuthor:
+      type: object
+      required: [kind, id, name]
+      description: Who sent a user message, as the platform recorded it
+      properties:
+        kind:
+          type: string
+          enum: [user, service_account]
+        id:
+          type: string
+        name:
+          type: string
+        via:
+          type: string
+          description: The app a person sent it through (OAuth Connect)
+    ChatModel:
+      type: object
+      required: [provider, id]
+      properties:
+        provider:
+          type: string
+        id:
+          type: string
+    ChatUsage:
+      type: object
+      required: [input, output, cacheRead, cacheWrite, total]
+      description: Tokens of one model response
+      properties:
+        input:
+          type: integer
+          format: int64
+        output:
+          type: integer
+          format: int64
+        cacheRead:
+          type: integer
+          format: int64
+        cacheWrite:
+          type: integer
+          format: int64
+        total:
+          type: integer
+          format: int64
     ChatMessage:
       type: object
       required: [id, role]
@@ -5271,6 +5499,19 @@ components:
           description: Tool name (tool results)
         isError:
           type: boolean
+        author:
+          $ref: '#/components/schemas/ChatAuthor'
+        at:
+          type: integer
+          format: int64
+          description: When the message was sent or the reply started (Unix milliseconds)
+        model:
+          $ref: '#/components/schemas/ChatModel'
+        usage:
+          $ref: '#/components/schemas/ChatUsage'
+        stopReason:
+          type: string
+          description: Why an assistant reply ended (stop, length, toolUse, error, aborted)
     ChatToolSlot:
       type: object
       required: [callId, name, status]

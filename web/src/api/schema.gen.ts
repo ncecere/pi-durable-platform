@@ -416,6 +416,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/agents/{agentId}/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Every thread of an agent, private ones too (platform admins)
+         * @description Does not wake the agent. Titles of private threads, and of every thread of a personal workspace's agent, are withheld; reading such a conversation takes a reason (adminReadAgentThread).
+         */
+        get: operations["adminListAgentThreads"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/agents/{agentId}/threads/{threadId}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                threadId: components["parameters"]["ThreadIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read any conversation, with a reason (platform admins)
+         * @description The conversation now (one snapshot; wakes the agent like any read). Each read is recorded as thread.admin_read in the agent's team's audit log, with the reason, before the conversation is returned. The way platform admins read private threads and conversations of personal workspaces' agents.
+         */
+        post: operations["adminReadAgentThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/audit": {
         parameters: {
             query?: never;
@@ -1320,7 +1366,7 @@ export interface paths {
         };
         /**
          * Server-sent events for the threads of every agent the caller may use
-         * @description `event: ready` first, then `event: thread` (an AgentThreadEvent) whenever a thread is created, renamed, starts or finishes a reply, or is deleted. One stream follows every conversation, so a client need not open one per thread. `agentId` limits it to one agent; `once=true` sends `ready` and ends. A keep-alive comment comes every 15 seconds; reconnect when the stream ends (it does when the platform restarts).
+         * @description `event: ready` first, then `event: thread` (an AgentThreadEvent) whenever a thread is created, renamed, starts or finishes a reply, or is deleted. One stream follows every conversation, so a client need not open one per thread (shared threads and the caller's own private ones). `agentId` limits it to one agent; `once=true` sends `ready` and ends. A keep-alive comment comes every 15 seconds; reconnect when the stream ends (it does when the platform restarts).
          */
         get: operations["streamAgentEvents"];
         put?: never;
@@ -1539,7 +1585,7 @@ export interface paths {
         };
         /**
          * The agent's conversations, most recently used first, with their status (does not wake the agent)
-         * @description From the platform's record of each thread, kept as messages are relayed and as the agent reports replies ending. A thread whose agent has not run since this record began appears after the agent's next start.
+         * @description From the platform's record of each thread, kept as messages are relayed and as the agent reports replies ending. A thread whose agent has not run since this record began appears after the agent's next start. Shared threads and the caller's own private ones; others' private threads are never listed.
          */
         get: operations["listAgentThreads"];
         put?: never;
@@ -2413,6 +2459,57 @@ export interface components {
             lastReplyAt?: number | null;
             /** @description Why the last reply failed (absent when it succeeded) */
             lastError?: string | null;
+            visibility: components["schemas"]["ThreadVisibility"];
+            /** @description Who started the thread (absent when unknown, such as threads begun before the platform recorded it) */
+            createdBy?: components["schemas"]["ThreadPrincipal"] | null;
+            /** @description Everyone who has sent to the thread, first sender first */
+            participants: components["schemas"]["ThreadParticipant"][];
+        };
+        /**
+         * @description shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen with the first message; it never changes.
+         * @enum {string}
+         */
+        ThreadVisibility: "shared" | "private";
+        ThreadPrincipal: {
+            /** @enum {string} */
+            kind: "user" | "service_account";
+            /** Format: uuid */
+            id: string;
+            /** @description A person's display name (else email), or a service account's name */
+            name: string;
+        };
+        ThreadParticipant: {
+            /** @enum {string} */
+            kind: "user" | "service_account";
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /**
+             * Format: int64
+             * @description When they last sent to the thread (Unix milliseconds)
+             */
+            lastSentAt: number;
+        };
+        /** @description A thread as platform admins list it. The title of a private thread, and of every thread of a personal workspace's agent, is withheld (null, titleHidden): reading one takes a reason (adminReadAgentThread). */
+        AdminAgentThread: {
+            threadId: string;
+            title: string | null;
+            titleHidden: boolean;
+            /** Format: int64 */
+            createdAt: number;
+            /** Format: int64 */
+            updatedAt: number;
+            busy: boolean;
+            /** Format: int64 */
+            lastReplyAt?: number | null;
+            lastError?: string | null;
+            visibility: components["schemas"]["ThreadVisibility"];
+            createdBy?: components["schemas"]["ThreadPrincipal"] | null;
+            participants: components["schemas"]["ThreadParticipant"][];
+        };
+        AdminThreadRead: {
+            /** @description Why the conversation is opened; recorded in the agent's team's audit log */
+            reason: string;
         };
         AgentThreadUpdate: {
             title: string;
@@ -2425,12 +2522,15 @@ export interface components {
             /** @description The thread now (absent when deleted) */
             thread?: components["schemas"]["AgentThread"] | null;
         };
+        /** @description The platform records the thread (its creator and visibility) before relaying the first message. Another's private thread reads as not found (404 thread_not_found), on this and every thread route. */
         AgentMessageCreate: {
             text: string;
             /** @description Idempotency key; a repeated one is not submitted again */
             requestId?: string;
             /** @description The MCP servers this thread's user enabled in the app (replaces the thread's; [] removes them). For template versions with clientMcp, on hosts the platform allows. Never forwarded to the agent: the platform keeps them. */
             mcpServers?: components["schemas"]["ClientMcpServer"][];
+            /** @description The thread's visibility, chosen with its first message (default shared). On a later message it may be omitted; a different value is refused (409 visibility_fixed). The message's author is always the caller: author fields a client sends are ignored. */
+            visibility?: components["schemas"]["ThreadVisibility"];
         };
         AgentMessageAccepted: {
             /** Format: int64 */
@@ -2442,6 +2542,42 @@ export interface components {
             arguments: {
                 [key: string]: unknown;
             };
+            /**
+             * Format: int64
+             * @description When the call was made (the assistant message's time, Unix milliseconds)
+             */
+            startedAt?: number;
+            /**
+             * Format: int64
+             * @description When its result arrived (Unix milliseconds; absent while it runs)
+             */
+            endedAt?: number;
+        };
+        /** @description Who sent a user message, as the platform recorded it */
+        ChatAuthor: {
+            /** @enum {string} */
+            kind: "user" | "service_account";
+            id: string;
+            name: string;
+            /** @description The app a person sent it through (OAuth Connect) */
+            via?: string;
+        };
+        ChatModel: {
+            provider: string;
+            id: string;
+        };
+        /** @description Tokens of one model response */
+        ChatUsage: {
+            /** Format: int64 */
+            input: number;
+            /** Format: int64 */
+            output: number;
+            /** Format: int64 */
+            cacheRead: number;
+            /** Format: int64 */
+            cacheWrite: number;
+            /** Format: int64 */
+            total: number;
         };
         ChatMessage: {
             id: string;
@@ -2456,6 +2592,16 @@ export interface components {
             /** @description Tool name (tool results) */
             name?: string;
             isError?: boolean;
+            author?: components["schemas"]["ChatAuthor"];
+            /**
+             * Format: int64
+             * @description When the message was sent or the reply started (Unix milliseconds)
+             */
+            at?: number;
+            model?: components["schemas"]["ChatModel"];
+            usage?: components["schemas"]["ChatUsage"];
+            /** @description Why an assistant reply ended (stop, length, toolUse, error, aborted) */
+            stopReason?: string;
         };
         ChatToolSlot: {
             callId: string;
@@ -3733,6 +3879,67 @@ export interface operations {
             403: components["responses"]["ErrorReply"];
             404: components["responses"]["ErrorReply"];
             409: components["responses"]["ErrorReply"];
+        };
+    };
+    adminListAgentThreads: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Threads */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AdminAgentThread"][];
+                    };
+                };
+            };
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    adminReadAgentThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                threadId: components["parameters"]["ThreadIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminThreadRead"];
+            };
+        };
+        responses: {
+            /** @description The conversation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ChatView"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            503: components["responses"]["ErrorReply"];
         };
     };
     adminListAudit: {

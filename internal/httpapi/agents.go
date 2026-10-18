@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,6 +43,9 @@ func (a *api) agentRoutes() []route {
 		{"POST", thread + "/messages", k(a.agentProxy("/messages"))},
 		{"POST", thread + "/stop", k(a.agentProxy("/stop"))},
 		{"GET", thread + "/events", k(a.agentProxy("/events"))},
+		// Platform admins: every thread, and reasoned reads (audited).
+		{"GET", "/v1/admin/agents/{agentId}/threads", a.admin(a.adminListAgentThreads)},
+		{"POST", "/v1/admin/agents/{agentId}/threads/{threadId}/read", a.admin(a.adminReadAgentThread)},
 	}
 }
 
@@ -180,11 +185,13 @@ func (a *api) agentProxy(suffix string) http.HandlerFunc {
 			r.Body = http.MaxBytesReader(w, r.Body, 256<<10)
 		}
 		received := time.Now()
-		var text string
+		var msg message
 		if suffix == "/messages" {
-			if text, ok = a.takeMCPServers(w, r, r.PathValue("threadId")); !ok {
+			if msg, ok = a.takeMessage(w, r, id, r.PathValue("threadId"), received); !ok {
 				return
 			}
+		} else if failed(w, r, a.Agents.ThreadAccess(r.Context(), a.actor(r), id, r.PathValue("threadId"))) {
+			return
 		}
 		rec := &statusRecorder{ResponseWriter: w}
 		a.Agents.Host().Proxy(rec, r, spec, path)
@@ -192,20 +199,128 @@ func (a *api) agentProxy(suffix string) http.HandlerFunc {
 		if rec.status >= 200 && rec.status < 300 {
 			switch {
 			case suffix == "/messages":
-				a.Agents.ThreadSent(r.Context(), a.actor(r), id, r.PathValue("threadId"), text, received)
+				a.Agents.ThreadSent(r.Context(), a.actor(r), msg.claim, msg.text, received)
 			case suffix == "" && r.Method == http.MethodDelete:
 				a.Agents.ThreadRemoved(r.Context(), id, r.PathValue("threadId"))
 			}
+		} else if suffix == "/messages" && unaccepted(rec.status) {
+			a.Agents.Unclaim(r.Context(), msg.claim)
 		}
 	}
 }
 
-func toAPIThread(t agents.Thread) apitypes.AgentThread {
+// message is a message being relayed: its text, and its thread's claim.
+type message struct {
+	text  string
+	claim agents.Claim
+}
+
+// takeMessage prepares a message for the agent's runtime. It records the
+// thread before relaying (ClaimThread: its creator and visibility, or the
+// check that the caller may send to it) and stores the message's mcpServers
+// for the thread. The body relayed has the fields only the platform decides:
+// visibility and mcpServers are removed, any author the client sent is
+// replaced by the caller, and announceAuthor says whether the agent tells its
+// model who is speaking. It returns false when it has written an error.
+func (a *api) takeMessage(w http.ResponseWriter, r *http.Request, agentID uuid.UUID, threadID string, at time.Time) (message, bool) {
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		httpx.Error(w, http.StatusRequestEntityTooLarge, "too_large", "The request is too large")
+		return message{}, false
+	}
+	var body map[string]json.RawMessage
+	if json.Unmarshal(raw, &body) != nil || body == nil {
+		httpx.Error(w, http.StatusBadRequest, "invalid_request", "The body must be a JSON object")
+		return message{}, false
+	}
+	var msg message
+	_ = json.Unmarshal(body["text"], &msg.text)
+	if strings.TrimSpace(msg.text) == "" {
+		httpx.Error(w, http.StatusBadRequest, "invalid_text", "text is required (at most 32,000 characters)")
+		return message{}, false
+	}
+	var visibility string
+	if v := body["visibility"]; v != nil && string(v) != "null" {
+		if json.Unmarshal(v, &visibility) != nil || visibility == "" {
+			httpx.Error(w, http.StatusBadRequest, "invalid_visibility", "visibility must be shared or private")
+			return message{}, false
+		}
+	}
+	var servers []apitypes.ClientMcpServer
+	setServers := body["mcpServers"] != nil
+	if setServers {
+		if err := json.Unmarshal(body["mcpServers"], &servers); err != nil {
+			httpx.Error(w, http.StatusBadRequest, "invalid_mcp_servers", "mcpServers must be a list of {name, url, headers?, expiresInSeconds?}")
+			return message{}, false
+		}
+	}
+	actor := a.actor(r)
+	if msg.claim, err = a.Agents.ClaimThread(r.Context(), actor, agentID, threadID, visibility, msg.text, at); failed(w, r, err) {
+		return message{}, false
+	}
+	if setServers && failed(w, r, a.Agents.SetThreadMCP(r.Context(), actor, agentID, threadID, clientServers(servers))) {
+		a.Agents.Unclaim(r.Context(), msg.claim)
+		return message{}, false
+	}
+	for _, k := range []string{"visibility", "mcpServers", "author", "speaker", "announceAuthor"} {
+		delete(body, k)
+	}
+	body["author"], _ = json.Marshal(msg.claim.Author)
+	body["announceAuthor"], _ = json.Marshal(msg.claim.AnnounceAuthor)
+	rest, _ := json.Marshal(body)
+	r.Body, r.ContentLength = io.NopCloser(bytes.NewReader(rest)), int64(len(rest))
+	r.Header.Set("Content-Type", "application/json")
+	return msg, true
+}
+
+// unaccepted reports whether a relayed message's status means the runtime
+// surely did not start the thread: it refused the message (4xx), or the
+// agent could not be started (503). Other failures keep a claimed record:
+// the runtime reports or forgets the thread when it next starts.
+func unaccepted(status int) bool {
+	return (status >= 400 && status < 500) || status == http.StatusServiceUnavailable
+}
+
+func toAPIThread(t agents.ThreadView) apitypes.AgentThread {
 	out := apitypes.AgentThread{ThreadId: t.ThreadID, Title: t.Title, CreatedAt: t.CreatedAt.UnixMilli(), UpdatedAt: t.UpdatedAt.UnixMilli(),
-		Busy: t.Busy, LastError: t.LastError}
+		Busy: t.Busy, LastError: t.LastError, Visibility: threadVisibility(t.Visibility), CreatedBy: toAPIPrincipal(t.CreatedBy),
+		Participants: toAPIParticipants(t.Participants)}
 	if t.LastReplyAt != nil {
 		ms := t.LastReplyAt.UnixMilli()
 		out.LastReplyAt = &ms
+	}
+	return out
+}
+
+func toAPIAdminThread(t agents.ThreadView) apitypes.AdminAgentThread {
+	v := toAPIThread(t)
+	out := apitypes.AdminAgentThread{ThreadId: v.ThreadId, TitleHidden: t.TitleHidden, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt,
+		Busy: v.Busy, LastReplyAt: v.LastReplyAt, LastError: v.LastError, Visibility: v.Visibility, CreatedBy: v.CreatedBy,
+		Participants: v.Participants}
+	if !t.TitleHidden {
+		out.Title = &v.Title
+	}
+	return out
+}
+
+func threadVisibility(v string) apitypes.ThreadVisibility {
+	if v == "" {
+		return apitypes.ThreadVisibility(agents.VisibilityShared)
+	}
+	return apitypes.ThreadVisibility(v)
+}
+
+func toAPIPrincipal(p *agents.Principal) *apitypes.ThreadPrincipal {
+	if p == nil {
+		return nil
+	}
+	return &apitypes.ThreadPrincipal{Kind: apitypes.ThreadPrincipalKind(p.Kind), Id: p.ID, Name: p.Name}
+}
+
+func toAPIParticipants(ps []agents.Participant) []apitypes.ThreadParticipant {
+	out := make([]apitypes.ThreadParticipant, len(ps))
+	for i, p := range ps {
+		out[i] = apitypes.ThreadParticipant{Kind: apitypes.ThreadParticipantKind(p.Kind), Id: p.ID, Name: p.Name, LastSentAt: p.LastSentAt.UnixMilli()}
 	}
 	return out
 }
@@ -302,3 +417,79 @@ func (a *api) streamAgentEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
+
+// adminListAgentThreads lists every thread of an agent for platform admins
+// (titles of private and personal-workspace threads withheld).
+func (a *api) adminListAgentThreads(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "agentId")
+	if !ok {
+		return
+	}
+	rows, err := a.Agents.AdminThreads(r.Context(), a.actor(r), id)
+	writeList(w, r, rows, err, toAPIAdminThread)
+}
+
+// adminReadAgentThread relays a read of the thread to the agent's runtime
+// for a platform admin with a reason, and records it in the agent's team's
+// audit log before returning the conversation (the runtime's answer is held
+// until then; nothing is recorded when the runtime has no such thread).
+func (a *api) adminReadAgentThread(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "agentId")
+	if !ok {
+		return
+	}
+	threadID := r.PathValue("threadId")
+	if !threadIDRE.MatchString(threadID) {
+		httpx.Error(w, http.StatusBadRequest, "invalid_thread_id", "Thread IDs are 1-64 letters, digits, dashes or underscores")
+		return
+	}
+	var in apitypes.AdminThreadRead
+	if !httpx.Decode(w, r, &in) {
+		return
+	}
+	read, err := a.Agents.AdminRead(r.Context(), a.actor(r), id, threadID, in.Reason)
+	if failed(w, r, err) {
+		return
+	}
+	get := r.Clone(r.Context())
+	get.Method, get.Body, get.ContentLength, get.Header = http.MethodGet, http.NoBody, 0, http.Header{}
+	get.URL.RawQuery = ""
+	held := &heldResponse{header: http.Header{}}
+	a.Agents.Host().Proxy(held, get, read.Spec, "/threads/"+threadID)
+	if held.status == 0 {
+		httpx.Error(w, http.StatusBadGateway, "agent_unavailable", "The agent did not answer. Try again shortly.")
+		return
+	}
+	if held.status >= 200 && held.status < 300 && failed(w, r, a.Agents.RecordAdminRead(r.Context(), read)) {
+		return
+	}
+	for _, h := range []string{"Content-Type", "Cache-Control"} {
+		if v := held.header.Get(h); v != "" {
+			w.Header().Set(h, v)
+		}
+	}
+	w.WriteHeader(held.status)
+	_, _ = w.Write(held.body.Bytes())
+}
+
+// heldResponse keeps a relayed response in memory.
+type heldResponse struct {
+	header http.Header
+	status int
+	body   bytes.Buffer
+}
+
+func (h *heldResponse) Header() http.Header { return h.header }
+
+func (h *heldResponse) WriteHeader(code int) {
+	if h.status == 0 {
+		h.status = code
+	}
+}
+
+func (h *heldResponse) Write(p []byte) (int, error) {
+	h.WriteHeader(http.StatusOK)
+	return h.body.Write(p)
+}
+
+func (h *heldResponse) Flush() {}

@@ -366,6 +366,13 @@ func (c *mctx) thread(suffix string, fresh bool) string {
 	return "/v1/agents/" + c.tf.agent + "/threads/" + t + suffix
 }
 
+// adminThread is the team agent's thread under the platform admins' routes
+// (the thread is shared; private threads are covered by
+// private_threads_integration_test.go).
+func (c *mctx) adminThread(suffix string) string {
+	return "/v1/admin/agents/" + c.tf.agent + "/threads/" + c.tf.thread + suffix
+}
+
 // provider is the fixture provider, or a fresh one for a destructive call
 // expected to succeed.
 func (c *mctx) provider(fresh bool) string {

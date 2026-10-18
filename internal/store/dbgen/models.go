@@ -70,6 +70,16 @@ type AgentThread struct {
 	LastReplyAt      *time.Time
 	LastError        *string
 	StatusAt         time.Time
+	Visibility       string
+}
+
+type AgentThreadParticipant struct {
+	AgentID          uuid.UUID
+	ThreadID         string
+	UserID           uuid.NullUUID
+	ServiceAccountID uuid.NullUUID
+	FirstSentAt      time.Time
+	LastSentAt       time.Time
 }
 
 type ApiKey struct {
