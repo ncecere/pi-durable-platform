@@ -12,6 +12,7 @@ import { NotFoundState } from "./components/not-found";
 import {
   adminTeamTabs,
   agentTabs,
+  mcpCatalogTabs,
   mcpServerTabs,
   modelCatalogTabs,
   providerTabs,
@@ -57,6 +58,7 @@ const pages = {
   templates: () => import("./pages/templates/routes"),
   teamUsage: () => import("./pages/team/usage/page"),
   teamModels: () => import("./pages/team/models/routes"),
+  teamMcp: () => import("./pages/team/mcp/routes"),
 };
 const lazy = lazyRouteComponent;
 type Page = ReturnType<typeof lazyRouteComponent>;
@@ -239,6 +241,20 @@ const teamModelProviderRoute = createRoute({
   validateSearch: tabSearch(providerTabs, { passthrough: true }),
   component: lazy(pages.teamModels, "TeamModelProviderPage"),
 });
+/** The team's MCP servers: Servers (its own) · Available (every one it may use); ?q= passes through. */
+const teamMcpServersRoute = createRoute({
+  getParentRoute: () => teamRoute,
+  path: "mcp-servers",
+  validateSearch: tabSearch(mcpCatalogTabs, { passthrough: true }),
+  component: lazy(pages.teamMcp, "TeamMcpServersPage"),
+});
+/** One of the team's own MCP servers: Tools · Settings. */
+const teamMcpServerRoute = createRoute({
+  getParentRoute: () => teamRoute,
+  path: "mcp-servers/$serverId",
+  validateSearch: tabSearch(mcpServerTabs, { passthrough: true }),
+  component: lazy(pages.teamMcp, "TeamMcpServerPage"),
+});
 /** An agent: Overview · Test · Settings. */
 const teamAgentRoute = createRoute({
   getParentRoute: () => teamRoute,
@@ -302,6 +318,8 @@ const appTree = appRoute.addChildren([
     teamUsageRoute,
     teamModelsRoute,
     teamModelProviderRoute,
+    teamMcpServersRoute,
+    teamMcpServerRoute,
   ]),
   adminRoute.addChildren([
     adminIndexRoute,

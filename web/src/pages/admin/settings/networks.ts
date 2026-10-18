@@ -1,5 +1,5 @@
 /*
- * Private networks for team model providers: CIDRs checked before Save (an
+ * Private networks for teams' own model providers and MCP servers: CIDRs checked before Save (an
  * IPv4 or IPv6 address with a prefix length). The server has the last word:
  * it refuses public, loopback and link-local ranges (400
  * invalid_private_networks).

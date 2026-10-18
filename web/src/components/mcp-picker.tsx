@@ -3,9 +3,12 @@
  * attach, each with all its tools or chosen ones, and whether apps may give
  * agents their own servers for a thread. A server the current version uses
  * that isn't offered any more (turned off, unpublished) stays listed, marked
- * unavailable, so it can be removed.
+ * unavailable, so it can be removed. A team template is offered its team's
+ * own servers too, badged "This team" ("This workspace"); a platform template
+ * (or one in the catalog) platform servers only (template-models.ts).
  */
 import type { McpAttach, McpAttached, McpServer } from "@/api/mcp";
+import { Badge } from "@/components/ui/badge/badge";
 import { Checkbox } from "@/components/ui/checkbox/checkbox";
 import { Fieldset } from "@/components/ui/field/field";
 import { RadioGroup } from "@/components/ui/radio-group/radio-group";
@@ -30,7 +33,17 @@ export function mcpProblem(value: McpAttach[]): string | undefined {
   return value.some((a) => a.tools != null && a.tools.length === 0) ? "Pick at least one tool, or choose All tools." : undefined;
 }
 
-type Choice = { id: string; name: string; description?: string; tools: { name: string; description?: string | null }[]; unavailable?: boolean };
+type Choice = {
+  id: string;
+  name: string;
+  description?: string;
+  tools: { name: string; description?: string | null }[];
+  unavailable?: boolean;
+  /** The team's own server: "This team" or "This workspace". */
+  own?: string;
+};
+
+const ownLabel = (x: McpServer) => (!x.team ? undefined : x.team.kind === "personal" ? "This workspace" : "This team");
 
 type Props = {
   /** The servers to offer. */
@@ -44,14 +57,20 @@ type Props = {
   onClientMcpChange: (on: boolean) => void;
   /** Shown when no server is offered. */
   emptyText: string;
+  /** Under the section's description, e.g. why the team's own servers aren't offered. */
+  note?: string;
+  /** Said of a current server that isn't offered any more. */
+  unavailableText?: string;
   /** Show the "pick at least one tool" errors (after a submit). */
   showErrors?: boolean;
 };
 
 const short = (t: string | null | undefined) => (t && t.length > 140 ? `${t.slice(0, 139)}…` : (t ?? undefined));
 
-export function McpPicker({ servers, loading, value, onChange, current, clientMcp, onClientMcpChange, emptyText, showErrors }: Props) {
-  const offered: Choice[] = (servers ?? []).map((x) => ({ id: x.id, name: x.name, description: x.description, tools: x.tools }));
+const unavailableDefault = "Not available any more: turned off or no longer published to the team.";
+
+export function McpPicker({ servers, loading, value, onChange, current, clientMcp, onClientMcpChange, emptyText, note, unavailableText = unavailableDefault, showErrors }: Props) {
+  const offered: Choice[] = (servers ?? []).map((x) => ({ id: x.id, name: x.name, description: x.description, tools: x.tools, own: ownLabel(x) }));
   for (const c of current ?? [])
     if (!offered.some((o) => o.id === c.serverId)) offered.push({ id: c.serverId, name: c.name, tools: (c.tools ?? []).map((name) => ({ name })), unavailable: true });
   const picked = (id: string) => value.find((a) => a.serverId === id);
@@ -63,13 +82,27 @@ export function McpPicker({ servers, loading, value, onChange, current, clientMc
   return (
     <Fieldset legend="MCP servers" description="Tools its agents can call. Pick a server for all its tools, or only some of them.">
       <div className={m.servers}>
+        {note ? <p className={s.note}>{note}</p> : null}
         {loading ? <p className={s.note}>Loading MCP servers…</p> : offered.length === 0 ? <p className={s.note}>{emptyText}</p> : null}
         {offered.map((o) => {
           const a = picked(o.id);
-          const about = o.unavailable ? "Not available any more: turned off or no longer published to the team." : [o.description, plural(o.tools.length, "tool")].filter(Boolean).join(" · ");
+          const about = o.unavailable ? unavailableText : [o.description, plural(o.tools.length, "tool")].filter(Boolean).join(" · ");
           return (
             <div key={o.id} className={m.servers}>
-              <Checkbox label={o.name} description={about} checked={Boolean(a)} onCheckedChange={(on) => update(o.id, on ? { serverId: o.id } : null)} />
+              <Checkbox
+                label={
+                  o.own ? (
+                    <span className={m.label}>
+                      {o.name} <Badge tone="info">{o.own}</Badge>
+                    </span>
+                  ) : (
+                    o.name
+                  )
+                }
+                description={about}
+                checked={Boolean(a)}
+                onCheckedChange={(on) => update(o.id, on ? { serverId: o.id } : null)}
+              />
               {a ? (
                 <div className={m.choice}>
                   <RadioGroup

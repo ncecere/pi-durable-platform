@@ -15,7 +15,11 @@ export type ModelCatalogTab = (typeof modelCatalogTabs)[number];
 export const providerTabs = ["models", "settings"] as const;
 export type ProviderTab = (typeof providerTabs)[number];
 
-/** Admin → MCP servers › one server: Tools · Settings. */
+/** Team → MCP servers: Servers (the team's own) · Available (every one it may use). */
+export const mcpCatalogTabs = ["servers", "available"] as const;
+export type McpCatalogTab = (typeof mcpCatalogTabs)[number];
+
+/** Admin → MCP servers › one server (and a team's own): Tools · Settings. */
 export const mcpServerTabs = ["tools", "settings"] as const;
 export type McpServerTab = (typeof mcpServerTabs)[number];
 

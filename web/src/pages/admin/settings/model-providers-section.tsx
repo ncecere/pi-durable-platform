@@ -1,8 +1,9 @@
 /*
- * Admin › Settings › Team model providers: whether teams' owners and admins
- * may add providers of their own, and the private networks those providers
- * may be on (public addresses always; loopback, link-local and metadata
- * never). Saved on its own with If-Match on its revision; auditors read.
+ * Admin › Settings › Team providers and MCP servers: whether teams' owners
+ * and admins may add model providers and MCP servers of their own, and the
+ * private networks both may be on (public addresses always; loopback,
+ * link-local and metadata never). Saved on its own with If-Match on its
+ * revision; auditors read.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, ifMatch, unwrap } from "@/api/client";
@@ -18,15 +19,24 @@ import { toast } from "@/components/ui/toast/toast";
 import { useIsPlatformAdmin } from "../hooks";
 import { maxNetworks, networksProblem } from "./networks";
 
-const title = "Team model providers";
+const title = "Team providers and MCP servers";
 const description =
-  "Team owners and admins can add model providers of their own: their models are for that team only, and agents reach them through the platform.";
+  "Team owners and admins can add model providers and MCP servers of their own: they're for that team only, and agents reach them through the platform.";
 const networksHelp =
-  "Team providers must be on public addresses. List private networks (such as 10.20.0.0/16) where teams may also reach providers. Loopback, link-local and metadata addresses are never allowed.";
+  "Teams' own providers and MCP servers must be on public addresses. List private networks (such as 10.20.0.0/16) where teams may also reach them; it applies to both. Loopback, link-local and metadata addresses are never allowed.";
 
-type Form = { teamsMayAddProviders: boolean; privateNetworks: string[] };
-const formOf = (m: ModelSettings): Form => ({ teamsMayAddProviders: m.teamsMayAddProviders, privateNetworks: m.privateNetworks });
-const labels = { teamsMayAddProviders: "Teams may add their own model providers", privateNetworks: "Private networks" };
+type Form = { teamsMayAddProviders: boolean; teamsMayAddMcpServers: boolean; privateNetworks: string[] };
+const formOf = (m: ModelSettings): Form => ({
+  teamsMayAddProviders: m.teamsMayAddProviders,
+  // On unless turned off (the server always sends it; an older one may not).
+  teamsMayAddMcpServers: m.teamsMayAddMcpServers ?? true,
+  privateNetworks: m.privateNetworks,
+});
+const labels = {
+  teamsMayAddProviders: "Teams may add their own model providers",
+  teamsMayAddMcpServers: "Teams may add their own MCP servers",
+  privateNetworks: "Private networks",
+};
 
 /** The section, once the settings have loaded. */
 export function ModelProviderSettings() {
@@ -39,7 +49,7 @@ export function ModelProviderSettings() {
           <SkeletonText lines={3} />
         </div>
       ) : (
-        <ErrorAlert error={settings.error} title="Couldn't load the team model provider settings" onRetry={() => void settings.refetch()} />
+        <ErrorAlert error={settings.error} title="Couldn't load the team provider and MCP server settings" onRetry={() => void settings.refetch()} />
       )}
     </SettingsSection>
   );
@@ -56,14 +66,14 @@ function ModelProviderForm({ settings }: { settings: ModelSettings }) {
       unwrap(
         await api.PUT("/v1/admin/settings/models", {
           params: { header: ifMatch(settings.revision) },
-          body: { teamsMayAddProviders: form.teamsMayAddProviders, privateNetworks: form.privateNetworks },
+          body: { teamsMayAddProviders: form.teamsMayAddProviders, teamsMayAddMcpServers: form.teamsMayAddMcpServers, privateNetworks: form.privateNetworks },
         }),
       ),
     onSuccess: (updated) => {
       qc.setQueryData(modelSettingsQuery().queryKey, updated);
-      // Whether a team may add a provider now follows the switch.
+      // Whether a team may add a provider or an MCP server now follows the switches.
       void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === "team" && q.queryKey[2] === "limits" });
-      toast.success("Team model provider settings saved");
+      toast.success("Team provider and MCP server settings saved");
     },
   });
   // The server's refusal of a network (public, loopback, link-local) belongs on the field.
@@ -81,7 +91,7 @@ function ModelProviderForm({ settings }: { settings: ModelSettings }) {
       readOnlyNote={null}
       saving={save.isPending}
       error={refused ? undefined : save.error}
-      saveLabel="Save team provider settings"
+      saveLabel="Save team provider and MCP server settings"
       onSave={() => save.mutate()}
       onDiscard={() => {
         setForm(saved);
@@ -97,6 +107,13 @@ function ModelProviderForm({ settings }: { settings: ModelSettings }) {
           disabled={!isAdmin}
           checked={form.teamsMayAddProviders}
           onCheckedChange={(v) => set({ teamsMayAddProviders: v })}
+        />
+        <Switch
+          label={labels.teamsMayAddMcpServers}
+          description="Turned off, teams can't add new MCP servers. Their existing ones keep working and can still be changed or deleted."
+          disabled={!isAdmin}
+          checked={form.teamsMayAddMcpServers}
+          onCheckedChange={(v) => set({ teamsMayAddMcpServers: v })}
         />
         <Field label={labels.privateNetworks} labelHint="Optional" description={`${networksHelp} Press Enter after each network; at most ${maxNetworks}.`} error={problem ?? refused}>
           <TagInput

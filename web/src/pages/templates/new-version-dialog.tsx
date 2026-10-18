@@ -11,16 +11,16 @@ import { Field } from "@/components/ui/field/field";
 import { Input, Textarea } from "@/components/ui/input/input";
 import { toast } from "@/components/ui/toast/toast";
 import { type AgentTemplate, storeTemplate } from "./labels";
-import { catalogModelsNote, teamModelMessage, useTemplateMcpServers, useTemplateModels } from "./template-models";
+import { catalogMcpNote, catalogMcpUnavailable, catalogModelsNote, catalogRefusal, useTemplateMcpServers, useTemplateModels } from "./template-models";
 
 export function NewVersionDialog({ template, onClose }: { template: AgentTemplate; onClose: () => void }) {
   const qc = useQueryClient();
   const versions = useQuery(templateVersionsQuery(template.id));
   const current = versions.data?.find((v) => v.version === template.currentVersion);
-  // In the catalog (or waiting for review), only platform models.
+  // In the catalog (or waiting for review), only platform models and MCP servers.
   const inCatalog = Boolean(template.teamSlug) && template.status !== "private";
   const models = useTemplateModels(template.teamSlug, { catalog: inCatalog });
-  const servers = useTemplateMcpServers(template.teamSlug);
+  const servers = useTemplateMcpServers(template.teamSlug, { catalog: inCatalog });
   const [instructions, setInstructions] = useState<string | undefined>(undefined);
   // undefined: the current version's model.
   const [picked, setPicked] = useState<string | undefined>(undefined);
@@ -59,7 +59,7 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
       toast.success(`v${t.currentVersion} is the current version`, "New agents get it; existing agents keep theirs until upgraded.");
       onClose();
     } catch (err) {
-      toast.error("Couldn't add the version", teamModelMessage(err, "version") ?? errorMessage(err));
+      toast.error("Couldn't add the version", catalogRefusal(err, "version") ?? errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -90,6 +90,8 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
         servers={servers.servers}
         loading={servers.loading || versions.isLoading}
         emptyText={servers.emptyText}
+        note={inCatalog ? catalogMcpNote : undefined}
+        unavailableText={inCatalog ? catalogMcpUnavailable : undefined}
         value={mcp}
         onChange={setPickedMcp}
         current={current?.mcp}

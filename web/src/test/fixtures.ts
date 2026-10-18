@@ -237,3 +237,52 @@ export const agent = (extra: Partial<Schemas["Agent"]> = {}): Schemas["Agent"] =
   updatedAt: "2026-10-01T10:00:00Z",
   ...extra,
 });
+
+/* ---------------- MCP servers ---------------- */
+
+export const teamOwner: Schemas["ModelOwner"] = { id: team.id, slug: team.slug, name: team.name, kind: "team" };
+export const platformServerId = "25252525-2525-4252-8252-252525252525";
+export const teamServerId = "26262626-2626-4262-8262-262626262626";
+
+/** A platform MCP server, published to every team. */
+export const platformMcpServer = (extra: Partial<Schemas["McpServer"]> = {}): Schemas["McpServer"] => ({
+  id: platformServerId,
+  name: "Fake Tools",
+  slug: "fake_tools",
+  description: "Echo and search",
+  url: "https://mcp.example.com/mcp",
+  accessMode: "proxy",
+  enabled: true,
+  visibility: "all",
+  personal: true,
+  teams: null,
+  hasHeaders: false,
+  tools: [{ name: "echo", description: "Repeats the text" }],
+  toolsRefreshedAt: "2026-10-01T10:00:00Z",
+  toolsError: null,
+  team: null,
+  revision: 3,
+  createdAt: "2026-10-01T10:00:00Z",
+  updatedAt: "2026-10-01T10:00:00Z",
+  ...extra,
+});
+
+/** The team's own MCP server: proxy only, for the team alone. */
+export const teamMcpServer = (extra: Partial<Schemas["McpServer"]> = {}): Schemas["McpServer"] =>
+  platformMcpServer({
+    id: teamServerId,
+    name: "Team Tickets",
+    slug: "team_tickets",
+    description: "The team's ticketing",
+    url: "https://tickets.example.com/mcp",
+    visibility: "teams",
+    personal: false,
+    hasHeaders: true,
+    tools: [
+      { name: "open_ticket", description: "Opens a ticket" },
+      { name: "close_ticket", description: "Closes a ticket" },
+    ],
+    team: teamOwner,
+    revision: 2,
+    ...extra,
+  });

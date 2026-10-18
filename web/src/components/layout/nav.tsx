@@ -112,6 +112,7 @@ export type TeamPath =
   | "/teams/$team/agents"
   | "/teams/$team/templates"
   | "/teams/$team/models"
+  | "/teams/$team/mcp-servers"
   | "/teams/$team/usage"
   | "/teams/$team/service-accounts"
   | "/teams/$team/settings";
@@ -175,6 +176,14 @@ const teamNav: TeamNavItem[] = [
     // Shared teams and personal workspaces alike; platform staff read a team's providers.
     access: (a) => a.member || a.staff,
     keywords: ["models", "providers", "model provider", "llm", "openai", "anthropic", "litellm", "api key", "discover"],
+  },
+  {
+    to: "/teams/$team/mcp-servers",
+    label: "MCP servers",
+    icon: icon(Unplug),
+    // Shared teams and personal workspaces alike; platform staff read a team's servers.
+    access: (a) => a.member || a.staff,
+    keywords: ["mcp", "mcp servers", "tools", "tool servers", "model context protocol", "headers", "refresh tools"],
   },
   {
     to: "/teams/$team/usage",

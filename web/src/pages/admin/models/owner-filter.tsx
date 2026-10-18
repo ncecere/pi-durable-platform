@@ -1,9 +1,9 @@
 /*
- * Admin › Models' Owner filter, in the URL as ?owner= (kept with ?tab=, so
- * both tabs show the same owner's): every owner (no parameter), the
- * platform's ("platform"), or one team's (its slug). The teams offered are
- * those that own a provider, from the unfiltered list; a team in the address
- * that owns none still shows, by its slug.
+ * Admin's Owner filter (Models, MCP servers), in the URL as ?owner= (kept
+ * with ?tab=, so both of Models' tabs show the same owner's): every owner (no
+ * parameter), the platform's ("platform"), or one team's (its slug). The
+ * teams offered are those that own something in the unfiltered list; a team
+ * in the address that owns none still shows, by its slug.
  */
 import { useQuery } from "@tanstack/react-query";
 import { adminScope, type ModelOwner, providersQuery } from "@/api/models";
@@ -30,10 +30,17 @@ export function useOwnerParam(): [string, (owner: string) => void] {
   return [owner, set];
 }
 
-export function OwnerFilter({ value, onChange }: { value: string; onChange: (owner: string) => void }) {
-  const every = useQuery(providersQuery(adminScope, "all"));
+type SelectProps = {
+  value: string;
+  onChange: (owner: string) => void;
+  /** The owners of every row (null: the platform's), from the unfiltered list. */
+  owners: (ModelOwner | null | undefined)[];
+};
+
+/** The select itself, given the owners to offer. */
+export function OwnerSelect({ value, onChange, owners }: SelectProps) {
   const teams = new Map<string, ModelOwner>();
-  for (const p of every.data ?? []) if (p.team) teams.set(p.team.slug, p.team);
+  for (const o of owners) if (o) teams.set(o.slug, o);
   const sorted = [...teams.values()].sort((a, b) => a.name.localeCompare(b.name));
   const unknown = value !== "all" && value !== "platform" && !teams.has(value);
   return (
@@ -54,4 +61,10 @@ export function OwnerFilter({ value, onChange }: { value: string; onChange: (own
       </NativeSelect>
     </Field>
   );
+}
+
+/** Admin › Models' filter: the teams that own a provider. */
+export function OwnerFilter({ value, onChange }: Omit<SelectProps, "owners">) {
+  const every = useQuery(providersQuery(adminScope, "all"));
+  return <OwnerSelect value={value} onChange={onChange} owners={(every.data ?? []).map((p) => p.team)} />;
 }

@@ -95,7 +95,7 @@ describe("Admin › Models › owners", () => {
   });
 });
 
-describe("Admin › Settings › Team model providers", () => {
+describe("Admin › Settings › Team providers and MCP servers", () => {
   const path = "/v1/admin/settings/models";
   const settings = (extra: Partial<Schemas["ModelSettings"]> = {}): Schemas["ModelSettings"] => ({
     teamsMayAddProviders: true,
@@ -127,31 +127,31 @@ describe("Admin › Settings › Team model providers", () => {
     renderApp("/admin/settings");
     const toggle = await screen.findByRole("switch", { name: "Teams may add their own model providers" });
     expect(toggle).toBeChecked();
-    expect(screen.getByText(/Team providers must be on public addresses/)).toBeInTheDocument();
+    expect(screen.getByText(/Teams' own providers and MCP servers must be on public addresses/)).toBeInTheDocument();
     expect(screen.getByText("10.20.0.0/16")).toBeInTheDocument();
     const input = screen.getByRole("textbox", { name: /Private networks/ });
 
     // Not a network: caught before Save.
     await u.type(input, "10.0.0.1{Enter}");
     expect(await screen.findByText(/10\.0\.0\.1 isn't a network/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save team provider settings" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save team provider and MCP server settings" })).toBeDisabled();
     await u.click(screen.getByRole("button", { name: "Remove network 10.0.0.1" }));
 
     await u.type(input, "8.8.8.0/24{Enter}");
     await u.click(toggle);
-    await u.click(screen.getByRole("button", { name: "Save team provider settings" }));
+    await u.click(screen.getByRole("button", { name: "Save team provider and MCP server settings" }));
     expect(await screen.findByText(/loopback, link-local and public ranges can't be listed/)).toBeInTheDocument();
     const put = made(calls, "PUT", path)[0]!;
     expect(put.headers.get("If-Match")).toBe('"4"');
-    expect(put.body).toEqual({ teamsMayAddProviders: false, privateNetworks: ["10.20.0.0/16", "8.8.8.0/24"] });
+    expect(put.body).toEqual({ teamsMayAddProviders: false, teamsMayAddMcpServers: true, privateNetworks: ["10.20.0.0/16", "8.8.8.0/24"] });
 
     refuse = false;
     await u.click(screen.getByRole("button", { name: "Remove network 8.8.8.0/24" }));
     await u.type(input, "fd00:10::/32{Enter}");
-    await u.click(screen.getByRole("button", { name: "Save team provider settings" }));
+    await u.click(screen.getByRole("button", { name: "Save team provider and MCP server settings" }));
     await waitFor(() => expect(made(calls, "PUT", path)).toHaveLength(2));
-    expect(made(calls, "PUT", path)[1]!.body).toEqual({ teamsMayAddProviders: false, privateNetworks: ["10.20.0.0/16", "fd00:10::/32"] });
-    expect(await screen.findByText("Team model provider settings saved")).toBeInTheDocument();
+    expect(made(calls, "PUT", path)[1]!.body).toEqual({ teamsMayAddProviders: false, teamsMayAddMcpServers: true, privateNetworks: ["10.20.0.0/16", "fd00:10::/32"] });
+    expect(await screen.findByText("Team provider and MCP server settings saved")).toBeInTheDocument();
   });
 
   it("lets people add providers in their personal workspace (ownProviders)", async () => {
@@ -172,7 +172,7 @@ describe("Admin › Settings › Team model providers", () => {
     renderApp("/admin/settings");
     expect(await screen.findByRole("switch", { name: "Teams may add their own model providers" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("textbox", { name: /Private networks/ })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "Save team provider settings" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save team provider and MCP server settings" })).toBeNull();
   });
 
   it("checks CIDRs: IPv4 and IPv6 with a prefix length", () => {

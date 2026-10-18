@@ -2,12 +2,13 @@
  * An MCP server's Settings: name, description, URL, access mode, who may
  * attach it and the switch (If-Match on its revision), and the write-only
  * headers, sent only when replaced. A new URL or headers make the platform
- * read the tools again. Delete is in the Danger zone.
+ * read the tools again. Delete is in the Danger zone. A team's own server
+ * (in its team, or in Admin) has no access mode (proxy only) and no
+ * publishing (its team's alone), and a refused address shows on the URL field.
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, ApiError, ifMatch, unwrap } from "@/api/client";
-import { invalidateMcp, type McpServer, mcpServerQuery } from "@/api/mcp";
+import { invalidateMcp, type McpServer, mcpServerQuery, updateMcpServer } from "@/api/mcp";
 import { useRevisionForm } from "@/components/templates/revision-form";
 import { DangerAction, DangerZone, SettingsPage, SettingsSection } from "@/components/templates/settings-page";
 import { Button } from "@/components/ui/button/button";
@@ -16,11 +17,12 @@ import { Input, Textarea } from "@/components/ui/input/input";
 import { RadioGroup } from "@/components/ui/radio-group/radio-group";
 import { Switch } from "@/components/ui/switch/switch";
 import { toast } from "@/components/ui/toast/toast";
-import { adminOnly } from "@/lib/terms";
+import s from "../../shared.module.css";
 import { HeadersSetting } from "../models/headers-editor";
-import { accessLabels, type HeaderRow, headersOf, headersProblem, urlProblem } from "../models/labels";
-import { type McpAccessMode, mcpAccessOptions, type McpVisibility, teamsProblem } from "./labels";
+import { accessLabels, type HeaderRow, headersOf, headersProblem, urlProblem, urlRefusal } from "../models/labels";
+import { type McpAccessMode, mcpAccessOptions, type McpVisibility, takenMessage, teamMcpAccessNote, teamOnly, teamsProblem, teamUrlHint } from "./labels";
 import { PublishFields } from "./publish-fields";
+import { isTeamOwned, type McpCatalogScope } from "./scope";
 
 type Form = {
   name: string;
@@ -54,9 +56,11 @@ const labels = {
 };
 const choices = { accessMode: accessLabels, visibility: { all: "All teams", teams: "Selected teams" } };
 
-type Props = { server: McpServer; isAdmin: boolean; onDelete: () => void };
+type Props = { catalog: McpCatalogScope; server: McpServer; onDelete: () => void };
 
-export function McpSettingsTab({ server, isAdmin, onDelete }: Props) {
+export function McpSettingsTab({ catalog, server, onDelete }: Props) {
+  const { scope, canManage, readOnlyNote } = catalog;
+  const teamOwned = isTeamOwned(scope, server);
   const qc = useQueryClient();
   const saved = formOf(server);
   const [form, setForm, revision] = useRevisionForm(saved, server.revision, { labels, choices });
@@ -65,51 +69,55 @@ export function McpSettingsTab({ server, isAdmin, onDelete }: Props) {
   const [submitted, setSubmitted] = useState(false);
   const problems = {
     name: !form.name.trim() ? "Enter a name." : undefined,
-    url: urlProblem(form.url, true),
-    teams: teamsProblem(form.visibility, form.teams),
+    url: urlProblem(form.url, true, teamOwned),
+    teams: teamOwned ? undefined : teamsProblem(form.visibility, form.teams),
     headers: headers ? headersProblem(headers) : undefined,
   };
   const invalid = submitted && Object.values(problems).some(Boolean);
   const save = useMutation({
-    mutationFn: async () =>
-      unwrap(
-        await api.PATCH("/v1/admin/mcp-servers/{serverId}", {
-          params: { path: { serverId: server.id }, header: ifMatch(server.revision) },
-          body: {
-            name: form.name.trim(),
-            description: form.description.trim(),
-            url: form.url.trim(),
-            accessMode: form.accessMode,
-            enabled: form.enabled,
-            visibility: form.visibility,
-            teams: form.visibility === "teams" ? form.teams : undefined,
-            personal: form.personal,
-            headers: headers ? headersOf(headers) : undefined,
-          },
-        }),
-      ),
+    mutationFn: async () => {
+      const common = {
+        name: form.name.trim(),
+        description: form.description.trim(),
+        url: form.url.trim(),
+        enabled: form.enabled,
+        headers: headers ? headersOf(headers) : undefined,
+      };
+      // A team's server: no access mode or publishing (the API refuses them).
+      return updateMcpServer(
+        scope,
+        server,
+        teamOwned
+          ? common
+          : { ...common, accessMode: form.accessMode, visibility: form.visibility, teams: form.visibility === "teams" ? form.teams : undefined, personal: form.personal },
+      );
+    },
     onSuccess: (updated) => {
-      qc.setQueryData(mcpServerQuery(updated.id).queryKey, updated);
-      void invalidateMcp(qc);
+      qc.setQueryData(mcpServerQuery(scope, updated.id).queryKey, updated);
+      void invalidateMcp(qc, scope);
       setHeaders(null);
       setSubmitted(false);
       if (updated.toolsError) toast.warning("Saved, but the tools couldn't be read", updated.toolsError);
       else toast.success("MCP server saved");
     },
   });
-  const taken = save.error instanceof ApiError && save.error.code === "mcp_server_name_taken";
+  const taken = takenMessage(save.error);
+  const refused = urlRefusal(save.error);
   const dirty = JSON.stringify(form) !== JSON.stringify(saved) || headers !== null;
   const shown = (p: string | undefined) => (submitted ? p : undefined);
-  const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
+  const set = (patch: Partial<Form>) => {
+    if (taken || refused) save.reset();
+    setForm((f) => ({ ...f, ...patch }));
+  };
   return (
     <SettingsPage
       revision={revision}
       dirty={dirty}
-      canEdit={isAdmin}
-      readOnlyNote={adminOnly}
+      canEdit={canManage}
+      readOnlyNote={readOnlyNote}
       saving={save.isPending}
-      error={taken ? undefined : save.error}
-      message={invalid || taken ? "Not saved: fix the highlighted field" : undefined}
+      error={taken || refused ? undefined : save.error}
+      message={invalid || taken || refused ? "Not saved: fix the highlighted field" : undefined}
       onSave={() => {
         setSubmitted(true);
         if (Object.values(problems).some(Boolean)) return;
@@ -122,47 +130,67 @@ export function McpSettingsTab({ server, isAdmin, onDelete }: Props) {
         save.reset();
       }}
     >
-      <SettingsSection title="General" description={`Its tools are named mcp__${server.slug}__<tool>. The slug can't be changed.`}>
-        <Field label="Name" error={shown(problems.name) ?? (taken ? "Another MCP server has this name." : undefined)}>
-          <Input maxLength={100} disabled={!isAdmin} value={form.name} onValueChange={(v) => set({ name: v })} />
+      <SettingsSection title="General" description={`Its tools are named mcp__${server.slug}__<tool>.`}>
+        <Field label="Name" error={shown(problems.name) ?? taken}>
+          <Input maxLength={100} disabled={!canManage} value={form.name} onValueChange={(v) => set({ name: v })} />
+        </Field>
+        <Field label="Slug" description="Names its tools. It can't be changed.">
+          <Input disabled readOnly spellCheck={false} value={server.slug} />
         </Field>
         <Field label="Description" labelHint="Optional">
-          <Textarea maxLength={2000} rows={2} disabled={!isAdmin} value={form.description} onChange={(e) => set({ description: e.target.value })} />
+          <Textarea maxLength={2000} rows={2} disabled={!canManage} value={form.description} onChange={(e) => set({ description: e.target.value })} />
         </Field>
-        <Field label="URL" description="Its Streamable HTTP endpoint. A new URL makes the platform read the tools again." error={shown(problems.url)}>
-          <Input maxLength={2000} spellCheck={false} disabled={!isAdmin} value={form.url} onValueChange={(v) => set({ url: v })} />
+        <Field
+          label="URL"
+          description={`Its Streamable HTTP endpoint. A new URL makes the platform read the tools again.${teamOwned ? ` ${teamUrlHint}` : ""}`}
+          error={shown(problems.url) ?? refused}
+        >
+          <Input maxLength={2000} spellCheck={false} disabled={!canManage} value={form.url} onValueChange={(v) => set({ url: v })} />
         </Field>
-        <RadioGroup legend="How agents reach it" disabled={!isAdmin} value={form.accessMode} onValueChange={(v) => set({ accessMode: v })} options={mcpAccessOptions} />
+        {teamOwned ? (
+          <p className={s.note}>{teamMcpAccessNote}</p>
+        ) : (
+          <RadioGroup legend="How agents reach it" disabled={!canManage} value={form.accessMode} onValueChange={(v) => set({ accessMode: v })} options={mcpAccessOptions} />
+        )}
         <Switch
           label="Enabled"
           description="Turned off, templates can't pick it, and agents don't get its tools until it's turned on again."
-          disabled={!isAdmin}
+          disabled={!canManage}
           checked={form.enabled}
           onCheckedChange={(v) => set({ enabled: v })}
         />
       </SettingsSection>
-      <SettingsSection title="Who may use it" description="Teams it's published to can give its tools to their templates' agents; personal workspaces, to their agents.">
-        <PublishFields
-          visibility={form.visibility}
-          teams={form.teams}
-          personal={form.personal}
-          currentTeams={server.teams}
-          disabled={!isAdmin}
-          error={shown(problems.teams)}
-          onChange={set}
-        />
-      </SettingsSection>
+      {teamOwned ? (
+        <SettingsSection title="Who may use it">
+          <p className={s.note}>
+            {teamOnly(server)}: only the team&apos;s templates can give its tools to their agents. It can&apos;t be published to other teams, and templates using it
+            can&apos;t go to the catalog.
+          </p>
+        </SettingsSection>
+      ) : (
+        <SettingsSection title="Who may use it" description="Teams it's published to can give its tools to their templates' agents; personal workspaces, to their agents.">
+          <PublishFields
+            visibility={form.visibility}
+            teams={form.teams}
+            personal={form.personal}
+            currentTeams={server.teams}
+            disabled={!canManage}
+            error={shown(problems.teams)}
+            onChange={set}
+          />
+        </SettingsSection>
+      )}
       <SettingsSection title="Headers" description="Sent with every request to the server, for example Authorization. Stored encrypted and never shown, here or in the API.">
         <HeadersSetting
           has={server.hasHeaders}
           rows={headers}
           onChange={setHeaders}
           error={shown(problems.headers)}
-          isAdmin={isAdmin}
+          isAdmin={canManage}
           hint="Sent with every request to the server. Saving reads the tools again."
         />
       </SettingsSection>
-      {isAdmin && (
+      {canManage && (
         <DangerZone>
           <DangerAction
             title="Delete this MCP server"

@@ -132,8 +132,17 @@ function useTrail(
       ? params.serverId
       : undefined;
   const server = useQuery({
-    ...mcpServerQuery(serverId ?? ""),
+    ...mcpServerQuery(adminScope, serverId ?? ""),
     enabled: canAdmin && !!serverId,
+  });
+  // One of a team's own MCP servers, likewise.
+  const teamServerId =
+    routeId === "/app/teams/$team/mcp-servers/$serverId"
+      ? params.serverId
+      : undefined;
+  const teamServer = useQuery({
+    ...mcpServerQuery(teamScope(slug ?? ""), teamServerId ?? ""),
+    enabled: !!slug && !!teamServerId,
   });
   // A service account's name, likewise.
   const serviceAccountId =
@@ -227,6 +236,19 @@ function useTrail(
         crumbs.push({
           label: teamProvider.data?.name ?? (
             <VisuallyHidden>Provider</VisuallyHidden>
+          ),
+        });
+      return crumbs;
+    }
+    if (sub === "/mcp-servers/$serverId") {
+      crumbs.push({
+        label: "MCP servers",
+        render: <Link to="/teams/$team/mcp-servers" params={{ team: slug }} />,
+      });
+      if (!isNotFound(teamServer.error))
+        crumbs.push({
+          label: teamServer.data?.name ?? (
+            <VisuallyHidden>MCP server</VisuallyHidden>
           ),
         });
       return crumbs;

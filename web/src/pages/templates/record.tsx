@@ -32,7 +32,7 @@ import {
   templateAbilities,
 } from "./labels";
 import { ReviewDialog } from "./review-dialog";
-import { teamModelMessage } from "./template-models";
+import { catalogRefusal } from "./template-models";
 import { TemplateSettingsTab } from "./settings-tab";
 import { VersionsTab } from "./versions-tab";
 
@@ -82,7 +82,7 @@ function Record({ template }: { template: AgentTemplate }) {
     onError: (err, action) =>
       toast.error(
         action === "publish" ? "Couldn't submit it to the catalog" : "Couldn't change publishing",
-        teamModelMessage(err, "submit") ?? errorMessage(err),
+        catalogRefusal(err, "submit") ?? errorMessage(err),
       ),
   });
   const primary = abilities.canReview ? (

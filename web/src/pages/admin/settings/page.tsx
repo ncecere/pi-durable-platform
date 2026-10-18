@@ -3,8 +3,9 @@
  * workspaces: whether everyone who signs in gets one, and the limits every
  * one starts with (max agents, max running at once, a monthly budget that is
  * recorded but not enforced yet) and whether people may add model providers
- * in theirs. Team model providers: whether teams may add their own, and the
- * private networks they may be on (model-providers-section.tsx). Trusted
+ * and MCP servers in theirs. Team providers and MCP servers: whether teams
+ * may add their own, and the private networks both may be on
+ * (model-providers-section.tsx). Trusted
  * apps: the OAuth Connect apps that skip the approval screen
  * (trusted-apps-section.tsx). Each section saves on
  * its own with If-Match on its revision; platform auditors see them
@@ -30,16 +31,17 @@ import { budgetNote, budgetOf, budgetProblem, countProblem, LIMIT_MAX, text } fr
 import { ModelProviderSettings } from "./model-providers-section";
 import { TrustedAppsSettings } from "./trusted-apps-section";
 
-type Form = { enabled: boolean; ownProviders: boolean; maxAgents: string; maxRunning: string; monthlyBudgetUsd: string };
+type Form = { enabled: boolean; ownProviders: boolean; ownMcpServers: boolean; maxAgents: string; maxRunning: string; monthlyBudgetUsd: string };
 
 const formOf = (p: PersonalSettings): Form => ({
   enabled: p.enabled,
   ownProviders: p.ownProviders ?? false,
+  ownMcpServers: p.ownMcpServers ?? false,
   maxAgents: text(p.maxAgents),
   maxRunning: text(p.maxRunning),
   monthlyBudgetUsd: text(p.monthlyBudgetUsd),
 });
-const labels = { enabled: "Personal workspaces", ownProviders: "Own model providers", maxAgents: "Max agents", maxRunning: "Max running at once", monthlyBudgetUsd: "Monthly budget" };
+const labels = { enabled: "Personal workspaces", ownProviders: "Own model providers", ownMcpServers: "Own MCP servers", maxAgents: "Max agents", maxRunning: "Max running at once", monthlyBudgetUsd: "Monthly budget" };
 
 /** /admin/settings */
 export function AdminSettingsPage() {
@@ -84,6 +86,7 @@ function PersonalWorkspaceSettings({ settings }: { settings: PersonalSettings })
           body: {
             enabled: form.enabled,
             ownProviders: form.ownProviders,
+            ownMcpServers: form.ownMcpServers,
             maxAgents: Number(form.maxAgents.trim()),
             maxRunning: Number(form.maxRunning.trim()),
             monthlyBudgetUsd: budgetOf(form.monthlyBudgetUsd),
@@ -125,10 +128,17 @@ function PersonalWorkspaceSettings({ settings }: { settings: PersonalSettings })
         />
         <Switch
           label="People may add their own model providers in their personal workspace"
-          description="Their models are for that workspace only. It also needs “Teams may add their own model providers” turned on, under Team model providers."
+          description="Their models are for that workspace only. It also needs “Teams may add their own model providers” turned on, under Team providers and MCP servers."
           disabled={!isAdmin}
           checked={form.ownProviders}
           onCheckedChange={(v) => set({ ownProviders: v })}
+        />
+        <Switch
+          label="People may add their own MCP servers in their personal workspace"
+          description="Their servers are for that workspace only. It also needs “Teams may add their own MCP servers” turned on, under Team providers and MCP servers."
+          disabled={!isAdmin}
+          checked={form.ownMcpServers}
+          onCheckedChange={(v) => set({ ownMcpServers: v })}
         />
         <Field label="Max agents" description="Agents one personal workspace may have." error={problems.maxAgents}>
           <NumberInput value={form.maxAgents} maximumFractionDigits={0} disabled={!isAdmin} unit="agents" onValueChange={(v) => set({ maxAgents: v })} />
