@@ -303,3 +303,24 @@
   white-space: nowrap;
   vertical-align: bottom;
 }
+
+/* A titled section of a page with more than one list (Admin › Templates): an <h2> and a line about it. */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.sectionHeading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.sectionTitle {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  color: var(--color-text);
+}

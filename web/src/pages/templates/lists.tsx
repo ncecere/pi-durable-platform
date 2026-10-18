@@ -5,7 +5,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { BookOpen, ClipboardCheck, Plus } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   adminTemplatesQuery,
   catalogQuery,
@@ -24,6 +24,7 @@ import {
   type DataTableColumn,
 } from "@/components/ui/data-table/data-table";
 import { Stack } from "@/components/ui/layout/layout";
+import { PageHeader } from "@/components/ui/page-header/page-header";
 import { TextLink } from "@/components/ui/text-link/text-link";
 import s from "../shared.module.css";
 import { useTeam } from "../team/common";
@@ -200,61 +201,81 @@ export function TeamTemplatesPage() {
   );
 }
 
-/** /admin/templates: the review queue, then every template. */
+/** /admin/templates: the review queue, then every template, each under its own heading. */
 export function AdminTemplatesPage() {
   const me = useCurrentUser();
   const pending = useQuery(adminTemplatesQuery("pending"));
   const all = useQuery(adminTemplatesQuery());
   const [creating, setCreating] = useState(false);
+  const pendingId = useId();
+  const allId = useId();
   return (
-    <Stack gap={8}>
-      <ListPage<AgentTemplate>
-        id="admin-templates-pending"
+    <Stack gap={8} className={s.page}>
+      <PageHeader
         title="Templates"
         description="Teams ask to publish their templates to the catalog; platform admins review them here."
-        primaryAction={
+        actions={
           me.capabilities.platformAdmin && (
             <Button variant="secondary" onClick={() => setCreating(true)}>
               <Plus aria-hidden /> New platform template
             </Button>
           )
         }
-        caption="Waiting for review"
-        columns={columns({ owner: true })}
-        data={pending.data ?? []}
-        getRowId={(t) => t.id}
-        rowLabel={(t) => t.name}
-        loading={pending.isLoading}
-        error={pending.error}
-        onRetry={() => void pending.refetch()}
-        rowActions={(t) => [{ label: "Review", render: link(t) }]}
-        empty={{
-          icon: <ClipboardCheck />,
-          title: "Nothing waiting for review.",
-          description: "Requests to publish team templates show here.",
-        }}
       />
-      <ListPage<AgentTemplate>
-        id="admin-templates-all"
-        caption="Every template"
-        columns={columns({ owner: true, status: true })}
-        data={all.data ?? []}
-        getRowId={(t) => t.id}
-        rowLabel={(t) => t.name}
-        search={{
-          label: "Search templates",
-          placeholder: "Name, owner or description",
-        }}
-        loading={all.isLoading}
-        error={all.error}
-        onRetry={() => void all.refetch()}
-        rowActions={(t) => [{ label: "Open", render: link(t) }]}
-        empty={{
-          icon: <BookOpen />,
-          title: "No templates.",
-          description: whatIsATemplate,
-        }}
-      />
+      <section aria-labelledby={pendingId} className={s.section}>
+        <div className={s.sectionHeading}>
+          <h2 id={pendingId} className={s.sectionTitle}>
+            Waiting for review
+          </h2>
+          <p className={s.settingDescription}>Team templates whose owners asked to publish them to the catalog.</p>
+        </div>
+        <ListPage<AgentTemplate>
+          id="admin-templates-pending"
+          caption="Templates waiting for review"
+          columns={columns({ owner: true })}
+          data={pending.data ?? []}
+          getRowId={(t) => t.id}
+          rowLabel={(t) => t.name}
+          loading={pending.isLoading}
+          error={pending.error}
+          onRetry={() => void pending.refetch()}
+          rowActions={(t) => [{ label: "Review", render: link(t) }]}
+          empty={{
+            icon: <ClipboardCheck />,
+            title: "Nothing waiting for review.",
+            description: "Requests to publish team templates show here.",
+          }}
+        />
+      </section>
+      <section aria-labelledby={allId} className={s.section}>
+        <div className={s.sectionHeading}>
+          <h2 id={allId} className={s.sectionTitle}>
+            Every template
+          </h2>
+          <p className={s.settingDescription}>The platform&apos;s templates and every team&apos;s, published or not.</p>
+        </div>
+        <ListPage<AgentTemplate>
+          id="admin-templates-all"
+          caption="Every template"
+          columns={columns({ owner: true, status: true })}
+          data={all.data ?? []}
+          getRowId={(t) => t.id}
+          rowLabel={(t) => t.name}
+          search={{
+            label: "Search templates",
+            placeholder: "Name, owner or description",
+          }}
+          loading={all.isLoading}
+          error={all.error}
+          onRetry={() => void all.refetch()}
+          rowActions={(t) => [{ label: "Open", render: link(t) }]}
+          empty={{
+            icon: <BookOpen />,
+            title: "No templates.",
+            description: whatIsATemplate,
+          }}
+        />
+      </section>
       {creating && <CreateTemplateDialog onClose={() => setCreating(false)} />}
     </Stack>
   );
