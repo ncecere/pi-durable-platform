@@ -251,12 +251,12 @@ describe("Conversations tab for platform staff", () => {
     );
     renderApp(`/teams/${personal.slug}/agents/${agentId}?tab=conversations`);
     const table = await screen.findByRole("table", { name: "Conversations with Helper" });
-    const row = (await within(table).findByText("Private conversation")).closest("tr")!;
+    const row = (await within(table).findByText("Title hidden")).closest("tr")!;
     expect(within(row).getByText("Private")).toBeInTheDocument();
     expect(within(row).getAllByText("Blair Admin").length).toBeGreaterThan(0);
 
-    await u.click(within(row).getByRole("button", { name: /^Read Private conversation/ }));
-    const dialog = await screen.findByRole("dialog");
+    await u.click(within(row).getByRole("button", { name: "Read the conversation started by Blair Admin…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Read this conversation?" });
     expect(within(dialog).getByText(/Recorded in the team's audit log, which the owner can see/)).toBeInTheDocument();
     await u.click(within(dialog).getByRole("button", { name: "Read conversation" }));
     expect(await within(dialog).findByText("Give a reason of at least 10 characters.")).toBeInTheDocument();
@@ -272,6 +272,17 @@ describe("Conversations tab for platform staff", () => {
     expect(await within(snapshot).findByText("My secret plan")).toBeInTheDocument();
     expect(within(snapshot).getByText(/Read-only, as of/)).toBeInTheDocument();
     expect(within(snapshot).queryByRole("textbox", { name: "Message" })).toBeNull();
+  });
+
+  it("labels a shared thread's hidden title neutrally, leaving Shared to the Visibility column", async () => {
+    const shared: Schemas["AdminAgentThread"] = { ...listed, threadId: "t2", visibility: "shared" };
+    mockApi(staffRoutes("platform_admin", { [`GET /v1/admin/agents/${agentId}/threads`]: () => [shared] }));
+    renderApp(`/teams/${personal.slug}/agents/${agentId}?tab=conversations`);
+    const table = await screen.findByRole("table", { name: "Conversations with Helper" });
+    const row = (await within(table).findByText("Title hidden")).closest("tr")!;
+    expect(within(row).getByText("Shared")).toBeInTheDocument();
+    expect(within(table).queryByText(/Private/)).toBeNull();
+    expect(screen.getByText(/Titles in a personal workspace are hidden, shared or not/)).toBeInTheDocument();
   });
 
   it("doesn't offer auditors the Conversations tab (the list is platform admins')", async () => {
