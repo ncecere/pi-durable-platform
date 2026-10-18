@@ -11,21 +11,25 @@ func TestAgentRules(t *testing.T) {
 		name                            string
 		s                               AgentSubject
 		see, use, edit, del, delAsAdmin bool
+		hibernate                       bool
 	}{
-		{"member", person(RoleMember, false), true, true, false, false, true},
-		{"editor", person(RoleEditor, false), true, true, true, false, true},
-		{"admin", person(RoleAdmin, false), true, true, true, true, true},
-		{"owner", person(RoleOwner, false), true, true, true, true, true},
-		{"not on the team", person("", false), false, false, false, false, true},
-		{"member service account", svc(RoleMember, false), true, true, false, false, true},
-		{"editor service account", svc(RoleEditor, false), true, true, true, false, true},
-		{"another team's service account", svc("", false), false, false, false, false, true},
-		{"service-managed: member service account", svc(RoleMember, true), true, true, false, false, true},
-		{"service-managed: editor service account", svc(RoleEditor, true), true, true, true, true, true},
-		{"service-managed: owner (a person)", person(RoleOwner, true), true, false, false, true, true},
-		{"service-managed: admin (a person)", person(RoleAdmin, true), true, false, false, true, true},
-		{"service-managed: editor (a person)", person(RoleEditor, true), false, false, false, false, true},
-		{"service-managed: not on the team", person("", true), false, false, false, false, true},
+		{"member", person(RoleMember, false), true, true, false, false, true, true},
+		{"editor", person(RoleEditor, false), true, true, true, false, true, true},
+		{"admin", person(RoleAdmin, false), true, true, true, true, true, true},
+		{"owner", person(RoleOwner, false), true, true, true, true, true, true},
+		{"not on the team", person("", false), false, false, false, false, true, false},
+		{"member service account", svc(RoleMember, false), true, true, false, false, true, true},
+		{"editor service account", svc(RoleEditor, false), true, true, true, false, true, true},
+		{"another team's service account", svc("", false), false, false, false, false, true, false},
+		{"service-managed: member service account", svc(RoleMember, true), true, true, false, false, true, true},
+		{"service-managed: editor service account", svc(RoleEditor, true), true, true, true, true, true, true},
+		{"service-managed: owner (a person)", person(RoleOwner, true), true, false, false, true, true, true},
+		{"service-managed: admin (a person)", person(RoleAdmin, true), true, false, false, true, true, true},
+		{"service-managed: editor (a person)", person(RoleEditor, true), false, false, false, false, true, false},
+		{"service-managed: not on the team", person("", true), false, false, false, false, true, false},
+		// Platform staff not on the team (any team, personal or shared): they see the agent, read-only.
+		{"platform staff", AgentSubject{Audit: true}, true, false, false, false, true, false},
+		{"service-managed: platform staff", AgentSubject{ServiceManaged: true, Audit: true}, true, false, false, false, true, false},
 	}
 	for _, c := range cases {
 		check := func(what string, got, want bool) {
@@ -38,6 +42,7 @@ func TestAgentRules(t *testing.T) {
 		check("edit", CheckAgentEdit(c.s) == nil, c.edit)
 		check("delete", CheckAgentDelete(c.s, false) == nil, c.del)
 		check("delete as platform admin", CheckAgentDelete(c.s, true) == nil, c.delAsAdmin)
+		check("hibernate", CheckAgentHibernate(c.s) == nil, c.hibernate)
 	}
 	if CheckTeamAgentCreate(RoleMember) == nil || CheckTeamAgentCreate(RoleEditor) != nil {
 		t.Error("team agent creation: editors and above only")

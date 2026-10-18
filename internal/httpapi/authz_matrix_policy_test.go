@@ -187,8 +187,9 @@ var matrixPolicies = map[string]policy{
 	}},
 
 	// Agents. Everyone signed in sees the templates and their teams' agents.
-	// A team's agents and their conversations are its members' only:
-	// platform roles never reach them (platform admins may delete).
+	// A team's agents are its members' to use, their conversations its
+	// members' only: platform staff see any team's agents read-only (their
+	// settings and status), and platform admins may delete them.
 	"listAgentTemplates": {own: signedIn, build: func(*mctx) request { return get("/v1/agent-templates") }},
 
 	// Templates. Platform templates are platform admins'; a team's templates
@@ -222,12 +223,12 @@ var matrixPolicies = map[string]policy{
 	"createTeamAgent": {scope: scopeTeam, own: editors, build: func(c *mctx) request {
 		return post(c.team("/agents"), map[string]any{"name": fmt.Sprintf("new-agent-%d", c.e.next())})
 	}},
-	"listTeamAgents": {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.team("/agents")) }},
+	"listTeamAgents": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.team("/agents")) }},
 	// Service-managed agents are created by editor service accounts only (agents_keys_integration_test.go).
 	"ensureTeamAgentByKey": {scope: scopeTeam, own: 0, build: func(c *mctx) request {
 		return request{method: "PUT", path: c.team(fmt.Sprintf("/agents/by-key/user-%d", c.e.next()))}
 	}},
-	"getAgent": {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.agent("", false)) }},
+	"getAgent": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.agent("", false)) }},
 	"updateAgent": {scope: scopeTeam, own: editors, build: func(c *mctx) request {
 		return patch(c.agent("", true), map[string]any{"description": "updated by the matrix"}).h(rev1)
 	}},

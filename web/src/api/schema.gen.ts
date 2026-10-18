@@ -1490,8 +1490,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The team's agents (members and the team's service accounts)
-         * @description Service-managed agents (with an external key) are included with includeManaged=true, for the team's owners, admins and service accounts.
+         * The team's agents (members and the team's service accounts; platform staff read any team's)
+         * @description Service-managed agents (with an external key) are included with includeManaged=true, for the team's owners, admins and service accounts, and platform staff. Platform admins and auditors see any team's agents (settings and status, not conversations).
          */
         get: operations["listTeamAgents"];
         put?: never;
@@ -1540,7 +1540,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** An agent the caller may use */
+        /** An agent the caller may use, or see (platform staff see any team's agents, not their conversations) */
         get: operations["getAgent"];
         put?: never;
         post?: never;
