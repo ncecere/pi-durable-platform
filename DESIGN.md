@@ -67,7 +67,14 @@ Each provider has an access mode:
   request names and the endpoint (`/chat/completions`, `/responses` or `/v1/messages`), adds the key, streams the
   reply back and records the tokens it reports (`model_usage`). Agents need no network path but the platform's.
 - **direct**: agents get the provider's URL and key and call it themselves (for gateways that issue scoped keys; the
-  agents' network must allow the provider). Usage is not counted by the platform.
+  agents' network must allow the provider).
+
+**Usage.** The proxy records every request it relays. For models it does not see (direct-mode providers and the
+platform's default model), the runtime counts each finished response (`runtime/src/usage.ts`) and reports batches to
+the gateway's `/usage` with its credential; reports for a proxied model are ignored, so nothing counts twice. Reports
+(`GET /v1/teams/{team}/usage`, `GET /v1/admin/usage`) sum requests and tokens per day, model, agent or team, with a
+cost estimate from the models' current prices. Service-managed agents are named only for the team's owners, admins and
+service accounts.
 
 ## Launchers
 

@@ -145,6 +145,7 @@ type ModelUsage struct {
 	CacheReadTokens  int64
 	CacheWriteTokens int64
 	CreatedAt        time.Time
+	Requests         int32
 }
 
 type PlatformBootstrap struct {

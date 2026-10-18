@@ -271,4 +271,6 @@ var matrixPolicies = map[string]policy{
 	}},
 	"adminDeleteModel": {own: padmin, build: func(c *mctx) request { return del("/v1/admin/models/" + c.model(true)) }},
 	"listTeamModels":   {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.team("/models")) }},
+	"getTeamUsage":     {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.team("/usage?groupBy=agent")) }},
+	"adminGetUsage":    {own: platform, build: func(*mctx) request { return get("/v1/admin/usage?groupBy=team") }},
 }

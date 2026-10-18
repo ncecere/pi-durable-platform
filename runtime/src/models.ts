@@ -12,8 +12,10 @@ import {
 	fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import type { ModelRef } from "@earendil-works/pi-durable";
+import { countingUsage, UsageReporter } from "./usage.ts";
 
-export type AgentModels = { models: MutableModels; model: ModelRef; source: string };
+/** usage reports the model's usage to the platform, when the platform's proxy does not count it. */
+export type AgentModels = { models: MutableModels; model: ModelRef; source: string; usage?: UsageReporter };
 type Env = Record<string, string | undefined>;
 
 /**
@@ -65,6 +67,8 @@ function registerModel(models: MutableModels, env: Env, api: string): AgentModel
 		...(api === "openai-completions" ? { compat: { supportsDeveloperRole: false } } : {}),
 	} as Model<Api>;
 	const label = env.MODEL_PROVIDER_NAME?.trim() || host;
+	const usage = env.MODEL_USAGE_URL && env.MODEL_USAGE_KEY ? new UsageReporter(env.MODEL_USAGE_URL, env.MODEL_USAGE_KEY) : undefined;
+	const streams = APIS[api as SupportedApi]();
 	models.setProvider(
 		createProvider({
 			id: "agent-model",
@@ -72,10 +76,10 @@ function registerModel(models: MutableModels, env: Env, api: string): AgentModel
 			baseUrl,
 			auth: { apiKey: { name: "MODEL_API_KEY", resolve: async () => ({ auth: { apiKey }, source: "MODEL_API_KEY" }) } },
 			models: [model],
-			api: APIS[api as SupportedApi](),
+			api: usage ? countingUsage(streams, usage) : streams,
 		}),
 	);
-	return { models, model: { provider: "agent-model", modelId }, source: `${api} (${label})` };
+	return { models, model: { provider: "agent-model", modelId }, source: `${api} (${label})`, usage };
 }
 
 function positive(value: string | undefined, fallback: number): number {

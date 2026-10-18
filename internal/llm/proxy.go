@@ -58,7 +58,43 @@ func (s *Service) Gateway(auth AgentAuth, log *slog.Logger) http.Handler {
 	mux.HandleFunc("POST /model-proxy/{providerId}/{path...}", func(w http.ResponseWriter, r *http.Request) {
 		s.proxy(w, r, auth, log)
 	})
+	mux.HandleFunc("POST /usage", func(w http.ResponseWriter, r *http.Request) {
+		s.reportUsage(w, r, auth, log)
+	})
 	return mux
+}
+
+// reportUsage takes an agent's usage batch (models the proxy does not see).
+func (s *Service) reportUsage(w http.ResponseWriter, r *http.Request, auth AgentAuth, log *slog.Logger) {
+	agentID, token, ok := credential(r)
+	if !ok {
+		proxyError(w, http.StatusUnauthorized, "unauthorized", "A model-proxy credential is required")
+		return
+	}
+	teamID, modelID, err := auth(r.Context(), agentID, token)
+	if err != nil {
+		proxyError(w, http.StatusUnauthorized, "unauthorized", "Invalid model-proxy credential")
+		return
+	}
+	var u struct {
+		Requests, Input, Output, CacheRead, CacheWrite int64
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&u); err != nil {
+		proxyError(w, http.StatusBadRequest, "invalid_request", "The body must be JSON usage counts")
+		return
+	}
+	recorded, err := s.RecordReported(r.Context(), teamID, agentID, modelID, ReportedUsage(u))
+	var ae *apperr.Error
+	if errors.As(err, &ae) {
+		proxyError(w, ae.Status, ae.Code, ae.Message)
+		return
+	} else if err != nil {
+		log.Warn("record reported usage", "agent", agentID, "err", err)
+		proxyError(w, http.StatusInternalServerError, "internal", "Internal error")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]bool{"recorded": recorded}})
 }
 
 func proxyError(w http.ResponseWriter, status int, code, message string) {

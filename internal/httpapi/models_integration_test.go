@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -262,6 +263,36 @@ func TestModelCatalog(t *testing.T) {
 	}
 	if auths, _ := fake.calls(); len(auths) != 2 || auths[1] != "Bearer "+fakeProviderKey {
 		t.Fatalf("provider saw %v", auths)
+	}
+
+	// In direct mode the agent reports its usage itself (the proxy never saw it).
+	deadline := time.Now().Add(15 * time.Second)
+	for e.scalar(`SELECT count(*)::text FROM model_usage WHERE agent_id = $1 AND source = 'agent'`, ag.Id) == "0" {
+		if time.Now().After(deadline) {
+			t.Fatal("the agent did not report its direct-mode usage")
+		}
+		sleep100()
+	}
+	if got := e.scalar(`SELECT format('%s/%s', requests, output_tokens) FROM model_usage WHERE agent_id = $1 AND source = 'agent'`, ag.Id); got != "1/7" {
+		t.Fatalf("reported usage %q", got)
+	}
+
+	// Usage reports: the team by model (cost from fake-1's input price), the platform by team.
+	var rep apitypes.UsageReport
+	if code := e.member.get(toolsTeam+"/usage?groupBy=model", &rep); code != 200 || len(rep.Rows) != 1 || rep.Rows[0].ModelName == nil ||
+		*rep.Rows[0].ModelName != "Fake One" || rep.Total.Requests != 2 || rep.Total.OutputTokens != 14 || rep.Total.CostUsd <= 0 {
+		t.Fatalf("team usage: %d %+v", code, rep)
+	}
+	if code := e.member.get(toolsTeam+"/usage?groupBy=agent&agentId="+ag.Id.String(), &rep); code != 200 || len(rep.Rows) != 1 ||
+		rep.Rows[0].AgentName == nil || *rep.Rows[0].AgentName != "Real bot" {
+		t.Fatalf("agent usage: %d %+v", code, rep)
+	}
+	code, ec = e.outsider.call("GET", toolsTeam+"/usage", nil, nil, nil)
+	mustCode(t, "another team's usage", code, ec, 404, "")
+	code, ec = e.member.call("GET", toolsTeam+"/usage?from=2026-01-01&to=2025-01-01", nil, nil, nil)
+	mustCode(t, "a backwards range", code, ec, 400, "invalid_range")
+	if code := e.auditor.get("/v1/admin/usage?groupBy=team", &rep); code != 200 || len(rep.Rows) != 1 || *rep.Rows[0].TeamSlug != "tools" {
+		t.Fatalf("platform usage: %d %+v", code, rep)
 	}
 
 	// Every change is audited, without the key.

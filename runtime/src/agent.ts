@@ -41,7 +41,7 @@ export { AgentOwnedElsewhereError };
  */
 export async function startAgent(config: AgentConfig): Promise<RunningAgent> {
 	const log = (...args: unknown[]) => console.log(`[agent ${config.agentId}]`, ...args);
-	const { models, model, source } = createAgentModels(config.modelEnv);
+	const { models, model, source, usage } = createAgentModels(config.modelEnv);
 	log(`model ${model.provider}/${model.modelId} via ${source}`);
 
 	const storage = await openPostgresAgentStorage({
@@ -85,6 +85,7 @@ export async function startAgent(config: AgentConfig): Promise<RunningAgent> {
 		close: async () => {
 			closing = true;
 			await harness.close(ctx).catch(() => {});
+			await usage?.flush();
 		},
 	};
 }

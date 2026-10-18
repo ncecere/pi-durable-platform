@@ -1864,6 +1864,108 @@ paths:
           $ref: '#/components/responses/ErrorReply'
         '404':
           $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/usage:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    get:
+      tags:
+      - models
+      operationId: getTeamUsage
+      summary: The team's model usage, with a cost estimate (its members and service accounts, platform staff)
+      description: >-
+        Requests and tokens per day, model or agent, from the platform's model proxy and from agents (direct-mode
+        providers and the platform's default model). Cost uses the models' current prices. Service-managed agents are
+        named for the team's owners and admins and its service accounts; others see them summed.
+      parameters:
+      - name: from
+        in: query
+        schema:
+          type: string
+          format: date
+        description: First day (UTC), default 29 days before `to`
+      - name: to
+        in: query
+        schema:
+          type: string
+          format: date
+        description: Last day (UTC, inclusive), default today
+      - name: groupBy
+        in: query
+        schema:
+          type: string
+          enum: [day, model, agent]
+          default: day
+      - name: agentId
+        in: query
+        schema:
+          type: string
+          format: uuid
+        description: Only this agent
+      responses:
+        '200':
+          description: The report
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UsageReport'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/usage:
+    get:
+      tags:
+      - models
+      operationId: adminGetUsage
+      summary: Every team's model usage (platform admins and auditors)
+      parameters:
+      - name: from
+        in: query
+        schema:
+          type: string
+          format: date
+        description: First day (UTC), default 29 days before `to`
+      - name: to
+        in: query
+        schema:
+          type: string
+          format: date
+        description: Last day (UTC, inclusive), default today
+      - name: groupBy
+        in: query
+        schema:
+          type: string
+          enum: [day, team, model]
+          default: day
+      responses:
+        '200':
+          description: The report
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UsageReport'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
   /v1/agents:
     get:
       tags:
@@ -2503,6 +2605,88 @@ components:
               data:
                 $ref: '#/components/schemas/Ok'
   schemas:
+    UsageRow:
+      type: object
+      required: [requests, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd, unpricedRequests, managed]
+      properties:
+        day:
+          type: string
+          format: date
+          nullable: true
+        modelId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Absent when grouped by model - the platform's default model
+        modelName:
+          type: string
+          nullable: true
+        providerName:
+          type: string
+          nullable: true
+        agentId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Absent when grouped by agent - a deleted agent, or service-managed agents summed
+        agentName:
+          type: string
+          nullable: true
+        managed:
+          type: boolean
+          description: Service-managed agents (one per app user)
+        teamId:
+          type: string
+          format: uuid
+          nullable: true
+        teamSlug:
+          type: string
+          nullable: true
+        teamName:
+          type: string
+          nullable: true
+        requests:
+          type: integer
+          format: int64
+        inputTokens:
+          type: integer
+          format: int64
+        outputTokens:
+          type: integer
+          format: int64
+        cacheReadTokens:
+          type: integer
+          format: int64
+        cacheWriteTokens:
+          type: integer
+          format: int64
+        costUsd:
+          type: number
+          format: double
+          description: Estimated from the models' current prices
+        unpricedRequests:
+          type: integer
+          format: int64
+          description: Requests of models without prices (not in costUsd)
+    UsageReport:
+      type: object
+      required: [from, to, groupBy, rows, total]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        groupBy:
+          type: string
+          enum: [day, model, agent, team]
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageRow'
+        total:
+          $ref: '#/components/schemas/UsageRow'
     ProviderType:
       type: object
       required: [id, name, api, authHeader]

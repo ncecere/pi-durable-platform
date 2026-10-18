@@ -2,9 +2,12 @@ package httpapi
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	"github.com/ncecere/pi-durable-platform/internal/apperr"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
@@ -30,6 +33,8 @@ func (a *api) modelRoutes() []route {
 		{"PATCH", "/v1/admin/models/{modelId}", a.admin(a.updateModel)},
 		{"DELETE", "/v1/admin/models/{modelId}", a.admin(a.deleteModel)},
 		{"GET", "/v1/teams/{team}/models", a.sessionOrKey(a.listTeamModels)},
+		{"GET", "/v1/teams/{team}/usage", a.sessionOrKey(a.getTeamUsage)},
+		{"GET", "/v1/admin/usage", a.admin(a.adminGetUsage)},
 	}
 }
 
@@ -240,4 +245,72 @@ func toAPIAgentModel(m *uuid.UUID, name, provider, source string, available bool
 		return nil
 	}
 	return &apitypes.AgentModel{Id: *m, Name: name, ProviderName: provider, Source: apitypes.AgentModelSource(source), Available: available}
+}
+
+// usageQuery reads ?from=&to= (dates), ?groupBy= and ?agentId=.
+func usageQuery(w http.ResponseWriter, r *http.Request) (llm.UsageQuery, bool) {
+	q := llm.UsageQuery{GroupBy: r.URL.Query().Get("groupBy")}
+	for _, d := range []struct {
+		name string
+		dst  *time.Time
+	}{{"from", &q.From}, {"to", &q.To}} {
+		if v := r.URL.Query().Get(d.name); v != "" {
+			t, err := time.Parse(time.DateOnly, v)
+			if err != nil {
+				failed(w, r, apperr.Invalid("invalid_range", d.name+" must be a date (YYYY-MM-DD)"))
+				return q, false
+			}
+			*d.dst = t
+		}
+	}
+	if v := r.URL.Query().Get("agentId"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			failed(w, r, apperr.Invalid("invalid_agent_id", "agentId must be an agent's ID"))
+			return q, false
+		}
+		q.AgentID = &id
+	}
+	return q, true
+}
+
+func toAPIUsageRow(u llm.UsageRow) apitypes.UsageRow {
+	out := apitypes.UsageRow{ModelId: u.ModelID, ModelName: u.ModelName, ProviderName: u.ProviderName, AgentId: u.AgentID,
+		AgentName: u.AgentName, Managed: u.Managed, TeamId: u.TeamID, TeamSlug: u.TeamSlug, TeamName: u.TeamName,
+		Requests: u.Requests, InputTokens: u.Input, OutputTokens: u.Output, CacheReadTokens: u.CacheRead,
+		CacheWriteTokens: u.CacheWrite, CostUsd: u.CostUSD, UnpricedRequests: u.UnpricedRequests}
+	if u.Day != nil {
+		out.Day = &openapi_types.Date{Time: *u.Day}
+	}
+	return out
+}
+
+func writeUsage(w http.ResponseWriter, r *http.Request, rep llm.UsageReport, err error) {
+	if failed(w, r, err) {
+		return
+	}
+	rows := make([]apitypes.UsageRow, len(rep.Rows))
+	for i, row := range rep.Rows {
+		rows[i] = toAPIUsageRow(row)
+	}
+	httpx.JSON(w, http.StatusOK, apitypes.UsageReport{From: openapi_types.Date{Time: rep.From}, To: openapi_types.Date{Time: rep.To},
+		GroupBy: apitypes.UsageReportGroupBy(rep.GroupBy), Rows: rows, Total: toAPIUsageRow(rep.Total)})
+}
+
+func (a *api) getTeamUsage(w http.ResponseWriter, r *http.Request) {
+	q, ok := usageQuery(w, r)
+	if !ok {
+		return
+	}
+	rep, err := a.Models.TeamUsage(r.Context(), a.actor(r), r.PathValue("team"), q)
+	writeUsage(w, r, rep, err)
+}
+
+func (a *api) adminGetUsage(w http.ResponseWriter, r *http.Request) {
+	q, ok := usageQuery(w, r)
+	if !ok {
+		return
+	}
+	rep, err := a.Models.PlatformUsage(r.Context(), a.actor(r), q)
+	writeUsage(w, r, rep, err)
 }

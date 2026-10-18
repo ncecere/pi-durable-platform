@@ -685,6 +685,11 @@ func (s *Service) spec(ctx context.Context, ag dbgen.Agent) (launcher.Spec, erro
 // platform's default model (AGENTS_MODEL_*).
 func (s *Service) modelEnv(ctx context.Context, ag dbgen.Agent, tv dbgen.AgentTemplateVersion, token string) (map[string]string, error) {
 	modelID, _ := effectiveModel(ag, tv)
+	// Usage of models the proxy does not see is reported by the agent.
+	reportUsage := func(env map[string]string) {
+		env["MODEL_USAGE_URL"] = strings.TrimRight(s.cfg.GatewayURL, "/") + "/usage"
+		env["MODEL_USAGE_KEY"] = llm.ProxyCredential(ag.ID.String(), token)
+	}
 	if modelID == uuid.Nil {
 		env := map[string]string{"MODEL_PROVIDER": s.cfg.ModelProvider}
 		if s.cfg.ModelProvider == "openai-compatible" {
@@ -692,6 +697,7 @@ func (s *Service) modelEnv(ctx context.Context, ag dbgen.Agent, tv dbgen.AgentTe
 			if s.cfg.ModelReasoning {
 				env["MODEL_REASONING"] = "true"
 			}
+			reportUsage(env)
 		}
 		return env, nil
 	}
@@ -716,6 +722,7 @@ func (s *Service) modelEnv(ctx context.Context, ag dbgen.Agent, tv dbgen.AgentTe
 			}
 			env["MODEL_HEADERS"] = string(b)
 		}
+		reportUsage(env)
 	} else {
 		env["MODEL_BASE_URL"] = llm.ProxyBaseURL(s.cfg.GatewayURL, r.Provider.ID)
 		env["MODEL_API_KEY"] = llm.ProxyCredential(ag.ID.String(), token)

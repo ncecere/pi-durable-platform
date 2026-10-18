@@ -88,3 +88,29 @@ WHERE m.id = $1;
 -- name: InsertModelUsage :exec
 INSERT INTO model_usage (team_id, agent_id, model_id, source, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+
+-- name: InsertModelUsageBatch :exec
+INSERT INTO model_usage (team_id, agent_id, model_id, source, requests, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+
+-- name: UsageFacts :many
+-- Usage summed per UTC day, team, agent and model in [since, until), for one
+-- team (or every team), optionally one agent. Prices are the models' current
+-- ones (USD per million tokens).
+SELECT (u.created_at AT TIME ZONE 'UTC')::date AS day,
+       u.team_id, t.slug AS team_slug, t.name AS team_name,
+       u.agent_id, a.name AS agent_name, (a.external_key IS NOT NULL)::boolean AS agent_managed,
+       u.model_id, m.name AS model_name, p.name AS provider_name, m.input_price, m.output_price,
+       sum(u.requests)::bigint AS requests, sum(u.input_tokens)::bigint AS input_tokens,
+       sum(u.output_tokens)::bigint AS output_tokens, sum(u.cache_read_tokens)::bigint AS cache_read_tokens,
+       sum(u.cache_write_tokens)::bigint AS cache_write_tokens
+FROM model_usage u
+JOIN teams t ON t.id = u.team_id
+LEFT JOIN agents a ON a.id = u.agent_id
+LEFT JOIN models m ON m.id = u.model_id
+LEFT JOIN model_providers p ON p.id = m.provider_id
+WHERE u.created_at >= sqlc.arg(since) AND u.created_at < sqlc.arg(until)
+  AND (sqlc.narg(team_id)::uuid IS NULL OR u.team_id = sqlc.narg(team_id)::uuid)
+  AND (sqlc.narg(agent_id)::uuid IS NULL OR u.agent_id = sqlc.narg(agent_id)::uuid)
+GROUP BY 1, u.team_id, t.slug, t.name, u.agent_id, a.name, a.external_key, u.model_id, m.name, p.name, m.input_price, m.output_price
+ORDER BY 1;

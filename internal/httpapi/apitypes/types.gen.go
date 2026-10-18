@@ -552,6 +552,30 @@ func (e TeamStatus) Valid() bool {
 	}
 }
 
+// Defines values for UsageReportGroupBy.
+const (
+	UsageReportGroupByAgent UsageReportGroupBy = "agent"
+	UsageReportGroupByDay   UsageReportGroupBy = "day"
+	UsageReportGroupByModel UsageReportGroupBy = "model"
+	UsageReportGroupByTeam  UsageReportGroupBy = "team"
+)
+
+// Valid indicates whether the value is a known member of the UsageReportGroupBy enum.
+func (e UsageReportGroupBy) Valid() bool {
+	switch e {
+	case UsageReportGroupByAgent:
+		return true
+	case UsageReportGroupByDay:
+		return true
+	case UsageReportGroupByModel:
+		return true
+	case UsageReportGroupByTeam:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UserStatus.
 const (
 	UserStatusActive    UserStatus = "active"
@@ -621,6 +645,27 @@ func (e AdminListAuditParamsActorKind) Valid() bool {
 	}
 }
 
+// Defines values for AdminGetUsageParamsGroupBy.
+const (
+	AdminGetUsageParamsGroupByDay   AdminGetUsageParamsGroupBy = "day"
+	AdminGetUsageParamsGroupByModel AdminGetUsageParamsGroupBy = "model"
+	AdminGetUsageParamsGroupByTeam  AdminGetUsageParamsGroupBy = "team"
+)
+
+// Valid indicates whether the value is a known member of the AdminGetUsageParamsGroupBy enum.
+func (e AdminGetUsageParamsGroupBy) Valid() bool {
+	switch e {
+	case AdminGetUsageParamsGroupByDay:
+		return true
+	case AdminGetUsageParamsGroupByModel:
+		return true
+	case AdminGetUsageParamsGroupByTeam:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListTeamAuditParamsActorKind.
 const (
 	ListTeamAuditParamsActorKindSystem ListTeamAuditParamsActorKind = "system"
@@ -630,6 +675,27 @@ const (
 func (e ListTeamAuditParamsActorKind) Valid() bool {
 	switch e {
 	case ListTeamAuditParamsActorKindSystem:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetTeamUsageParamsGroupBy.
+const (
+	GetTeamUsageParamsGroupByAgent GetTeamUsageParamsGroupBy = "agent"
+	GetTeamUsageParamsGroupByDay   GetTeamUsageParamsGroupBy = "day"
+	GetTeamUsageParamsGroupByModel GetTeamUsageParamsGroupBy = "model"
+)
+
+// Valid indicates whether the value is a known member of the GetTeamUsageParamsGroupBy enum.
+func (e GetTeamUsageParamsGroupBy) Valid() bool {
+	switch e {
+	case GetTeamUsageParamsGroupByAgent:
+		return true
+	case GetTeamUsageParamsGroupByDay:
+		return true
+	case GetTeamUsageParamsGroupByModel:
 		return true
 	default:
 		return false
@@ -1501,6 +1567,48 @@ type TeamView struct {
 	Team Team      `json:"team"`
 }
 
+// UsageReport defines model for UsageReport.
+type UsageReport struct {
+	From    openapi_types.Date `json:"from"`
+	GroupBy UsageReportGroupBy `json:"groupBy"`
+	Rows    []UsageRow         `json:"rows"`
+	To      openapi_types.Date `json:"to"`
+	Total   UsageRow           `json:"total"`
+}
+
+// UsageReportGroupBy defines model for UsageReport.GroupBy.
+type UsageReportGroupBy string
+
+// UsageRow defines model for UsageRow.
+type UsageRow struct {
+	// AgentId Absent when grouped by agent - a deleted agent, or service-managed agents summed
+	AgentId          *openapi_types.UUID `json:"agentId,omitempty"`
+	AgentName        *string             `json:"agentName,omitempty"`
+	CacheReadTokens  int64               `json:"cacheReadTokens"`
+	CacheWriteTokens int64               `json:"cacheWriteTokens"`
+
+	// CostUsd Estimated from the models' current prices
+	CostUsd     float64             `json:"costUsd"`
+	Day         *openapi_types.Date `json:"day,omitempty"`
+	InputTokens int64               `json:"inputTokens"`
+
+	// Managed Service-managed agents (one per app user)
+	Managed bool `json:"managed"`
+
+	// ModelId Absent when grouped by model - the platform's default model
+	ModelId      *openapi_types.UUID `json:"modelId,omitempty"`
+	ModelName    *string             `json:"modelName,omitempty"`
+	OutputTokens int64               `json:"outputTokens"`
+	ProviderName *string             `json:"providerName,omitempty"`
+	Requests     int64               `json:"requests"`
+	TeamId       *openapi_types.UUID `json:"teamId,omitempty"`
+	TeamName     *string             `json:"teamName,omitempty"`
+	TeamSlug     *string             `json:"teamSlug,omitempty"`
+
+	// UnpricedRequests Requests of models without prices (not in costUsd)
+	UnpricedRequests int64 `json:"unpricedRequests"`
+}
+
 // User defines model for User.
 type User struct {
 	CreatedAt    time.Time          `json:"createdAt"`
@@ -1699,6 +1807,19 @@ type AdminUpdateTeamParams struct {
 	IfMatch IfMatchHeader `json:"If-Match"`
 }
 
+// AdminGetUsageParams defines parameters for AdminGetUsage.
+type AdminGetUsageParams struct {
+	// From First day (UTC), default 29 days before `to`
+	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
+
+	// To Last day (UTC, inclusive), default today
+	To      *openapi_types.Date         `form:"to,omitempty" json:"to,omitempty"`
+	GroupBy *AdminGetUsageParamsGroupBy `form:"groupBy,omitempty" json:"groupBy,omitempty"`
+}
+
+// AdminGetUsageParamsGroupBy defines parameters for AdminGetUsage.
+type AdminGetUsageParamsGroupBy string
+
 // AdminListUsersParams defines parameters for AdminListUsers.
 type AdminListUsersParams struct {
 	// Q Case-insensitive substring match
@@ -1797,6 +1918,22 @@ type UpdateServiceAccountParams struct {
 	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
 	IfMatch IfMatchHeader `json:"If-Match"`
 }
+
+// GetTeamUsageParams defines parameters for GetTeamUsage.
+type GetTeamUsageParams struct {
+	// From First day (UTC), default 29 days before `to`
+	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
+
+	// To Last day (UTC, inclusive), default today
+	To      *openapi_types.Date        `form:"to,omitempty" json:"to,omitempty"`
+	GroupBy *GetTeamUsageParamsGroupBy `form:"groupBy,omitempty" json:"groupBy,omitempty"`
+
+	// AgentId Only this agent
+	AgentId *openapi_types.UUID `form:"agentId,omitempty" json:"agentId,omitempty"`
+}
+
+// GetTeamUsageParamsGroupBy defines parameters for GetTeamUsage.
+type GetTeamUsageParamsGroupBy string
 
 // DevLoginJSONRequestBody defines body for DevLogin for application/json ContentType.
 type DevLoginJSONRequestBody = DevLoginRequest

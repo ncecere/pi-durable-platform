@@ -319,6 +319,38 @@ func (q *Queries) InsertModelUsage(ctx context.Context, arg InsertModelUsagePara
 	return err
 }
 
+const insertModelUsageBatch = `-- name: InsertModelUsageBatch :exec
+INSERT INTO model_usage (team_id, agent_id, model_id, source, requests, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+`
+
+type InsertModelUsageBatchParams struct {
+	TeamID           uuid.UUID
+	AgentID          uuid.NullUUID
+	ModelID          uuid.NullUUID
+	Source           string
+	Requests         int32
+	InputTokens      int64
+	OutputTokens     int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+}
+
+func (q *Queries) InsertModelUsageBatch(ctx context.Context, arg InsertModelUsageBatchParams) error {
+	_, err := q.db.Exec(ctx, insertModelUsageBatch,
+		arg.TeamID,
+		arg.AgentID,
+		arg.ModelID,
+		arg.Source,
+		arg.Requests,
+		arg.InputTokens,
+		arg.OutputTokens,
+		arg.CacheReadTokens,
+		arg.CacheWriteTokens,
+	)
+	return err
+}
+
 const listAvailableModels = `-- name: ListAvailableModels :many
 SELECT m.id, m.provider_id, m.upstream_id, m.name, m.context_window, m.max_tokens, m.images, m.reasoning, m.input_price, m.output_price, m.enabled, m.visibility, m.revision, m.created_at, m.updated_at, p.name AS provider_name, p.kind AS provider_kind
 FROM models m JOIN model_providers p ON p.id = m.provider_id
@@ -667,4 +699,97 @@ func (q *Queries) UpdateModelProvider(ctx context.Context, arg UpdateModelProvid
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const usageFacts = `-- name: UsageFacts :many
+SELECT (u.created_at AT TIME ZONE 'UTC')::date AS day,
+       u.team_id, t.slug AS team_slug, t.name AS team_name,
+       u.agent_id, a.name AS agent_name, (a.external_key IS NOT NULL)::boolean AS agent_managed,
+       u.model_id, m.name AS model_name, p.name AS provider_name, m.input_price, m.output_price,
+       sum(u.requests)::bigint AS requests, sum(u.input_tokens)::bigint AS input_tokens,
+       sum(u.output_tokens)::bigint AS output_tokens, sum(u.cache_read_tokens)::bigint AS cache_read_tokens,
+       sum(u.cache_write_tokens)::bigint AS cache_write_tokens
+FROM model_usage u
+JOIN teams t ON t.id = u.team_id
+LEFT JOIN agents a ON a.id = u.agent_id
+LEFT JOIN models m ON m.id = u.model_id
+LEFT JOIN model_providers p ON p.id = m.provider_id
+WHERE u.created_at >= $1 AND u.created_at < $2
+  AND ($3::uuid IS NULL OR u.team_id = $3::uuid)
+  AND ($4::uuid IS NULL OR u.agent_id = $4::uuid)
+GROUP BY 1, u.team_id, t.slug, t.name, u.agent_id, a.name, a.external_key, u.model_id, m.name, p.name, m.input_price, m.output_price
+ORDER BY 1
+`
+
+type UsageFactsParams struct {
+	Since   time.Time
+	Until   time.Time
+	TeamID  uuid.NullUUID
+	AgentID uuid.NullUUID
+}
+
+type UsageFactsRow struct {
+	Day              pgtype.Date
+	TeamID           uuid.UUID
+	TeamSlug         string
+	TeamName         string
+	AgentID          uuid.NullUUID
+	AgentName        *string
+	AgentManaged     bool
+	ModelID          uuid.NullUUID
+	ModelName        *string
+	ProviderName     *string
+	InputPrice       pgtype.Float8
+	OutputPrice      pgtype.Float8
+	Requests         int64
+	InputTokens      int64
+	OutputTokens     int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+}
+
+// Usage summed per UTC day, team, agent and model in [since, until), for one
+// team (or every team), optionally one agent. Prices are the models' current
+// ones (USD per million tokens).
+func (q *Queries) UsageFacts(ctx context.Context, arg UsageFactsParams) ([]UsageFactsRow, error) {
+	rows, err := q.db.Query(ctx, usageFacts,
+		arg.Since,
+		arg.Until,
+		arg.TeamID,
+		arg.AgentID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UsageFactsRow{}
+	for rows.Next() {
+		var i UsageFactsRow
+		if err := rows.Scan(
+			&i.Day,
+			&i.TeamID,
+			&i.TeamSlug,
+			&i.TeamName,
+			&i.AgentID,
+			&i.AgentName,
+			&i.AgentManaged,
+			&i.ModelID,
+			&i.ModelName,
+			&i.ProviderName,
+			&i.InputPrice,
+			&i.OutputPrice,
+			&i.Requests,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.CacheReadTokens,
+			&i.CacheWriteTokens,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

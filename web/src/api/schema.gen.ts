@@ -917,6 +917,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/teams/{team}/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The team's model usage, with a cost estimate (its members and service accounts, platform staff)
+         * @description Requests and tokens per day, model or agent, from the platform's model proxy and from agents (direct-mode providers and the platform's default model). Cost uses the models' current prices. Service-managed agents are named for the team's owners and admins and its service accounts; others see them summed.
+         */
+        get: operations["getTeamUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every team's model usage (platform admins and auditors) */
+        get: operations["adminGetUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents": {
         parameters: {
             query?: never;
@@ -1146,6 +1186,59 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        UsageRow: {
+            /** Format: date */
+            day?: string | null;
+            /**
+             * Format: uuid
+             * @description Absent when grouped by model - the platform's default model
+             */
+            modelId?: string | null;
+            modelName?: string | null;
+            providerName?: string | null;
+            /**
+             * Format: uuid
+             * @description Absent when grouped by agent - a deleted agent, or service-managed agents summed
+             */
+            agentId?: string | null;
+            agentName?: string | null;
+            /** @description Service-managed agents (one per app user) */
+            managed: boolean;
+            /** Format: uuid */
+            teamId?: string | null;
+            teamSlug?: string | null;
+            teamName?: string | null;
+            /** Format: int64 */
+            requests: number;
+            /** Format: int64 */
+            inputTokens: number;
+            /** Format: int64 */
+            outputTokens: number;
+            /** Format: int64 */
+            cacheReadTokens: number;
+            /** Format: int64 */
+            cacheWriteTokens: number;
+            /**
+             * Format: double
+             * @description Estimated from the models' current prices
+             */
+            costUsd: number;
+            /**
+             * Format: int64
+             * @description Requests of models without prices (not in costUsd)
+             */
+            unpricedRequests: number;
+        };
+        UsageReport: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            /** @enum {string} */
+            groupBy: "day" | "model" | "agent" | "team";
+            rows: components["schemas"]["UsageRow"][];
+            total: components["schemas"]["UsageRow"];
+        };
         ProviderType: {
             /** @enum {string} */
             id: "openai" | "anthropic" | "openai-compatible" | "openai-responses" | "anthropic-compatible";
@@ -3848,6 +3941,75 @@ export interface operations {
                     };
                 };
             };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    getTeamUsage: {
+        parameters: {
+            query?: {
+                /** @description First day (UTC), default 29 days before `to` */
+                from?: string;
+                /** @description Last day (UTC, inclusive), default today */
+                to?: string;
+                groupBy?: "day" | "model" | "agent";
+                /** @description Only this agent */
+                agentId?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UsageReport"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    adminGetUsage: {
+        parameters: {
+            query?: {
+                /** @description First day (UTC), default 29 days before `to` */
+                from?: string;
+                /** @description Last day (UTC, inclusive), default today */
+                to?: string;
+                groupBy?: "day" | "team" | "model";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UsageReport"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
             401: components["responses"]["ErrorReply"];
             403: components["responses"]["ErrorReply"];
             404: components["responses"]["ErrorReply"];
