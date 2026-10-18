@@ -156,6 +156,9 @@ func (ta teamAccess) writable() error {
 	if ta.team.Status != teams.StatusActive {
 		return errTeamArchived
 	}
+	if ta.team.Kind == teams.KindPersonal {
+		return teams.ErrPersonal
+	}
 	return nil
 }
 

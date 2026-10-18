@@ -141,6 +141,7 @@ type McpServer struct {
 	CreatedBy        uuid.NullUUID
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	Personal         bool
 }
 
 type McpServerTeam struct {
@@ -164,6 +165,7 @@ type Model struct {
 	Revision      int64
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+	Personal      bool
 }
 
 type ModelProvider struct {
@@ -198,6 +200,16 @@ type ModelUsage struct {
 	CacheWriteTokens int64
 	CreatedAt        time.Time
 	Requests         int32
+}
+
+type PersonalWorkspaceSetting struct {
+	ID               bool
+	Enabled          bool
+	MaxAgents        int32
+	MaxRunning       int32
+	MonthlyBudgetUsd pgtype.Numeric
+	Revision         int64
+	UpdatedAt        time.Time
 }
 
 type PlatformBootstrap struct {
@@ -253,16 +265,21 @@ type Session struct {
 }
 
 type Team struct {
-	ID          uuid.UUID
-	Slug        string
-	Name        string
-	Description string
-	Status      string
-	CreatedBy   uuid.NullUUID
-	Revision    int64
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	ArchivedAt  *time.Time
+	ID                    uuid.UUID
+	Slug                  string
+	Name                  string
+	Description           string
+	Status                string
+	CreatedBy             uuid.NullUUID
+	Revision              int64
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	ArchivedAt            *time.Time
+	Kind                  string
+	PersonalOwner         uuid.NullUUID
+	LimitMaxAgents        *int32
+	LimitMaxRunning       *int32
+	LimitMonthlyBudgetUsd pgtype.Numeric
 }
 
 type TeamInvite struct {

@@ -1083,6 +1083,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/settings/personal-workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Defaults for every personal workspace (platform admins and auditors) */
+        get: operations["adminGetPersonalSettings"];
+        /**
+         * Change the defaults for every personal workspace (platform admins)
+         * @description Turning personal workspaces off stops creating them at sign-in; existing ones stay (archive one to make it read-only). The monthly budget is recorded but not enforced yet.
+         */
+        put: operations["adminUpdatePersonalSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/teams/{team}/limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Override one personal workspace's limits (platform admins); null keeps the default */
+        put: operations["adminSetWorkspaceLimits"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/teams/{team}/limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        /** The workspace's limits and how much of them is used (its members and service accounts, platform staff) */
+        get: operations["getWorkspaceLimits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents": {
         parameters: {
             query?: never;
@@ -1316,6 +1377,59 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        PersonalWorkspaceSettings: {
+            /** @description People get a personal workspace when they sign in */
+            enabled: boolean;
+            /** Format: int32 */
+            maxAgents: number;
+            /**
+             * Format: int32
+             * @description Agents running at once
+             */
+            maxRunning: number;
+            /**
+             * Format: double
+             * @description Recorded; not enforced yet
+             */
+            monthlyBudgetUsd?: number | null;
+            /** Format: int64 */
+            revision: number;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        PersonalWorkspaceSettingsUpdate: {
+            enabled: boolean;
+            /** Format: int32 */
+            maxAgents: number;
+            /** Format: int32 */
+            maxRunning: number;
+            /** Format: double */
+            monthlyBudgetUsd?: number | null;
+        };
+        WorkspaceLimits: {
+            /** @enum {string} */
+            kind: "team" | "personal";
+            /** Format: int32 */
+            maxAgents?: number | null;
+            /** Format: int32 */
+            maxRunning?: number | null;
+            /** Format: double */
+            monthlyBudgetUsd?: number | null;
+            /** @description Which limits are this workspace's own (the others are the platform's defaults) */
+            overridden: string[];
+            /** Format: int64 */
+            agentCount: number;
+            /** Format: int64 */
+            runningCount: number;
+        };
+        WorkspaceLimitsUpdate: {
+            /** Format: int32 */
+            maxAgents?: number | null;
+            /** Format: int32 */
+            maxRunning?: number | null;
+            /** Format: double */
+            monthlyBudgetUsd?: number | null;
+        };
         McpTool: {
             name: string;
             title?: string | null;
@@ -1337,6 +1451,8 @@ export interface components {
             enabled: boolean;
             /** @enum {string} */
             visibility: "all" | "teams";
+            /** @description Available in personal workspaces (when created, defaults to visibility = all) */
+            personal: boolean;
             teams?: components["schemas"]["ModelTeam"][] | null;
             hasHeaders: boolean;
             tools: components["schemas"]["McpTool"][];
@@ -1365,6 +1481,8 @@ export interface components {
             accessMode?: "proxy" | "direct";
             /** @enum {string} */
             visibility?: "all" | "teams";
+            /** @description Available in personal workspaces (when created, defaults to visibility = all) */
+            personal?: boolean;
             teams?: string[];
             enabled?: boolean;
         };
@@ -1380,6 +1498,8 @@ export interface components {
             accessMode?: "proxy" | "direct";
             /** @enum {string} */
             visibility?: "all" | "teams";
+            /** @description Available in personal workspaces (when created, defaults to visibility = all) */
+            personal?: boolean;
             teams?: string[];
             enabled?: boolean;
         };
@@ -1586,6 +1706,8 @@ export interface components {
              * @enum {string}
              */
             visibility: "all" | "teams";
+            /** @description Available in personal workspaces (when created, defaults to visibility = all) */
+            personal: boolean;
             teams?: components["schemas"]["ModelTeam"][] | null;
             /** Format: int64 */
             revision: number;
@@ -1617,6 +1739,8 @@ export interface components {
             enabled?: boolean;
             /** @enum {string} */
             visibility?: "all" | "teams";
+            /** @description Available in personal workspaces (when created, defaults to visibility = all) */
+            personal?: boolean;
             /** @description Team slugs or IDs (visibility teams) */
             teams?: string[];
         };
@@ -1641,6 +1765,8 @@ export interface components {
             enabled?: boolean;
             /** @enum {string} */
             visibility?: "all" | "teams";
+            /** @description Available in personal workspaces (when created, defaults to visibility = all) */
+            personal?: boolean;
             /** @description Replaces the teams (visibility teams) */
             teams?: string[];
         };
@@ -2097,6 +2223,11 @@ export interface components {
             name: string;
             status: components["schemas"]["TeamStatus"];
             role: components["schemas"]["TeamRole"];
+            /**
+             * @description team: shared; personal: one person's own workspace
+             * @enum {string}
+             */
+            kind?: "team" | "personal";
         };
         Ok: {
             ok: boolean;
@@ -2119,6 +2250,11 @@ export interface components {
             name: string;
             description: string;
             status: components["schemas"]["TeamStatus"];
+            /**
+             * @description team: shared; personal: one person's own workspace
+             * @enum {string}
+             */
+            kind?: "team" | "personal";
             revision: components["schemas"]["Revision"];
             /** Format: date-time */
             createdAt: string;
@@ -2928,6 +3064,7 @@ export interface operations {
                 /** @description Case-insensitive substring match */
                 q?: components["parameters"]["SearchParam"];
                 status?: components["schemas"]["TeamStatus"];
+                kind?: "team" | "personal";
                 /** @description nextCursor from the previous page */
                 cursor?: components["parameters"]["CursorParam"];
                 limit?: components["parameters"]["LimitParam"];
@@ -4574,6 +4711,133 @@ export interface operations {
             };
             400: components["responses"]["ErrorReply"];
             401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    adminGetPersonalSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Settings */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PersonalWorkspaceSettings"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+        };
+    };
+    adminUpdatePersonalSettings: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+                "If-Match": components["parameters"]["IfMatchHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PersonalWorkspaceSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Settings */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PersonalWorkspaceSettings"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            412: components["responses"]["ErrorReply"];
+            428: components["responses"]["ErrorReply"];
+        };
+    };
+    adminSetWorkspaceLimits: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+                "If-Match": components["parameters"]["IfMatchHeader"];
+            };
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceLimitsUpdate"];
+            };
+        };
+        responses: {
+            /** @description The limits now */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WorkspaceLimits"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            412: components["responses"]["ErrorReply"];
+            428: components["responses"]["ErrorReply"];
+        };
+    };
+    getWorkspaceLimits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Limits (none for shared teams, for now) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WorkspaceLimits"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
             404: components["responses"]["ErrorReply"];
         };
     };

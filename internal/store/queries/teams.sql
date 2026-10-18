@@ -24,6 +24,7 @@ WHERE (sqlc.narg(search)::text IS NULL
        OR t.slug ILIKE '%' || sqlc.narg(search)::text || '%' ESCAPE '\'
        OR t.name ILIKE '%' || sqlc.narg(search)::text || '%' ESCAPE '\')
   AND (sqlc.narg(status)::text IS NULL OR t.status = sqlc.narg(status)::text)
+  AND (sqlc.narg(kind)::text IS NULL OR t.kind = sqlc.narg(kind)::text)
   AND (sqlc.narg(after_slug)::text IS NULL OR t.slug > sqlc.narg(after_slug)::text)
 ORDER BY t.slug
 LIMIT @page_size;

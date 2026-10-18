@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const acceptInvite = `-- name: AcceptInvite :exec
@@ -143,7 +144,7 @@ func (q *Queries) GetOpenInvite(ctx context.Context, arg GetOpenInviteParams) (T
 }
 
 const getTeamByID = `-- name: GetTeamByID :one
-SELECT id, slug, name, description, status, created_by, revision, created_at, updated_at, archived_at FROM teams WHERE id = $1
+SELECT id, slug, name, description, status, created_by, revision, created_at, updated_at, archived_at, kind, personal_owner, limit_max_agents, limit_max_running, limit_monthly_budget_usd FROM teams WHERE id = $1
 `
 
 func (q *Queries) GetTeamByID(ctx context.Context, id uuid.UUID) (Team, error) {
@@ -160,12 +161,17 @@ func (q *Queries) GetTeamByID(ctx context.Context, id uuid.UUID) (Team, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
+		&i.Kind,
+		&i.PersonalOwner,
+		&i.LimitMaxAgents,
+		&i.LimitMaxRunning,
+		&i.LimitMonthlyBudgetUsd,
 	)
 	return i, err
 }
 
 const getTeamBySlug = `-- name: GetTeamBySlug :one
-SELECT id, slug, name, description, status, created_by, revision, created_at, updated_at, archived_at FROM teams WHERE slug = $1
+SELECT id, slug, name, description, status, created_by, revision, created_at, updated_at, archived_at, kind, personal_owner, limit_max_agents, limit_max_running, limit_monthly_budget_usd FROM teams WHERE slug = $1
 `
 
 func (q *Queries) GetTeamBySlug(ctx context.Context, slug string) (Team, error) {
@@ -182,6 +188,11 @@ func (q *Queries) GetTeamBySlug(ctx context.Context, slug string) (Team, error) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
+		&i.Kind,
+		&i.PersonalOwner,
+		&i.LimitMaxAgents,
+		&i.LimitMaxRunning,
+		&i.LimitMonthlyBudgetUsd,
 	)
 	return i, err
 }
@@ -248,7 +259,7 @@ func (q *Queries) InsertMemberIfAbsent(ctx context.Context, arg InsertMemberIfAb
 const insertTeam = `-- name: InsertTeam :one
 INSERT INTO teams (slug, name, description, created_by)
 VALUES ($1, $2, $3, $4)
-RETURNING id, slug, name, description, status, created_by, revision, created_at, updated_at, archived_at
+RETURNING id, slug, name, description, status, created_by, revision, created_at, updated_at, archived_at, kind, personal_owner, limit_max_agents, limit_max_running, limit_monthly_budget_usd
 `
 
 type InsertTeamParams struct {
@@ -277,6 +288,11 @@ func (q *Queries) InsertTeam(ctx context.Context, arg InsertTeamParams) (Team, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
+		&i.Kind,
+		&i.PersonalOwner,
+		&i.LimitMaxAgents,
+		&i.LimitMaxRunning,
+		&i.LimitMonthlyBudgetUsd,
 	)
 	return i, err
 }
@@ -374,7 +390,7 @@ func (q *Queries) ListOpenInvites(ctx context.Context, teamID uuid.UUID) ([]Team
 }
 
 const listTeamsAdmin = `-- name: ListTeamsAdmin :many
-SELECT t.id, t.slug, t.name, t.description, t.status, t.created_by, t.revision, t.created_at, t.updated_at, t.archived_at,
+SELECT t.id, t.slug, t.name, t.description, t.status, t.created_by, t.revision, t.created_at, t.updated_at, t.archived_at, t.kind, t.personal_owner, t.limit_max_agents, t.limit_max_running, t.limit_monthly_budget_usd,
        (SELECT count(*) FROM team_members m WHERE m.team_id = t.id)::bigint AS member_count,
        (SELECT count(*) FROM team_members m WHERE m.team_id = t.id AND m.role = 'owner')::bigint AS owner_count,
        (SELECT count(*) FROM team_invites i WHERE i.team_id = t.id AND i.role = 'owner' AND i.accepted_at IS NULL AND i.revoked_at IS NULL
@@ -384,14 +400,16 @@ WHERE ($1::text IS NULL
        OR t.slug ILIKE '%' || $1::text || '%' ESCAPE '\'
        OR t.name ILIKE '%' || $1::text || '%' ESCAPE '\')
   AND ($2::text IS NULL OR t.status = $2::text)
-  AND ($3::text IS NULL OR t.slug > $3::text)
+  AND ($3::text IS NULL OR t.kind = $3::text)
+  AND ($4::text IS NULL OR t.slug > $4::text)
 ORDER BY t.slug
-LIMIT $4
+LIMIT $5
 `
 
 type ListTeamsAdminParams struct {
 	Search    *string
 	Status    *string
+	Kind      *string
 	AfterSlug *string
 	PageSize  int32
 }
@@ -407,6 +425,7 @@ func (q *Queries) ListTeamsAdmin(ctx context.Context, arg ListTeamsAdminParams) 
 	rows, err := q.db.Query(ctx, listTeamsAdmin,
 		arg.Search,
 		arg.Status,
+		arg.Kind,
 		arg.AfterSlug,
 		arg.PageSize,
 	)
@@ -428,6 +447,11 @@ func (q *Queries) ListTeamsAdmin(ctx context.Context, arg ListTeamsAdminParams) 
 			&i.Team.CreatedAt,
 			&i.Team.UpdatedAt,
 			&i.Team.ArchivedAt,
+			&i.Team.Kind,
+			&i.Team.PersonalOwner,
+			&i.Team.LimitMaxAgents,
+			&i.Team.LimitMaxRunning,
+			&i.Team.LimitMonthlyBudgetUsd,
 			&i.MemberCount,
 			&i.OwnerCount,
 			&i.OwnerInvites,
@@ -443,7 +467,7 @@ func (q *Queries) ListTeamsAdmin(ctx context.Context, arg ListTeamsAdminParams) 
 }
 
 const listTeamsForUser = `-- name: ListTeamsForUser :many
-SELECT t.id, t.slug, t.name, t.description, t.status, t.created_by, t.revision, t.created_at, t.updated_at, t.archived_at, m.role AS member_role
+SELECT t.id, t.slug, t.name, t.description, t.status, t.created_by, t.revision, t.created_at, t.updated_at, t.archived_at, t.kind, t.personal_owner, t.limit_max_agents, t.limit_max_running, t.limit_monthly_budget_usd, m.role AS member_role
 FROM team_members m
 JOIN teams t ON t.id = m.team_id
 WHERE m.user_id = $1
@@ -451,17 +475,22 @@ ORDER BY t.name, t.id
 `
 
 type ListTeamsForUserRow struct {
-	ID          uuid.UUID
-	Slug        string
-	Name        string
-	Description string
-	Status      string
-	CreatedBy   uuid.NullUUID
-	Revision    int64
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	ArchivedAt  *time.Time
-	MemberRole  string
+	ID                    uuid.UUID
+	Slug                  string
+	Name                  string
+	Description           string
+	Status                string
+	CreatedBy             uuid.NullUUID
+	Revision              int64
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	ArchivedAt            *time.Time
+	Kind                  string
+	PersonalOwner         uuid.NullUUID
+	LimitMaxAgents        *int32
+	LimitMaxRunning       *int32
+	LimitMonthlyBudgetUsd pgtype.Numeric
+	MemberRole            string
 }
 
 func (q *Queries) ListTeamsForUser(ctx context.Context, userID uuid.UUID) ([]ListTeamsForUserRow, error) {
@@ -484,6 +513,11 @@ func (q *Queries) ListTeamsForUser(ctx context.Context, userID uuid.UUID) ([]Lis
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ArchivedAt,
+			&i.Kind,
+			&i.PersonalOwner,
+			&i.LimitMaxAgents,
+			&i.LimitMaxRunning,
+			&i.LimitMonthlyBudgetUsd,
 			&i.MemberRole,
 		); err != nil {
 			return nil, err
@@ -497,7 +531,7 @@ func (q *Queries) ListTeamsForUser(ctx context.Context, userID uuid.UUID) ([]Lis
 }
 
 const lockTeam = `-- name: LockTeam :one
-SELECT id, slug, name, description, status, created_by, revision, created_at, updated_at, archived_at FROM teams WHERE id = $1 FOR UPDATE
+SELECT id, slug, name, description, status, created_by, revision, created_at, updated_at, archived_at, kind, personal_owner, limit_max_agents, limit_max_running, limit_monthly_budget_usd FROM teams WHERE id = $1 FOR UPDATE
 `
 
 // Serialises membership changes for one team (owner counting, invites).
@@ -515,6 +549,11 @@ func (q *Queries) LockTeam(ctx context.Context, id uuid.UUID) (Team, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
+		&i.Kind,
+		&i.PersonalOwner,
+		&i.LimitMaxAgents,
+		&i.LimitMaxRunning,
+		&i.LimitMonthlyBudgetUsd,
 	)
 	return i, err
 }
@@ -585,7 +624,7 @@ SET name        = $1,
     revision    = revision + 1,
     updated_at  = now()
 WHERE id = $4
-RETURNING id, slug, name, description, status, created_by, revision, created_at, updated_at, archived_at
+RETURNING id, slug, name, description, status, created_by, revision, created_at, updated_at, archived_at, kind, personal_owner, limit_max_agents, limit_max_running, limit_monthly_budget_usd
 `
 
 type UpdateTeamParams struct {
@@ -614,6 +653,11 @@ func (q *Queries) UpdateTeam(ctx context.Context, arg UpdateTeamParams) (Team, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
+		&i.Kind,
+		&i.PersonalOwner,
+		&i.LimitMaxAgents,
+		&i.LimitMaxRunning,
+		&i.LimitMonthlyBudgetUsd,
 	)
 	return i, err
 }

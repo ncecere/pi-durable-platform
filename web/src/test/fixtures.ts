@@ -205,6 +205,7 @@ export const model = (extra: Partial<Schemas["Model"]> = {}): Schemas["Model"] =
   outputPrice: null,
   enabled: true,
   visibility: "all",
+  personal: true,
   teams: null,
   revision: 1,
   createdAt: "2026-10-01T10:00:00Z",

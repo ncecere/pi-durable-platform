@@ -49,6 +49,16 @@ Browser / chat app / service ──► Platform (Go)
                                    Agent runtime (Node, Pi Durable) ── its schema in PostgreSQL
 ```
 
+## Personal workspaces
+
+Each person who signs in gets a **personal workspace**, while platform admins have them turned on (Admin › Settings):
+a team of kind `personal` whose only member is its owner. It takes no other members, invites or service accounts, and
+deploys catalog templates only (for now). Platform admins set defaults for every personal workspace (max agents, max
+running at once, a monthly cost budget that is recorded but not enforced yet) and may override them for one
+workspace. Models and MCP servers have a `personal` flag: whether personal workspaces may use them (shared teams follow
+their visibility). Platform admins and auditors audit personal workspaces: they see the workspace, its agents, usage
+and audit log, but not conversations. Sign-in can be limited to IdP groups (`OIDC_ALLOWED_GROUPS`).
+
 ## Models
 
 Platform admins add **providers** (Admin › Models) and the **models** they offer, and publish each model to every team

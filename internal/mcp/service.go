@@ -158,6 +158,8 @@ type ServerInput struct {
 	Headers                                              map[string]string
 	Teams                                                []string
 	Enabled                                              *bool
+	// Personal: available in personal workspaces (default: when visibility is all).
+	Personal *bool
 }
 
 func checkName(name string) (string, error) {
@@ -232,7 +234,7 @@ func (s *Service) open(enc, ad []byte) (map[string]string, error) {
 
 func snapshot(m dbgen.McpServer, teamSlugs []string) map[string]any {
 	out := map[string]any{"name": m.Name, "slug": m.Slug, "url": m.URL, "accessMode": m.AccessMode, "enabled": m.Enabled,
-		"visibility": m.Visibility, "hasHeaders": len(m.HeadersEnc) > 0}
+		"visibility": m.Visibility, "personal": m.Personal, "hasHeaders": len(m.HeadersEnc) > 0}
 	if m.Visibility == "teams" {
 		out["teams"] = teamSlugs
 	}
@@ -304,7 +306,8 @@ func (s *Service) CreateServer(ctx context.Context, a authz.Actor, in ServerInpu
 	err = store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {
 		m, err := q.InsertMCPServer(ctx, dbgen.InsertMCPServerParams{ID: id, Name: name, Slug: in.Slug, Description: in.Description,
 			URL: u.String(), HeadersEnc: enc, AccessMode: in.AccessMode, Enabled: in.Enabled == nil || *in.Enabled,
-			Visibility: in.Visibility, CreatedBy: uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil}})
+			Visibility: in.Visibility, CreatedBy: uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil},
+			Personal: personalDefault(in.Personal, in.Visibility)})
 		if apperr.IsUniqueViolation(err, "") {
 			return errNameTaken
 		} else if err != nil {
@@ -334,6 +337,7 @@ type ServerUpdate struct {
 	Headers                                        *map[string]string
 	Teams                                          *[]string
 	Enabled                                        *bool
+	Personal                                       *bool
 }
 
 // UpdateServer changes a server (platform admins, If-Match). The slug does
@@ -363,7 +367,10 @@ func (s *Service) UpdateServer(ctx context.Context, a authz.Actor, id uuid.UUID,
 			beforeSlugs[i] = t.Slug
 		}
 		p := dbgen.UpdateMCPServerParams{ID: id, Name: m.Name, Description: m.Description, URL: m.URL, HeadersEnc: m.HeadersEnc,
-			AccessMode: m.AccessMode, Enabled: m.Enabled, Visibility: m.Visibility}
+			AccessMode: m.AccessMode, Enabled: m.Enabled, Visibility: m.Visibility, Personal: m.Personal}
+		if in.Personal != nil {
+			p.Personal = *in.Personal
+		}
 		if in.Name != nil {
 			if p.Name, err = checkName(*in.Name); err != nil {
 				return err
@@ -600,4 +607,11 @@ func SaveAttach(ctx context.Context, q *dbgen.Queries, templateID uuid.UUID, ver
 		}
 	}
 	return nil
+}
+
+func personalDefault(p *bool, visibility string) bool {
+	if p != nil {
+		return *p
+	}
+	return visibility == "all"
 }

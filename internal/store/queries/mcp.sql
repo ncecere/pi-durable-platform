@@ -8,13 +8,13 @@ SELECT * FROM mcp_servers WHERE id = $1;
 SELECT * FROM mcp_servers WHERE id = $1 FOR UPDATE;
 
 -- name: InsertMCPServer :one
-INSERT INTO mcp_servers (id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+INSERT INTO mcp_servers (id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, created_by, personal)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 RETURNING *;
 
 -- name: UpdateMCPServer :one
 UPDATE mcp_servers SET name = $2, description = $3, url = $4, headers_enc = $5, access_mode = $6, enabled = $7, visibility = $8,
-       revision = revision + 1, updated_at = now()
+       personal = $9, revision = revision + 1, updated_at = now()
 WHERE id = $1
 RETURNING *;
 
@@ -41,14 +41,16 @@ INSERT INTO mcp_server_teams (server_id, team_id) VALUES ($1, $2) ON CONFLICT DO
 -- name: ListAvailableMCPServers :many
 -- The MCP servers a team may use now: enabled, published to every team or to it.
 SELECT * FROM mcp_servers s
-WHERE s.enabled AND (s.visibility = 'all' OR EXISTS (SELECT 1 FROM mcp_server_teams st WHERE st.server_id = s.id AND st.team_id = sqlc.arg(team_id)))
+WHERE s.enabled AND (CASE WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = sqlc.arg(team_id)) = 'personal' THEN s.personal
+            ELSE s.visibility = 'all' OR EXISTS (SELECT 1 FROM mcp_server_teams st WHERE st.server_id = s.id AND st.team_id = sqlc.arg(team_id)) END)
 ORDER BY lower(s.name), s.id;
 
 -- name: MCPServerAvailable :one
 SELECT EXISTS (
     SELECT 1 FROM mcp_servers s
     WHERE s.id = sqlc.arg(server_id) AND s.enabled
-      AND (s.visibility = 'all' OR EXISTS (SELECT 1 FROM mcp_server_teams st WHERE st.server_id = s.id AND st.team_id = sqlc.arg(team_id)))
+      AND (CASE WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = sqlc.arg(team_id)) = 'personal' THEN s.personal
+            ELSE s.visibility = 'all' OR EXISTS (SELECT 1 FROM mcp_server_teams st WHERE st.server_id = s.id AND st.team_id = sqlc.arg(team_id)) END)
 )::boolean;
 
 -- name: InsertTemplateVersionMCP :exec

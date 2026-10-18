@@ -160,7 +160,7 @@ func (q *Queries) GetServiceAccountKey(ctx context.Context, arg GetServiceAccoun
 }
 
 const getServiceAccountKeyByDigest = `-- name: GetServiceAccountKeyByDigest :one
-SELECT k.id, k.service_account_id, k.name, k.prefix, k.digest, k.pepper_id, k.created_by, k.created_at, k.expires_at, k.revoked_at, k.last_used_at, sa.id, sa.team_id, sa.name, sa.description, sa.role, sa.enabled, sa.revision, sa.created_by, sa.created_at, sa.updated_by, sa.updated_at, sa.last_used_at, t.id, t.slug, t.name, t.description, t.status, t.created_by, t.revision, t.created_at, t.updated_at, t.archived_at
+SELECT k.id, k.service_account_id, k.name, k.prefix, k.digest, k.pepper_id, k.created_by, k.created_at, k.expires_at, k.revoked_at, k.last_used_at, sa.id, sa.team_id, sa.name, sa.description, sa.role, sa.enabled, sa.revision, sa.created_by, sa.created_at, sa.updated_by, sa.updated_at, sa.last_used_at, t.id, t.slug, t.name, t.description, t.status, t.created_by, t.revision, t.created_at, t.updated_at, t.archived_at, t.kind, t.personal_owner, t.limit_max_agents, t.limit_max_running, t.limit_monthly_budget_usd
 FROM service_account_keys k
 JOIN service_accounts sa ON sa.id = k.service_account_id
 JOIN teams t ON t.id = sa.team_id
@@ -211,6 +211,11 @@ func (q *Queries) GetServiceAccountKeyByDigest(ctx context.Context, digest strin
 		&i.Team.CreatedAt,
 		&i.Team.UpdatedAt,
 		&i.Team.ArchivedAt,
+		&i.Team.Kind,
+		&i.Team.PersonalOwner,
+		&i.Team.LimitMaxAgents,
+		&i.Team.LimitMaxRunning,
+		&i.Team.LimitMonthlyBudgetUsd,
 	)
 	return i, err
 }

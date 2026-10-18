@@ -97,9 +97,9 @@ func teamSnapshot(t dbgen.Team) map[string]any {
 
 // ListParams filter and page the admin team list.
 type ListParams struct {
-	Search, Status *string
-	AfterSlug      *string
-	Limit          int32
+	Search, Status, Kind *string
+	AfterSlug            *string
+	Limit                int32
 }
 
 // ListAll lists every team for platform admins and auditors.
@@ -108,7 +108,7 @@ func (s *Service) ListAll(ctx context.Context, a authz.Actor, p ListParams) ([]S
 		return nil, errAdminOnly
 	}
 	rows, err := s.q.ListTeamsAdmin(ctx, dbgen.ListTeamsAdminParams{
-		Search: p.Search, Status: p.Status, AfterSlug: p.AfterSlug, PageSize: p.Limit,
+		Search: p.Search, Status: p.Status, Kind: p.Kind, AfterSlug: p.AfterSlug, PageSize: p.Limit,
 	})
 	if err != nil {
 		return nil, err
@@ -220,6 +220,9 @@ func (s *Service) AssignOwner(ctx context.Context, a authz.Actor, ref, email str
 		}
 		if t, err = q.LockTeam(ctx, t.ID); err != nil {
 			return err
+		}
+		if t.Kind == KindPersonal {
+			return ErrPersonal
 		}
 		normalized, err := NormalizeEmail(email)
 		if err != nil {

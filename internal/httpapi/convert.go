@@ -32,6 +32,7 @@ func toAPITeam(t dbgen.Team) apitypes.Team {
 		Name:        t.Name,
 		Description: t.Description,
 		Status:      apitypes.TeamStatus(t.Status),
+		Kind:        ptrTeamKind(t.Kind),
 		Revision:    t.Revision,
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
@@ -50,6 +51,7 @@ func toAPIMyTeams(rows []dbgen.ListTeamsForUserRow) []apitypes.MyTeam {
 	for i, r := range rows {
 		out[i] = apitypes.MyTeam{
 			Id: r.ID, Slug: r.Slug, Name: r.Name, Status: apitypes.TeamStatus(r.Status), Role: apitypes.TeamRole(r.MemberRole),
+			Kind: ptrMyTeamKind(r.Kind),
 		}
 	}
 	return out
@@ -95,4 +97,14 @@ func nullUUID(n uuid.NullUUID) *uuid.UUID {
 		return nil
 	}
 	return &n.UUID
+}
+
+func ptrTeamKind(k string) *apitypes.TeamKind {
+	v := apitypes.TeamKind(k)
+	return &v
+}
+
+func ptrMyTeamKind(k string) *apitypes.MyTeamKind {
+	v := apitypes.MyTeamKind(k)
+	return &v
 }

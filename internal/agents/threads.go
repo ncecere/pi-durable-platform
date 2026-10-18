@@ -322,3 +322,19 @@ func (s *Service) listenThreads(ctx context.Context) error {
 		s.publish(ThreadEvent{AgentID: agentID, Thread: t})
 	}
 }
+
+// TeamRunning counts a team's agents that are running now.
+func (s *Service) TeamRunning(ctx context.Context, teamID uuid.UUID) (int64, int64, error) {
+	ids, err := s.q.TeamAgentIDs(ctx, teamID)
+	if err != nil {
+		return 0, 0, err
+	}
+	running := s.host.Launcher().Running()
+	n := int64(0)
+	for _, id := range ids {
+		if _, ok := running[id.String()]; ok {
+			n++
+		}
+	}
+	return int64(len(ids)), n, nil
+}

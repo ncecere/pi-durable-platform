@@ -71,6 +71,9 @@ func (s *Service) completeLogin(ctx context.Context, w http.ResponseWriter, r *h
 				return err
 			}
 		}
+		if _, err := teams.EnsurePersonal(ctx, q, user, reqID, ip); err != nil {
+			return err
+		}
 		if secret, err = s.createSession(ctx, r, q, user); err != nil {
 			return err
 		}

@@ -70,6 +70,12 @@ func newTestAppLog(t *testing.T, mutate func(*config.Config), log *slog.Logger) 
 // before the handler is built (nil: none).
 func newTestAppDeps(t *testing.T, mutate func(*config.Config), log *slog.Logger, hook func(*httpapi.Deps)) *testApp {
 	t.Helper()
+	return newTestAppWith(t, mutate, log, hook, false)
+}
+
+// newTestAppWith is newTestAppDeps, with personal workspaces on or off.
+func newTestAppWith(t *testing.T, mutate func(*config.Config), log *slog.Logger, hook func(*httpapi.Deps), personalWorkspaces bool) *testApp {
+	t.Helper()
 	pool, _ := testutil.NewDB(t)
 	var handler http.Handler
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { handler.ServeHTTP(w, r) }))
@@ -105,6 +111,13 @@ func newTestAppDeps(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 	}
 	if err := deps.Agents.Prepare(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	// Personal workspaces are off unless a test turns them on, so team
+	// listings hold only the teams a test creates.
+	if !personalWorkspaces {
+		if _, err := pool.Exec(context.Background(), "UPDATE personal_workspace_settings SET enabled = false"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Cleanup(func() {
 		if l, ok := deps.Agents.Host().Launcher().(*launcher.Local); ok {

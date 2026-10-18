@@ -198,7 +198,18 @@ func roleIn(ctx context.Context, q *dbgen.Queries, a authz.Actor, teamID uuid.UU
 // subject resolves the actor's relationship to an agent.
 func subject(ctx context.Context, q *dbgen.Queries, a authz.Actor, ag dbgen.Agent) (authz.AgentSubject, error) {
 	role, err := roleIn(ctx, q, a, ag.TeamID)
-	return authz.AgentSubject{Role: role, IsService: a.Service != nil, ServiceManaged: ag.ExternalKey != nil}, err
+	if err != nil {
+		return authz.AgentSubject{}, err
+	}
+	sub := authz.AgentSubject{Role: role, IsService: a.Service != nil, ServiceManaged: ag.ExternalKey != nil}
+	if role == "" && a.CanReadPlatform() {
+		t, err := q.GetTeamByID(ctx, ag.TeamID)
+		if err != nil {
+			return sub, err
+		}
+		sub.Audit = t.Kind == teams.KindPersonal
+	}
+	return sub, nil
 }
 
 func (s *Service) view(ctx context.Context, q *dbgen.Queries, ag dbgen.Agent) (View, error) {
@@ -323,6 +334,16 @@ func (s *Service) createInTeam(ctx context.Context, a authz.Actor, teamRef strin
 		} else if n >= MaxPerTeam {
 			return errTooMany
 		}
+		// A personal workspace's limit counts every agent, service-managed ones too.
+		if limits, err := teams.LimitsOf(ctx, q, t); err != nil {
+			return err
+		} else if limits.MaxAgents != nil {
+			if n, err := q.CountAgentsInTeam(ctx, t.ID); err != nil {
+				return err
+			} else if n >= int64(*limits.MaxAgents) {
+				return teams.LimitError("agents", *limits.MaxAgents)
+			}
+		}
 		tpl, err := deployable(ctx, q, t.ID, in.TemplateID, in.Template)
 		if err != nil {
 			return err
@@ -371,10 +392,11 @@ func (s *Service) ListTeam(ctx context.Context, a authz.Actor, teamRef string, i
 	if err != nil {
 		return nil, err
 	}
-	if role == "" {
+	audit := role == "" && a.CanReadPlatform() && t.Kind == teams.KindPersonal
+	if role == "" && !audit {
 		return nil, errTeamNotFound
 	}
-	managed := includeManaged && (a.Service != nil || authz.RoleAtLeast(role, authz.RoleAdmin))
+	managed := includeManaged && (a.Service != nil || authz.RoleAtLeast(role, authz.RoleAdmin) || audit)
 	rows, err := s.q.ListTeamAgents(ctx, dbgen.ListTeamAgentsParams{TeamID: t.ID, IncludeManaged: managed})
 	if err != nil {
 		return nil, err
@@ -633,6 +655,9 @@ func (s *Service) Spec(ctx context.Context, a authz.Actor, id uuid.UUID) (launch
 	if !ag.Enabled {
 		return launcher.Spec{}, errDisabled
 	}
+	if err := s.checkRunning(ctx, ag); err != nil {
+		return launcher.Spec{}, err
+	}
 	_ = s.q.TouchAgent(ctx, id)
 	return s.spec(ctx, ag)
 }
@@ -847,4 +872,37 @@ func (s *Service) ThreadMCP(ctx context.Context, a authz.Actor, agentID uuid.UUI
 		return nil, err
 	}
 	return s.mcp.ThreadServers(ctx, agentID, threadID)
+}
+
+// checkRunning refuses to wake an agent of a workspace already running as
+// many agents as its limit allows (personal workspaces). Running agents
+// carry on; the limit applies to waking another.
+func (s *Service) checkRunning(ctx context.Context, ag dbgen.Agent) error {
+	t, err := s.q.GetTeamByID(ctx, ag.TeamID)
+	if err != nil {
+		return err
+	}
+	limits, err := teams.LimitsOf(ctx, s.q, t)
+	if err != nil || limits.MaxRunning == nil {
+		return err
+	}
+	running := s.host.Launcher().Running()
+	if _, ok := running[ag.ID.String()]; ok {
+		return nil
+	}
+	ids, err := s.q.TeamAgentIDs(ctx, ag.TeamID)
+	if err != nil {
+		return err
+	}
+	n := int32(0)
+	for _, id := range ids {
+		if _, ok := running[id.String()]; ok {
+			n++
+		}
+	}
+	if n >= *limits.MaxRunning {
+		return apperr.Conflict("too_many_running", fmt.Sprintf(
+			"This workspace may run at most %d agents at once: hibernate one, or wait until one goes idle", *limits.MaxRunning))
+	}
+	return nil
 }

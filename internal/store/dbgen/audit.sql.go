@@ -95,6 +95,7 @@ CROSS JOIN LATERAL (
         WHEN 'model_provider' THEN (SELECT p.name FROM model_providers p WHERE p.id = ids.target_uuid)
         WHEN 'model' THEN (SELECT m.name FROM models m WHERE m.id = ids.target_uuid)
         WHEN 'mcp_server' THEN (SELECT s.name FROM mcp_servers s WHERE s.id = ids.target_uuid)
+        WHEN 'platform' THEN CASE a.target_id WHEN 'personal-workspaces' THEN 'Personal workspace settings' END
         WHEN 'service_account_key' THEN (SELECT sa.name || ' · ' || k.name FROM service_account_keys k
                                          JOIN service_accounts sa ON sa.id = k.service_account_id WHERE k.id = ids.target_uuid)
     END)::text AS label

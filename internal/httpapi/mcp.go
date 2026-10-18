@@ -37,6 +37,7 @@ func toAPIMCPServer(v mcp.ServerView) apitypes.McpServer {
 	m := v.Server
 	out := apitypes.McpServer{Id: m.ID, Name: m.Name, Slug: m.Slug, Description: m.Description, Url: m.URL,
 		AccessMode: apitypes.McpServerAccessMode(m.AccessMode), Enabled: m.Enabled, Visibility: apitypes.McpServerVisibility(m.Visibility),
+		Personal:   m.Personal,
 		HasHeaders: v.HasHeaders, Tools: []apitypes.McpTool{}, ToolsRefreshedAt: m.ToolsRefreshedAt, ToolsError: m.ToolsError,
 		Revision: m.Revision, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt}
 	for _, t := range v.Tools {
@@ -76,7 +77,7 @@ func (a *api) createMCPServer(w http.ResponseWriter, r *http.Request) {
 	if !httpx.Decode(w, r, &in) {
 		return
 	}
-	si := mcp.ServerInput{Name: in.Name, URL: in.Url, Enabled: in.Enabled}
+	si := mcp.ServerInput{Name: in.Name, URL: in.Url, Enabled: in.Enabled, Personal: in.Personal}
 	setIf(&si.Slug, in.Slug)
 	setIf(&si.Description, in.Description)
 	if in.Headers != nil {
@@ -113,7 +114,8 @@ func (a *api) updateMCPServer(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	su := mcp.ServerUpdate{Name: in.Name, Description: in.Description, URL: in.Url, Headers: in.Headers, Teams: in.Teams, Enabled: in.Enabled}
+	su := mcp.ServerUpdate{Name: in.Name, Description: in.Description, URL: in.Url, Headers: in.Headers, Teams: in.Teams, Enabled: in.Enabled,
+		Personal: in.Personal}
 	if in.AccessMode != nil {
 		mode := string(*in.AccessMode)
 		su.AccessMode = &mode

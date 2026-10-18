@@ -151,9 +151,12 @@ type OIDC struct {
 	EmailClaim   string
 	// GroupsClaim names the claim holding the person's IdP groups; ""
 	// stores none.
-	GroupsClaim           string
-	RequireVerifiedEmail  bool
-	AllowedEmailDomains   []string
+	GroupsClaim          string
+	RequireVerifiedEmail bool
+	AllowedEmailDomains  []string
+	// AllowedGroups: when set, only people in one of these IdP groups (the
+	// GroupsClaim) may sign in; the bootstrap admin always may.
+	AllowedGroups         []string
 	BootstrapAdminSubject string
 }
 

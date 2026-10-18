@@ -74,7 +74,7 @@ func (q *Queries) DeleteThreadMCPServersExcept(ctx context.Context, arg DeleteTh
 }
 
 const getMCPServer = `-- name: GetMCPServer :one
-SELECT id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at FROM mcp_servers WHERE id = $1
+SELECT id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal FROM mcp_servers WHERE id = $1
 `
 
 func (q *Queries) GetMCPServer(ctx context.Context, id uuid.UUID) (McpServer, error) {
@@ -97,6 +97,7 @@ func (q *Queries) GetMCPServer(ctx context.Context, id uuid.UUID) (McpServer, er
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Personal,
 	)
 	return i, err
 }
@@ -175,9 +176,9 @@ func (q *Queries) InsertMCPCall(ctx context.Context, arg InsertMCPCallParams) er
 }
 
 const insertMCPServer = `-- name: InsertMCPServer :one
-INSERT INTO mcp_servers (id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-RETURNING id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at
+INSERT INTO mcp_servers (id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, created_by, personal)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal
 `
 
 type InsertMCPServerParams struct {
@@ -191,6 +192,7 @@ type InsertMCPServerParams struct {
 	Enabled     bool
 	Visibility  string
 	CreatedBy   uuid.NullUUID
+	Personal    bool
 }
 
 func (q *Queries) InsertMCPServer(ctx context.Context, arg InsertMCPServerParams) (McpServer, error) {
@@ -205,6 +207,7 @@ func (q *Queries) InsertMCPServer(ctx context.Context, arg InsertMCPServerParams
 		arg.Enabled,
 		arg.Visibility,
 		arg.CreatedBy,
+		arg.Personal,
 	)
 	var i McpServer
 	err := row.Scan(
@@ -224,6 +227,7 @@ func (q *Queries) InsertMCPServer(ctx context.Context, arg InsertMCPServerParams
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Personal,
 	)
 	return i, err
 }
@@ -250,8 +254,9 @@ func (q *Queries) InsertTemplateVersionMCP(ctx context.Context, arg InsertTempla
 }
 
 const listAvailableMCPServers = `-- name: ListAvailableMCPServers :many
-SELECT id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at FROM mcp_servers s
-WHERE s.enabled AND (s.visibility = 'all' OR EXISTS (SELECT 1 FROM mcp_server_teams st WHERE st.server_id = s.id AND st.team_id = $1))
+SELECT id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal FROM mcp_servers s
+WHERE s.enabled AND (CASE WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = $1) = 'personal' THEN s.personal
+            ELSE s.visibility = 'all' OR EXISTS (SELECT 1 FROM mcp_server_teams st WHERE st.server_id = s.id AND st.team_id = $1) END)
 ORDER BY lower(s.name), s.id
 `
 
@@ -282,6 +287,7 @@ func (q *Queries) ListAvailableMCPServers(ctx context.Context, teamID uuid.UUID)
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Personal,
 		); err != nil {
 			return nil, err
 		}
@@ -327,7 +333,7 @@ func (q *Queries) ListMCPServerTeams(ctx context.Context, serverID uuid.UUID) ([
 }
 
 const listMCPServers = `-- name: ListMCPServers :many
-SELECT id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at FROM mcp_servers ORDER BY lower(name), id
+SELECT id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal FROM mcp_servers ORDER BY lower(name), id
 `
 
 func (q *Queries) ListMCPServers(ctx context.Context) ([]McpServer, error) {
@@ -356,6 +362,7 @@ func (q *Queries) ListMCPServers(ctx context.Context) ([]McpServer, error) {
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Personal,
 		); err != nil {
 			return nil, err
 		}
@@ -454,7 +461,7 @@ func (q *Queries) ListThreadMCPServers(ctx context.Context, arg ListThreadMCPSer
 }
 
 const lockMCPServer = `-- name: LockMCPServer :one
-SELECT id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at FROM mcp_servers WHERE id = $1 FOR UPDATE
+SELECT id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal FROM mcp_servers WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) LockMCPServer(ctx context.Context, id uuid.UUID) (McpServer, error) {
@@ -477,6 +484,7 @@ func (q *Queries) LockMCPServer(ctx context.Context, id uuid.UUID) (McpServer, e
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Personal,
 	)
 	return i, err
 }
@@ -485,7 +493,8 @@ const mCPServerAvailable = `-- name: MCPServerAvailable :one
 SELECT EXISTS (
     SELECT 1 FROM mcp_servers s
     WHERE s.id = $1 AND s.enabled
-      AND (s.visibility = 'all' OR EXISTS (SELECT 1 FROM mcp_server_teams st WHERE st.server_id = s.id AND st.team_id = $2))
+      AND (CASE WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = $2) = 'personal' THEN s.personal
+            ELSE s.visibility = 'all' OR EXISTS (SELECT 1 FROM mcp_server_teams st WHERE st.server_id = s.id AND st.team_id = $2) END)
 )::boolean
 `
 
@@ -504,7 +513,7 @@ func (q *Queries) MCPServerAvailable(ctx context.Context, arg MCPServerAvailable
 const setMCPServerTools = `-- name: SetMCPServerTools :one
 UPDATE mcp_servers SET tools = $2, tools_refreshed_at = now(), tools_error = $3, updated_at = now()
 WHERE id = $1
-RETURNING id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at
+RETURNING id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal
 `
 
 type SetMCPServerToolsParams struct {
@@ -533,15 +542,16 @@ func (q *Queries) SetMCPServerTools(ctx context.Context, arg SetMCPServerToolsPa
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Personal,
 	)
 	return i, err
 }
 
 const updateMCPServer = `-- name: UpdateMCPServer :one
 UPDATE mcp_servers SET name = $2, description = $3, url = $4, headers_enc = $5, access_mode = $6, enabled = $7, visibility = $8,
-       revision = revision + 1, updated_at = now()
+       personal = $9, revision = revision + 1, updated_at = now()
 WHERE id = $1
-RETURNING id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at
+RETURNING id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal
 `
 
 type UpdateMCPServerParams struct {
@@ -553,6 +563,7 @@ type UpdateMCPServerParams struct {
 	AccessMode  string
 	Enabled     bool
 	Visibility  string
+	Personal    bool
 }
 
 func (q *Queries) UpdateMCPServer(ctx context.Context, arg UpdateMCPServerParams) (McpServer, error) {
@@ -565,6 +576,7 @@ func (q *Queries) UpdateMCPServer(ctx context.Context, arg UpdateMCPServerParams
 		arg.AccessMode,
 		arg.Enabled,
 		arg.Visibility,
+		arg.Personal,
 	)
 	var i McpServer
 	err := row.Scan(
@@ -584,6 +596,7 @@ func (q *Queries) UpdateMCPServer(ctx context.Context, arg UpdateMCPServerParams
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Personal,
 	)
 	return i, err
 }

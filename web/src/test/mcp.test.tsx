@@ -18,6 +18,7 @@ const mcpServer = (extra: Partial<Schemas["McpServer"]> = {}): Schemas["McpServe
   accessMode: "proxy",
   enabled: true,
   visibility: "all",
+  personal: true,
   teams: null,
   hasHeaders: true,
   tools: [

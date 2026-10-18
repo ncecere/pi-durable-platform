@@ -55,10 +55,11 @@ func (q *Queries) DeleteModelProvider(ctx context.Context, id uuid.UUID) error {
 }
 
 const getAvailableModel = `-- name: GetAvailableModel :one
-SELECT m.id, m.provider_id, m.upstream_id, m.name, m.context_window, m.max_tokens, m.images, m.reasoning, m.input_price, m.output_price, m.enabled, m.visibility, m.revision, m.created_at, m.updated_at, p.id, p.name, p.kind, p.base_url, p.api_key_enc, p.headers_enc, p.access_mode, p.enabled, p.revision, p.created_by, p.created_at, p.updated_at
+SELECT m.id, m.provider_id, m.upstream_id, m.name, m.context_window, m.max_tokens, m.images, m.reasoning, m.input_price, m.output_price, m.enabled, m.visibility, m.revision, m.created_at, m.updated_at, m.personal, p.id, p.name, p.kind, p.base_url, p.api_key_enc, p.headers_enc, p.access_mode, p.enabled, p.revision, p.created_by, p.created_at, p.updated_at
 FROM models m JOIN model_providers p ON p.id = m.provider_id
 WHERE m.id = $1 AND m.enabled AND p.enabled
-  AND (m.visibility = 'all' OR EXISTS (SELECT 1 FROM model_teams mt WHERE mt.model_id = m.id AND mt.team_id = $2))
+  AND (CASE WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = $2) = 'personal' THEN m.personal
+            ELSE m.visibility = 'all' OR EXISTS (SELECT 1 FROM model_teams mt WHERE mt.model_id = m.id AND mt.team_id = $2) END)
 `
 
 type GetAvailableModelParams struct {
@@ -91,6 +92,7 @@ func (q *Queries) GetAvailableModel(ctx context.Context, arg GetAvailableModelPa
 		&i.Model.Revision,
 		&i.Model.CreatedAt,
 		&i.Model.UpdatedAt,
+		&i.Model.Personal,
 		&i.ModelProvider.ID,
 		&i.ModelProvider.Name,
 		&i.ModelProvider.Kind,
@@ -108,7 +110,7 @@ func (q *Queries) GetAvailableModel(ctx context.Context, arg GetAvailableModelPa
 }
 
 const getModel = `-- name: GetModel :one
-SELECT id, provider_id, upstream_id, name, context_window, max_tokens, images, reasoning, input_price, output_price, enabled, visibility, revision, created_at, updated_at FROM models WHERE id = $1
+SELECT id, provider_id, upstream_id, name, context_window, max_tokens, images, reasoning, input_price, output_price, enabled, visibility, revision, created_at, updated_at, personal FROM models WHERE id = $1
 `
 
 func (q *Queries) GetModel(ctx context.Context, id uuid.UUID) (Model, error) {
@@ -130,6 +132,7 @@ func (q *Queries) GetModel(ctx context.Context, id uuid.UUID) (Model, error) {
 		&i.Revision,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Personal,
 	)
 	return i, err
 }
@@ -187,9 +190,9 @@ func (q *Queries) GetModelSummary(ctx context.Context, id uuid.UUID) (GetModelSu
 
 const insertModel = `-- name: InsertModel :one
 INSERT INTO models (provider_id, upstream_id, name, context_window, max_tokens, images, reasoning, input_price, output_price,
-                    enabled, visibility)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id, provider_id, upstream_id, name, context_window, max_tokens, images, reasoning, input_price, output_price, enabled, visibility, revision, created_at, updated_at
+                    enabled, visibility, personal)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id, provider_id, upstream_id, name, context_window, max_tokens, images, reasoning, input_price, output_price, enabled, visibility, revision, created_at, updated_at, personal
 `
 
 type InsertModelParams struct {
@@ -204,6 +207,7 @@ type InsertModelParams struct {
 	OutputPrice   pgtype.Float8
 	Enabled       bool
 	Visibility    string
+	Personal      bool
 }
 
 func (q *Queries) InsertModel(ctx context.Context, arg InsertModelParams) (Model, error) {
@@ -219,6 +223,7 @@ func (q *Queries) InsertModel(ctx context.Context, arg InsertModelParams) (Model
 		arg.OutputPrice,
 		arg.Enabled,
 		arg.Visibility,
+		arg.Personal,
 	)
 	var i Model
 	err := row.Scan(
@@ -237,6 +242,7 @@ func (q *Queries) InsertModel(ctx context.Context, arg InsertModelParams) (Model
 		&i.Revision,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Personal,
 	)
 	return i, err
 }
@@ -352,10 +358,11 @@ func (q *Queries) InsertModelUsageBatch(ctx context.Context, arg InsertModelUsag
 }
 
 const listAvailableModels = `-- name: ListAvailableModels :many
-SELECT m.id, m.provider_id, m.upstream_id, m.name, m.context_window, m.max_tokens, m.images, m.reasoning, m.input_price, m.output_price, m.enabled, m.visibility, m.revision, m.created_at, m.updated_at, p.name AS provider_name, p.kind AS provider_kind
+SELECT m.id, m.provider_id, m.upstream_id, m.name, m.context_window, m.max_tokens, m.images, m.reasoning, m.input_price, m.output_price, m.enabled, m.visibility, m.revision, m.created_at, m.updated_at, m.personal, p.name AS provider_name, p.kind AS provider_kind
 FROM models m JOIN model_providers p ON p.id = m.provider_id
 WHERE m.enabled AND p.enabled
-  AND (m.visibility = 'all' OR EXISTS (SELECT 1 FROM model_teams mt WHERE mt.model_id = m.id AND mt.team_id = $1))
+  AND (CASE WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = $1) = 'personal' THEN m.personal
+            ELSE m.visibility = 'all' OR EXISTS (SELECT 1 FROM model_teams mt WHERE mt.model_id = m.id AND mt.team_id = $1) END)
 ORDER BY lower(p.name), lower(m.name), m.id
 `
 
@@ -392,6 +399,7 @@ func (q *Queries) ListAvailableModels(ctx context.Context, teamID uuid.UUID) ([]
 			&i.Model.Revision,
 			&i.Model.CreatedAt,
 			&i.Model.UpdatedAt,
+			&i.Model.Personal,
 			&i.ProviderName,
 			&i.ProviderKind,
 		); err != nil {
@@ -495,7 +503,7 @@ func (q *Queries) ListModelTeams(ctx context.Context, modelID uuid.UUID) ([]List
 }
 
 const listModels = `-- name: ListModels :many
-SELECT m.id, m.provider_id, m.upstream_id, m.name, m.context_window, m.max_tokens, m.images, m.reasoning, m.input_price, m.output_price, m.enabled, m.visibility, m.revision, m.created_at, m.updated_at, p.name AS provider_name, p.kind AS provider_kind, p.enabled AS provider_enabled,
+SELECT m.id, m.provider_id, m.upstream_id, m.name, m.context_window, m.max_tokens, m.images, m.reasoning, m.input_price, m.output_price, m.enabled, m.visibility, m.revision, m.created_at, m.updated_at, m.personal, p.name AS provider_name, p.kind AS provider_kind, p.enabled AS provider_enabled,
        p.access_mode AS provider_access_mode
 FROM models m JOIN model_providers p ON p.id = m.provider_id
 WHERE $1::uuid IS NULL OR m.provider_id = $1::uuid
@@ -536,6 +544,7 @@ func (q *Queries) ListModels(ctx context.Context, providerID uuid.NullUUID) ([]L
 			&i.Model.Revision,
 			&i.Model.CreatedAt,
 			&i.Model.UpdatedAt,
+			&i.Model.Personal,
 			&i.ProviderName,
 			&i.ProviderKind,
 			&i.ProviderEnabled,
@@ -552,7 +561,7 @@ func (q *Queries) ListModels(ctx context.Context, providerID uuid.NullUUID) ([]L
 }
 
 const lockModel = `-- name: LockModel :one
-SELECT id, provider_id, upstream_id, name, context_window, max_tokens, images, reasoning, input_price, output_price, enabled, visibility, revision, created_at, updated_at FROM models WHERE id = $1 FOR UPDATE
+SELECT id, provider_id, upstream_id, name, context_window, max_tokens, images, reasoning, input_price, output_price, enabled, visibility, revision, created_at, updated_at, personal FROM models WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) LockModel(ctx context.Context, id uuid.UUID) (Model, error) {
@@ -574,6 +583,7 @@ func (q *Queries) LockModel(ctx context.Context, id uuid.UUID) (Model, error) {
 		&i.Revision,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Personal,
 	)
 	return i, err
 }
@@ -604,9 +614,9 @@ func (q *Queries) LockModelProvider(ctx context.Context, id uuid.UUID) (ModelPro
 
 const updateModel = `-- name: UpdateModel :one
 UPDATE models SET name = $2, context_window = $3, max_tokens = $4, images = $5, reasoning = $6, input_price = $7,
-       output_price = $8, enabled = $9, visibility = $10, revision = revision + 1, updated_at = now()
+       output_price = $8, enabled = $9, visibility = $10, personal = $11, revision = revision + 1, updated_at = now()
 WHERE id = $1
-RETURNING id, provider_id, upstream_id, name, context_window, max_tokens, images, reasoning, input_price, output_price, enabled, visibility, revision, created_at, updated_at
+RETURNING id, provider_id, upstream_id, name, context_window, max_tokens, images, reasoning, input_price, output_price, enabled, visibility, revision, created_at, updated_at, personal
 `
 
 type UpdateModelParams struct {
@@ -620,6 +630,7 @@ type UpdateModelParams struct {
 	OutputPrice   pgtype.Float8
 	Enabled       bool
 	Visibility    string
+	Personal      bool
 }
 
 func (q *Queries) UpdateModel(ctx context.Context, arg UpdateModelParams) (Model, error) {
@@ -634,6 +645,7 @@ func (q *Queries) UpdateModel(ctx context.Context, arg UpdateModelParams) (Model
 		arg.OutputPrice,
 		arg.Enabled,
 		arg.Visibility,
+		arg.Personal,
 	)
 	var i Model
 	err := row.Scan(
@@ -652,6 +664,7 @@ func (q *Queries) UpdateModel(ctx context.Context, arg UpdateModelParams) (Model
 		&i.Revision,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Personal,
 	)
 	return i, err
 }

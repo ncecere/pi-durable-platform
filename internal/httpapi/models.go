@@ -49,7 +49,7 @@ func toAPIModel(v llm.ModelView) apitypes.Model {
 	m := v.Model
 	out := apitypes.Model{Id: m.ID, ProviderId: m.ProviderID, ProviderName: v.ProviderName, ProviderKind: v.ProviderKind,
 		UpstreamId: m.UpstreamID, Name: m.Name, ContextWindow: m.ContextWindow, MaxTokens: m.MaxTokens, Images: m.Images,
-		Reasoning: m.Reasoning, Enabled: m.Enabled, Visibility: apitypes.ModelVisibility(m.Visibility), Revision: m.Revision,
+		Reasoning: m.Reasoning, Enabled: m.Enabled, Visibility: apitypes.ModelVisibility(m.Visibility), Personal: m.Personal, Revision: m.Revision,
 		CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt}
 	if m.InputPrice.Valid {
 		out.InputPrice = &m.InputPrice.Float64
@@ -193,7 +193,7 @@ func (a *api) createModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mi := llm.ModelInput{UpstreamID: in.UpstreamId, ContextWindow: in.ContextWindow, MaxTokens: in.MaxTokens,
-		InputPrice: in.InputPrice, OutputPrice: in.OutputPrice, Enabled: in.Enabled}
+		InputPrice: in.InputPrice, OutputPrice: in.OutputPrice, Enabled: in.Enabled, Personal: in.Personal}
 	setIf(&mi.Name, in.Name)
 	setIf(&mi.Images, in.Images)
 	setIf(&mi.Reasoning, in.Reasoning)
@@ -217,7 +217,8 @@ func (a *api) updateModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mu := llm.ModelUpdate{Name: in.Name, ContextWindow: in.ContextWindow, MaxTokens: in.MaxTokens, Images: in.Images,
-		Reasoning: in.Reasoning, InputPrice: in.InputPrice, OutputPrice: in.OutputPrice, Enabled: in.Enabled, Teams: in.Teams}
+		Reasoning: in.Reasoning, InputPrice: in.InputPrice, OutputPrice: in.OutputPrice, Enabled: in.Enabled, Teams: in.Teams,
+		Personal: in.Personal}
 	if in.Visibility != nil {
 		vis := string(*in.Visibility)
 		mu.Visibility = &vis

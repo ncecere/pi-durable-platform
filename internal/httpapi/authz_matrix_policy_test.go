@@ -278,6 +278,19 @@ var matrixPolicies = map[string]policy{
 	"getTeamUsage":     {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.team("/usage?groupBy=agent")) }},
 	"adminGetUsage":    {own: platform, build: func(*mctx) request { return get("/v1/admin/usage?groupBy=team") }},
 
+	// Personal workspaces: platform admins set the defaults and override one
+	// workspace's limits; auditors read the defaults; a workspace's members
+	// and platform staff read its limits.
+	"adminGetPersonalSettings": {own: platform, build: func(*mctx) request { return get("/v1/admin/settings/personal-workspaces") }},
+	"adminUpdatePersonalSettings": {own: padmin, build: func(*mctx) request {
+		return request{method: "PUT", path: "/v1/admin/settings/personal-workspaces",
+			body: map[string]any{"enabled": false, "maxAgents": 5, "maxRunning": 2}}.h(rev1)
+	}},
+	"adminSetWorkspaceLimits": {own: padmin, build: func(c *mctx) request {
+		return request{method: "PUT", path: "/v1/admin/teams/" + c.personalTeam() + "/limits", body: map[string]any{"maxAgents": 3}}.h(rev1)
+	}},
+	"getWorkspaceLimits": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.team("/limits")) }},
+
 	// The MCP catalog: platform admins manage servers, auditors read them; a
 	// team's members (and platform staff) see what the team may use; anyone
 	// who may use an agent sets the MCP servers an app gives its thread.

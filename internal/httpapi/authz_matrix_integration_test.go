@@ -55,6 +55,7 @@ type matrixEnv struct {
 	// provider and model: a model provider and one of its models;
 	// upstream serves the provider's model list.
 	provider, model, upstream, mcpServer string
+	personal                             string
 	n                                    int
 }
 
@@ -299,6 +300,22 @@ func (c *mctx) model(fresh bool) string {
 		return c.e.newModel(c.e.provider)
 	}
 	return c.e.model
+}
+
+// personalTeam is a personal workspace (a fresh one when the call is
+// expected to succeed: the override changes its revision).
+func (c *mctx) personalTeam() string {
+	if c.allowed || c.e.personal == "" {
+		owner := c.e.newUser(fmt.Sprintf("personal-%d@example.com", c.e.next()), "none")
+		slug := fmt.Sprintf("personal-m%d", c.e.next())
+		id := c.e.exec(`INSERT INTO teams (slug, name, kind, personal_owner) VALUES ($1, 'Personal', 'personal', $2) RETURNING id::text`, slug, owner)
+		c.e.exec(`INSERT INTO team_members (team_id, user_id, role) VALUES ($1, $2, 'owner') RETURNING role`, id, owner)
+		if !c.allowed {
+			c.e.personal = slug
+		}
+		return slug
+	}
+	return c.e.personal
 }
 
 // mcpServer is the fixture MCP server, or a fresh one for a destructive call

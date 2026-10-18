@@ -13,7 +13,8 @@ import "github.com/ncecere/pi-durable-platform/internal/apperr"
 //     service's users: only the team's service accounts use it. The team's
 //     owners and admins see that it exists and can delete it; editor service
 //     accounts change and delete it.
-//   - Platform admins may delete any agent. Platform roles never grant
+//   - Platform admins may delete any agent. Platform admins and auditors see
+//     the agents of personal workspaces (audit). Platform roles never grant
 //     access to conversations.
 
 var errAgentNotFound = apperr.NotFound("agent_not_found", "Agent not found")
@@ -23,12 +24,15 @@ type AgentSubject struct {
 	Role           string // the actor's role in the agent's team ("" when not on it)
 	IsService      bool   // the actor is a service account
 	ServiceManaged bool   // the agent is service-managed
+	// Audit: the actor is platform staff and the agent is in a personal
+	// workspace (they see its settings and status, never its conversations).
+	Audit bool
 }
 
 // CheckAgentSee decides whether the actor may see the agent's settings and
 // status (not its conversations). Not allowed reads as not found.
 func CheckAgentSee(s AgentSubject) error {
-	if CheckAgentUse(s) == nil || (s.ServiceManaged && !s.IsService && RoleAtLeast(s.Role, RoleAdmin)) {
+	if CheckAgentUse(s) == nil || (s.ServiceManaged && !s.IsService && RoleAtLeast(s.Role, RoleAdmin)) || s.Audit {
 		return nil
 	}
 	return errAgentNotFound

@@ -279,6 +279,9 @@ func (s *Service) CreateTemplate(ctx context.Context, a authz.Actor, teamRef str
 			if t.Status != teams.StatusActive {
 				return errTeamArchived
 			}
+			if t.Kind == teams.KindPersonal {
+				return teams.ErrPersonal // catalog templates only, for now
+			}
 			p.TeamID, p.Status, e.TeamID = uuid.NullUUID{UUID: t.ID, Valid: true}, authz.TemplatePrivate, t.ID
 		}
 		tpl, err := q.InsertTemplate(ctx, p)

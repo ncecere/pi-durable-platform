@@ -427,6 +427,8 @@ type ModelInput struct {
 	Enabled                  *bool
 	Visibility               string
 	Teams                    []string // slugs or IDs, for visibility teams
+	// Personal: available in personal workspaces (default: when visibility is all).
+	Personal *bool
 }
 
 func price(p *float64) (pgtype.Float8, error) {
@@ -448,7 +450,7 @@ func checkLimits(ctxw, max int32) error {
 
 func modelSnapshot(m dbgen.Model, teamSlugs []string) map[string]any {
 	out := map[string]any{"upstreamId": m.UpstreamID, "name": m.Name, "contextWindow": m.ContextWindow, "maxTokens": m.MaxTokens,
-		"images": m.Images, "reasoning": m.Reasoning, "enabled": m.Enabled, "visibility": m.Visibility}
+		"images": m.Images, "reasoning": m.Reasoning, "enabled": m.Enabled, "visibility": m.Visibility, "personal": m.Personal}
 	if m.InputPrice.Valid {
 		out["inputPrice"] = m.InputPrice.Float64
 	}
@@ -522,6 +524,10 @@ func (s *Service) CreateModel(ctx context.Context, a authz.Actor, providerID uui
 	if p.Visibility != "all" && p.Visibility != "teams" {
 		return ModelView{}, errBadVisibility
 	}
+	p.Personal = p.Visibility == "all"
+	if in.Personal != nil {
+		p.Personal = *in.Personal
+	}
 	var out ModelView
 	err = store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {
 		if _, err := q.LockModelProvider(ctx, providerID); errors.Is(store.NotFound(err), store.ErrNotFound) {
@@ -563,6 +569,7 @@ type ModelUpdate struct {
 	Enabled                 *bool
 	Visibility              *string
 	Teams                   *[]string
+	Personal                *bool
 }
 
 // UpdateModel changes a model (platform admins, If-Match). Disabling it
@@ -591,7 +598,10 @@ func (s *Service) UpdateModel(ctx context.Context, a authz.Actor, id uuid.UUID, 
 			beforeSlugs[i] = t.Slug
 		}
 		u := dbgen.UpdateModelParams{ID: id, Name: m.Name, ContextWindow: m.ContextWindow, MaxTokens: m.MaxTokens, Images: m.Images,
-			Reasoning: m.Reasoning, InputPrice: m.InputPrice, OutputPrice: m.OutputPrice, Enabled: m.Enabled, Visibility: m.Visibility}
+			Reasoning: m.Reasoning, InputPrice: m.InputPrice, OutputPrice: m.OutputPrice, Enabled: m.Enabled, Visibility: m.Visibility, Personal: m.Personal}
+		if in.Personal != nil {
+			u.Personal = *in.Personal
+		}
 		if in.Name != nil {
 			if u.Name, err = checkName(*in.Name); err != nil {
 				return err

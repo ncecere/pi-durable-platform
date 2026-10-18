@@ -39,13 +39,13 @@ SELECT * FROM models WHERE id = $1 FOR UPDATE;
 
 -- name: InsertModel :one
 INSERT INTO models (provider_id, upstream_id, name, context_window, max_tokens, images, reasoning, input_price, output_price,
-                    enabled, visibility)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                    enabled, visibility, personal)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING *;
 
 -- name: UpdateModel :one
 UPDATE models SET name = $2, context_window = $3, max_tokens = $4, images = $5, reasoning = $6, input_price = $7,
-       output_price = $8, enabled = $9, visibility = $10, revision = revision + 1, updated_at = now()
+       output_price = $8, enabled = $9, visibility = $10, personal = $11, revision = revision + 1, updated_at = now()
 WHERE id = $1
 RETURNING *;
 
@@ -70,7 +70,8 @@ INSERT INTO model_teams (model_id, team_id) VALUES ($1, $2) ON CONFLICT DO NOTHI
 SELECT sqlc.embed(m), p.name AS provider_name, p.kind AS provider_kind
 FROM models m JOIN model_providers p ON p.id = m.provider_id
 WHERE m.enabled AND p.enabled
-  AND (m.visibility = 'all' OR EXISTS (SELECT 1 FROM model_teams mt WHERE mt.model_id = m.id AND mt.team_id = sqlc.arg(team_id)))
+  AND (CASE WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = sqlc.arg(team_id)) = 'personal' THEN m.personal
+            ELSE m.visibility = 'all' OR EXISTS (SELECT 1 FROM model_teams mt WHERE mt.model_id = m.id AND mt.team_id = sqlc.arg(team_id)) END)
 ORDER BY lower(p.name), lower(m.name), m.id;
 
 -- name: GetAvailableModel :one
@@ -78,7 +79,8 @@ ORDER BY lower(p.name), lower(m.name), m.id;
 SELECT sqlc.embed(m), sqlc.embed(p)
 FROM models m JOIN model_providers p ON p.id = m.provider_id
 WHERE m.id = sqlc.arg(model_id) AND m.enabled AND p.enabled
-  AND (m.visibility = 'all' OR EXISTS (SELECT 1 FROM model_teams mt WHERE mt.model_id = m.id AND mt.team_id = sqlc.arg(team_id)));
+  AND (CASE WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = sqlc.arg(team_id)) = 'personal' THEN m.personal
+            ELSE m.visibility = 'all' OR EXISTS (SELECT 1 FROM model_teams mt WHERE mt.model_id = m.id AND mt.team_id = sqlc.arg(team_id)) END);
 
 -- name: GetModelSummary :one
 SELECT m.id, m.name, m.enabled, p.name AS provider_name, p.enabled AS provider_enabled

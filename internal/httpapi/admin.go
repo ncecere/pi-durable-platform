@@ -156,6 +156,13 @@ func (a *api) adminListTeams(w http.ResponseWriter, r *http.Request) {
 		escaped := store.EscapeLike(*q)
 		p.Search = &escaped
 	}
+	if k := r.URL.Query().Get("kind"); k != "" {
+		if k != teams.KindTeam && k != teams.KindPersonal {
+			httpx.Error(w, http.StatusBadRequest, "invalid_kind", "kind must be team or personal")
+			return
+		}
+		p.Kind = &k
+	}
 	if st := r.URL.Query().Get("status"); st != "" {
 		if st != teams.StatusActive && st != teams.StatusArchived {
 			httpx.Error(w, http.StatusBadRequest, "invalid_status", "status must be active or archived")

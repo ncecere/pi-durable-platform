@@ -174,8 +174,17 @@ func (s *Service) verifyCode(ctx context.Context, c *oidcClient, code string, sa
 		Claims: boundedClaims(claims), Method: "oidc", EmailVerified: truthy(claims["email_verified"]),
 		Groups: Groups(claims, s.cfg.OIDC.GroupsClaim),
 	}
-	if s.cfg.OIDC.BootstrapAdminSubject != "" && idToken.Subject == s.cfg.OIDC.BootstrapAdminSubject {
+	bootstrap := s.cfg.OIDC.BootstrapAdminSubject != "" && idToken.Subject == s.cfg.OIDC.BootstrapAdminSubject
+	if bootstrap {
 		li.BootstrapRole = RolePlatformAdmin
+	}
+	// Only members of the required groups may sign in (the bootstrap admin
+	// always may, so the platform can't be locked out).
+	if len(s.cfg.OIDC.AllowedGroups) > 0 && !bootstrap && !slices.ContainsFunc(li.Groups, func(g string) bool {
+		return slices.Contains(s.cfg.OIDC.AllowedGroups, g)
+	}) {
+		s.log.InfoContext(ctx, "sign-in refused: not in a required group", "subject", idToken.Subject)
+		return li, http.StatusForbidden, "group_denied", "Your account is not in a group allowed to use this platform"
 	}
 	return li, 0, "", ""
 }

@@ -188,6 +188,9 @@ func lockForMembership(ctx context.Context, q *dbgen.Queries, a authz.Actor, ref
 	if t.Status != StatusActive {
 		return t, role, apperr.Conflict("team_archived", "This team is archived and read-only")
 	}
+	if t.Kind == KindPersonal {
+		return t, role, ErrPersonal
+	}
 	return t, role, nil
 }
 

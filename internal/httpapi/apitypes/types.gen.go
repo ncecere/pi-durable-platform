@@ -513,6 +513,24 @@ func (e ModelUpdateVisibility) Valid() bool {
 	}
 }
 
+// Defines values for MyTeamKind.
+const (
+	MyTeamKindPersonal MyTeamKind = "personal"
+	MyTeamKindTeam     MyTeamKind = "team"
+)
+
+// Valid indicates whether the value is a known member of the MyTeamKind enum.
+func (e MyTeamKind) Valid() bool {
+	switch e {
+	case MyTeamKindPersonal:
+		return true
+	case MyTeamKindTeam:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PlatformRole.
 const (
 	None            PlatformRole = "none"
@@ -618,6 +636,24 @@ func (e ServiceAccountRole) Valid() bool {
 	}
 }
 
+// Defines values for TeamKind.
+const (
+	TeamKindPersonal TeamKind = "personal"
+	TeamKindTeam     TeamKind = "team"
+)
+
+// Valid indicates whether the value is a known member of the TeamKind enum.
+func (e TeamKind) Valid() bool {
+	switch e {
+	case TeamKindPersonal:
+		return true
+	case TeamKindTeam:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TeamRole.
 const (
 	TeamRoleAdmin  TeamRole = "admin"
@@ -702,6 +738,24 @@ func (e UserStatus) Valid() bool {
 	}
 }
 
+// Defines values for WorkspaceLimitsKind.
+const (
+	WorkspaceLimitsKindPersonal WorkspaceLimitsKind = "personal"
+	WorkspaceLimitsKindTeam     WorkspaceLimitsKind = "team"
+)
+
+// Valid indicates whether the value is a known member of the WorkspaceLimitsKind enum.
+func (e WorkspaceLimitsKind) Valid() bool {
+	switch e {
+	case WorkspaceLimitsKindPersonal:
+		return true
+	case WorkspaceLimitsKindTeam:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AuditActorKindParam.
 const (
 	AuditActorKindParamSystem AuditActorKindParam = "system"
@@ -747,6 +801,24 @@ const (
 func (e AdminListAuditParamsActorKind) Valid() bool {
 	switch e {
 	case AdminListAuditParamsActorKindSystem:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AdminListTeamsParamsKind.
+const (
+	AdminListTeamsParamsKindPersonal AdminListTeamsParamsKind = "personal"
+	AdminListTeamsParamsKindTeam     AdminListTeamsParamsKind = "team"
+)
+
+// Valid indicates whether the value is a known member of the AdminListTeamsParamsKind enum.
+func (e AdminListTeamsParamsKind) Valid() bool {
+	switch e {
+	case AdminListTeamsParamsKindPersonal:
+		return true
+	case AdminListTeamsParamsKindTeam:
 		return true
 	default:
 		return false
@@ -1351,7 +1423,10 @@ type McpServer struct {
 	HasHeaders  bool                `json:"hasHeaders"`
 	Id          openapi_types.UUID  `json:"id"`
 	Name        string              `json:"name"`
-	Revision    int64               `json:"revision"`
+
+	// Personal Available in personal workspaces (when created, defaults to visibility = all)
+	Personal bool  `json:"personal"`
+	Revision int64 `json:"revision"`
 
 	// Slug Names its tools for the model (mcp__<slug>__<tool>)
 	Slug  string       `json:"slug"`
@@ -1380,6 +1455,9 @@ type McpServerCreate struct {
 	Headers     *map[string]string         `json:"headers,omitempty"`
 	Name        string                     `json:"name"`
 
+	// Personal Available in personal workspaces (when created, defaults to visibility = all)
+	Personal *bool `json:"personal,omitempty"`
+
 	// Slug Default from the name; cannot change later
 	Slug  *string   `json:"slug,omitempty"`
 	Teams *[]string `json:"teams,omitempty"`
@@ -1402,8 +1480,11 @@ type McpServerUpdate struct {
 	Enabled     *bool                      `json:"enabled,omitempty"`
 
 	// Headers Replaces every header ({} removes them)
-	Headers    *map[string]string         `json:"headers,omitempty"`
-	Name       *string                    `json:"name,omitempty"`
+	Headers *map[string]string `json:"headers,omitempty"`
+	Name    *string            `json:"name,omitempty"`
+
+	// Personal Available in personal workspaces (when created, defaults to visibility = all)
+	Personal   *bool                      `json:"personal,omitempty"`
 	Teams      *[]string                  `json:"teams,omitempty"`
 	Url        *string                    `json:"url,omitempty"`
 	Visibility *McpServerUpdateVisibility `json:"visibility,omitempty"`
@@ -1489,7 +1570,10 @@ type Model struct {
 	Name       string   `json:"name"`
 
 	// OutputPrice USD per million output tokens
-	OutputPrice     *float64           `json:"outputPrice,omitempty"`
+	OutputPrice *float64 `json:"outputPrice,omitempty"`
+
+	// Personal Available in personal workspaces (when created, defaults to visibility = all)
+	Personal        bool               `json:"personal"`
 	ProviderEnabled *bool              `json:"providerEnabled,omitempty"`
 	ProviderId      openapi_types.UUID `json:"providerId"`
 	ProviderKind    string             `json:"providerKind"`
@@ -1526,7 +1610,10 @@ type ModelCreate struct {
 	// Name Defaults to upstreamId
 	Name        *string  `json:"name,omitempty"`
 	OutputPrice *float64 `json:"outputPrice,omitempty"`
-	Reasoning   *bool    `json:"reasoning,omitempty"`
+
+	// Personal Available in personal workspaces (when created, defaults to visibility = all)
+	Personal  *bool `json:"personal,omitempty"`
+	Reasoning *bool `json:"reasoning,omitempty"`
 
 	// Teams Team slugs or IDs (visibility teams)
 	Teams      *[]string              `json:"teams,omitempty"`
@@ -1620,7 +1707,10 @@ type ModelUpdate struct {
 
 	// OutputPrice A negative value clears it
 	OutputPrice *float64 `json:"outputPrice,omitempty"`
-	Reasoning   *bool    `json:"reasoning,omitempty"`
+
+	// Personal Available in personal workspaces (when created, defaults to visibility = all)
+	Personal  *bool `json:"personal,omitempty"`
+	Reasoning *bool `json:"reasoning,omitempty"`
 
 	// Teams Replaces the teams (visibility teams)
 	Teams      *[]string              `json:"teams,omitempty"`
@@ -1632,12 +1722,18 @@ type ModelUpdateVisibility string
 
 // MyTeam defines model for MyTeam.
 type MyTeam struct {
-	Id     openapi_types.UUID `json:"id"`
-	Name   string             `json:"name"`
-	Role   TeamRole           `json:"role"`
-	Slug   string             `json:"slug"`
-	Status TeamStatus         `json:"status"`
+	Id openapi_types.UUID `json:"id"`
+
+	// Kind team: shared; personal: one person's own workspace
+	Kind   *MyTeamKind `json:"kind,omitempty"`
+	Name   string      `json:"name"`
+	Role   TeamRole    `json:"role"`
+	Slug   string      `json:"slug"`
+	Status TeamStatus  `json:"status"`
 }
+
+// MyTeamKind team: shared; personal: one person's own workspace
+type MyTeamKind string
 
 // Ok defines model for Ok.
 type Ok struct {
@@ -1647,6 +1743,29 @@ type Ok struct {
 // OwnerAssign defines model for OwnerAssign.
 type OwnerAssign struct {
 	Email openapi_types.Email `json:"email"`
+}
+
+// PersonalWorkspaceSettings defines model for PersonalWorkspaceSettings.
+type PersonalWorkspaceSettings struct {
+	// Enabled People get a personal workspace when they sign in
+	Enabled   bool  `json:"enabled"`
+	MaxAgents int32 `json:"maxAgents"`
+
+	// MaxRunning Agents running at once
+	MaxRunning int32 `json:"maxRunning"`
+
+	// MonthlyBudgetUsd Recorded; not enforced yet
+	MonthlyBudgetUsd *float64  `json:"monthlyBudgetUsd,omitempty"`
+	Revision         int64     `json:"revision"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+}
+
+// PersonalWorkspaceSettingsUpdate defines model for PersonalWorkspaceSettingsUpdate.
+type PersonalWorkspaceSettingsUpdate struct {
+	Enabled          bool     `json:"enabled"`
+	MaxAgents        int32    `json:"maxAgents"`
+	MaxRunning       int32    `json:"maxRunning"`
+	MonthlyBudgetUsd *float64 `json:"monthlyBudgetUsd,omitempty"`
 }
 
 // PlatformRole defines model for PlatformRole.
@@ -1761,7 +1880,10 @@ type Team struct {
 	CreatedAt   time.Time          `json:"createdAt"`
 	Description string             `json:"description"`
 	Id          openapi_types.UUID `json:"id"`
-	Name        string             `json:"name"`
+
+	// Kind team: shared; personal: one person's own workspace
+	Kind *TeamKind `json:"kind,omitempty"`
+	Name string    `json:"name"`
 
 	// Revision Increases on every change. Send it back in If-Match.
 	Revision  Revision   `json:"revision"`
@@ -1769,6 +1891,9 @@ type Team struct {
 	Status    TeamStatus `json:"status"`
 	UpdatedAt time.Time  `json:"updatedAt"`
 }
+
+// TeamKind team: shared; personal: one person's own workspace
+type TeamKind string
 
 // TeamCreate defines model for TeamCreate.
 type TeamCreate struct {
@@ -1910,6 +2035,29 @@ type UserStatus string
 type UserUpdate struct {
 	PlatformRole *PlatformRole `json:"platformRole,omitempty"`
 	Status       *UserStatus   `json:"status,omitempty"`
+}
+
+// WorkspaceLimits defines model for WorkspaceLimits.
+type WorkspaceLimits struct {
+	AgentCount       int64               `json:"agentCount"`
+	Kind             WorkspaceLimitsKind `json:"kind"`
+	MaxAgents        *int32              `json:"maxAgents,omitempty"`
+	MaxRunning       *int32              `json:"maxRunning,omitempty"`
+	MonthlyBudgetUsd *float64            `json:"monthlyBudgetUsd,omitempty"`
+
+	// Overridden Which limits are this workspace's own (the others are the platform's defaults)
+	Overridden   []string `json:"overridden"`
+	RunningCount int64    `json:"runningCount"`
+}
+
+// WorkspaceLimitsKind defines model for WorkspaceLimits.Kind.
+type WorkspaceLimitsKind string
+
+// WorkspaceLimitsUpdate defines model for WorkspaceLimitsUpdate.
+type WorkspaceLimitsUpdate struct {
+	MaxAgents        *int32   `json:"maxAgents,omitempty"`
+	MaxRunning       *int32   `json:"maxRunning,omitempty"`
+	MonthlyBudgetUsd *float64 `json:"monthlyBudgetUsd,omitempty"`
 }
 
 // AgentIdParam defines model for AgentIdParam.
@@ -2064,19 +2212,35 @@ type AdminListServiceAccountsParams struct {
 	Limit  *LimitParam  `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// AdminUpdatePersonalSettingsParams defines parameters for AdminUpdatePersonalSettings.
+type AdminUpdatePersonalSettingsParams struct {
+	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
+	IfMatch IfMatchHeader `json:"If-Match"`
+}
+
 // AdminListTeamsParams defines parameters for AdminListTeams.
 type AdminListTeamsParams struct {
 	// Q Case-insensitive substring match
-	Q      *SearchParam `form:"q,omitempty" json:"q,omitempty"`
-	Status *TeamStatus  `form:"status,omitempty" json:"status,omitempty"`
+	Q      *SearchParam              `form:"q,omitempty" json:"q,omitempty"`
+	Status *TeamStatus               `form:"status,omitempty" json:"status,omitempty"`
+	Kind   *AdminListTeamsParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
 
 	// Cursor nextCursor from the previous page
 	Cursor *CursorParam `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit  *LimitParam  `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// AdminListTeamsParamsKind defines parameters for AdminListTeams.
+type AdminListTeamsParamsKind string
+
 // AdminUpdateTeamParams defines parameters for AdminUpdateTeam.
 type AdminUpdateTeamParams struct {
+	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
+	IfMatch IfMatchHeader `json:"If-Match"`
+}
+
+// AdminSetWorkspaceLimitsParams defines parameters for AdminSetWorkspaceLimits.
+type AdminSetWorkspaceLimitsParams struct {
 	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
 	IfMatch IfMatchHeader `json:"If-Match"`
 }
@@ -2241,11 +2405,17 @@ type AdminCreateModelJSONRequestBody = ModelCreate
 // AdminUpdateModelJSONRequestBody defines body for AdminUpdateModel for application/json ContentType.
 type AdminUpdateModelJSONRequestBody = ModelUpdate
 
+// AdminUpdatePersonalSettingsJSONRequestBody defines body for AdminUpdatePersonalSettings for application/json ContentType.
+type AdminUpdatePersonalSettingsJSONRequestBody = PersonalWorkspaceSettingsUpdate
+
 // AdminCreateTeamJSONRequestBody defines body for AdminCreateTeam for application/json ContentType.
 type AdminCreateTeamJSONRequestBody = TeamCreate
 
 // AdminUpdateTeamJSONRequestBody defines body for AdminUpdateTeam for application/json ContentType.
 type AdminUpdateTeamJSONRequestBody = TeamUpdate
+
+// AdminSetWorkspaceLimitsJSONRequestBody defines body for AdminSetWorkspaceLimits for application/json ContentType.
+type AdminSetWorkspaceLimitsJSONRequestBody = WorkspaceLimitsUpdate
 
 // AdminAssignOwnerJSONRequestBody defines body for AdminAssignOwner for application/json ContentType.
 type AdminAssignOwnerJSONRequestBody = OwnerAssign

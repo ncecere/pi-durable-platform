@@ -558,6 +558,12 @@ paths:
         required: false
         schema:
           $ref: '#/components/schemas/TeamStatus'
+      - name: kind
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [team, personal]
       - $ref: '#/components/parameters/CursorParam'
       - $ref: '#/components/parameters/LimitParam'
       responses:
@@ -2293,6 +2299,140 @@ paths:
           $ref: '#/components/responses/ErrorReply'
         '404':
           $ref: '#/components/responses/ErrorReply'
+  /v1/admin/settings/personal-workspaces:
+    get:
+      tags:
+      - admin
+      operationId: adminGetPersonalSettings
+      summary: Defaults for every personal workspace (platform admins and auditors)
+      responses:
+        '200':
+          description: Settings
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PersonalWorkspaceSettings'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+    put:
+      tags:
+      - admin
+      operationId: adminUpdatePersonalSettings
+      summary: Change the defaults for every personal workspace (platform admins)
+      description: >-
+        Turning personal workspaces off stops creating them at sign-in; existing ones stay (archive one to make it
+        read-only). The monthly budget is recorded but not enforced yet.
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonalWorkspaceSettingsUpdate'
+      responses:
+        '200':
+          description: Settings
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PersonalWorkspaceSettings'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/teams/{team}/limits:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    put:
+      tags:
+      - admin
+      operationId: adminSetWorkspaceLimits
+      summary: Override one personal workspace's limits (platform admins); null keeps the default
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceLimitsUpdate'
+      responses:
+        '200':
+          description: The limits now
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WorkspaceLimits'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/limits:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    get:
+      tags:
+      - teams
+      operationId: getWorkspaceLimits
+      summary: The workspace's limits and how much of them is used (its members and service accounts, platform staff)
+      responses:
+        '200':
+          description: Limits (none for shared teams, for now)
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WorkspaceLimits'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
   /v1/agents:
     get:
       tags:
@@ -2969,6 +3109,92 @@ components:
               data:
                 $ref: '#/components/schemas/Ok'
   schemas:
+    PersonalWorkspaceSettings:
+      type: object
+      required: [enabled, maxAgents, maxRunning, revision, updatedAt]
+      properties:
+        enabled:
+          type: boolean
+          description: People get a personal workspace when they sign in
+        maxAgents:
+          type: integer
+          format: int32
+        maxRunning:
+          type: integer
+          format: int32
+          description: Agents running at once
+        monthlyBudgetUsd:
+          type: number
+          format: double
+          nullable: true
+          description: Recorded; not enforced yet
+        revision:
+          type: integer
+          format: int64
+        updatedAt:
+          type: string
+          format: date-time
+    PersonalWorkspaceSettingsUpdate:
+      type: object
+      required: [enabled, maxAgents, maxRunning]
+      properties:
+        enabled:
+          type: boolean
+        maxAgents:
+          type: integer
+          format: int32
+        maxRunning:
+          type: integer
+          format: int32
+        monthlyBudgetUsd:
+          type: number
+          format: double
+          nullable: true
+    WorkspaceLimits:
+      type: object
+      required: [kind, agentCount, runningCount, overridden]
+      properties:
+        kind:
+          type: string
+          enum: [team, personal]
+        maxAgents:
+          type: integer
+          format: int32
+          nullable: true
+        maxRunning:
+          type: integer
+          format: int32
+          nullable: true
+        monthlyBudgetUsd:
+          type: number
+          format: double
+          nullable: true
+        overridden:
+          type: array
+          items:
+            type: string
+          description: Which limits are this workspace's own (the others are the platform's defaults)
+        agentCount:
+          type: integer
+          format: int64
+        runningCount:
+          type: integer
+          format: int64
+    WorkspaceLimitsUpdate:
+      type: object
+      properties:
+        maxAgents:
+          type: integer
+          format: int32
+          nullable: true
+        maxRunning:
+          type: integer
+          format: int32
+          nullable: true
+        monthlyBudgetUsd:
+          type: number
+          format: double
+          nullable: true
     McpTool:
       type: object
       required: [name]
@@ -2983,7 +3209,7 @@ components:
           nullable: true
     McpServer:
       type: object
-      required: [id, name, slug, description, url, accessMode, enabled, visibility, hasHeaders, tools, revision, createdAt, updatedAt]
+      required: [id, name, slug, description, url, accessMode, enabled, visibility, personal, hasHeaders, tools, revision, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -3006,6 +3232,9 @@ components:
         visibility:
           type: string
           enum: [all, teams]
+        personal:
+          type: boolean
+          description: Available in personal workspaces (when created, defaults to visibility = all)
         teams:
           type: array
           nullable: true
@@ -3063,6 +3292,9 @@ components:
         visibility:
           type: string
           enum: [all, teams]
+        personal:
+          type: boolean
+          description: Available in personal workspaces (when created, defaults to visibility = all)
         teams:
           type: array
           items:
@@ -3093,6 +3325,9 @@ components:
         visibility:
           type: string
           enum: [all, teams]
+        personal:
+          type: boolean
+          description: Available in personal workspaces (when created, defaults to visibility = all)
         teams:
           type: array
           items:
@@ -3381,7 +3616,7 @@ components:
           type: string
     Model:
       type: object
-      required: [id, providerId, providerName, providerKind, upstreamId, name, contextWindow, maxTokens, images, reasoning, enabled, visibility, revision, createdAt, updatedAt]
+      required: [id, providerId, providerName, providerKind, upstreamId, name, contextWindow, maxTokens, images, reasoning, enabled, visibility, personal, revision, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -3432,6 +3667,9 @@ components:
           type: string
           enum: [all, teams]
           description: 'all: every team may use it; teams: the listed teams'
+        personal:
+          type: boolean
+          description: Available in personal workspaces (when created, defaults to visibility = all)
         teams:
           type: array
           nullable: true
@@ -3480,6 +3718,9 @@ components:
         visibility:
           type: string
           enum: [all, teams]
+        personal:
+          type: boolean
+          description: Available in personal workspaces (when created, defaults to visibility = all)
         teams:
           type: array
           items:
@@ -3514,6 +3755,9 @@ components:
         visibility:
           type: string
           enum: [all, teams]
+        personal:
+          type: boolean
+          description: Available in personal workspaces (when created, defaults to visibility = all)
         teams:
           type: array
           items:
@@ -4361,6 +4605,10 @@ components:
           $ref: '#/components/schemas/TeamStatus'
         role:
           $ref: '#/components/schemas/TeamRole'
+        kind:
+          type: string
+          enum: [team, personal]
+          description: 'team: shared; personal: one person''s own workspace'
     Ok:
       type: object
       required:
@@ -4409,6 +4657,10 @@ components:
           type: string
         status:
           $ref: '#/components/schemas/TeamStatus'
+        kind:
+          type: string
+          enum: [team, personal]
+          description: 'team: shared; personal: one person''s own workspace'
         revision:
           $ref: '#/components/schemas/Revision'
         createdAt:
