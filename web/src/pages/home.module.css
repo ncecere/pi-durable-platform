@@ -1,4 +1,4 @@
-/* Home: the team rows and the admin links. Semantic tokens only. */
+/* Home: the team rows and the cards' links. Semantic tokens only. */
 
 .teamRow {
   flex-wrap: wrap;
@@ -46,7 +46,8 @@
   }
 }
 
-.adminLinks {
+/* The links in the Agents and Platform administration cards. */
+.cardLinks {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
