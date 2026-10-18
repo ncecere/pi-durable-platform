@@ -49,6 +49,26 @@ Browser / chat app / service ──► Platform (Go)
                                    Agent runtime (Node, Pi Durable) ── its schema in PostgreSQL
 ```
 
+## Models
+
+Platform admins add **providers** (Admin › Models) and the **models** they offer, and publish each model to every team
+or to chosen teams. Provider types: OpenAI (Responses API), Anthropic (Messages API), and servers compatible with
+OpenAI chat completions (LiteLLM, vLLM, Ollama, OpenRouter …), the OpenAI Responses API or the Anthropic Messages API.
+A provider's key and extra headers are sealed with `ENCRYPTION_KEY` and never returned. "Discover models" lists what a
+provider offers.
+
+A template version runs on a model (or the platform's default, `AGENTS_MODEL_*`); a team may choose another published
+model for one agent. A disabled or unpublished model takes no new use, and agents on it do not start until moved.
+
+Each provider has an access mode:
+
+- **proxy** (default): agents call the platform's gateway (`AGENTS_GATEWAY_ADDR`, a listener of its own) with their own
+  credential (`pdpm.<agent>.<runtime token>`), in the provider's API. The gateway checks the agent may use the model the
+  request names and the endpoint (`/chat/completions`, `/responses` or `/v1/messages`), adds the key, streams the
+  reply back and records the tokens it reports (`model_usage`). Agents need no network path but the platform's.
+- **direct**: agents get the provider's URL and key and call it themselves (for gateways that issue scoped keys; the
+  agents' network must allow the provider). Usage is not counted by the platform.
+
 ## Launchers
 
 | `AGENTS_LAUNCHER` | Runtime per active agent | Hibernate | Wake |

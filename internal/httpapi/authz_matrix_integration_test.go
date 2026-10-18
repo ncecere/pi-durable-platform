@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"sort"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/auth"
 	"github.com/ncecere/pi-durable-platform/internal/authz"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
+	"github.com/ncecere/pi-durable-platform/internal/llm"
 )
 
 // The authorization matrix. Every operation in api/openapi.yaml is
@@ -49,7 +51,10 @@ type matrixEnv struct {
 	// spareUser and spareTeam are targets of platform writes that are
 	// refused; allowed writes get fresh ones.
 	spareUser, spareTeam string
-	n                    int
+	// provider and model: a model provider and one of its models;
+	// upstream serves the provider's model list.
+	provider, model, upstream string
+	n                         int
 }
 
 func (e *matrixEnv) next() int { e.n++; return e.n }
@@ -150,7 +155,40 @@ func newMatrixEnv(t *testing.T) *matrixEnv {
 		tf.thread = e.newThread(*tf, tf.agent)
 		tf.template = e.newTemplate(*tf, "private")
 	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"matrix-model"}]}`))
+	}))
+	t.Cleanup(upstream.Close)
+	e.upstream = upstream.URL
+	e.provider = e.newProvider()
+	e.model = e.newModel(e.provider)
 	return e
+}
+
+func (e *matrixEnv) platformAdmin() authz.Actor {
+	return authz.Actor{UserID: uuid.MustParse(e.userIDs[cPlatformAdmin]), PlatformRole: authz.PlatformAdmin}
+}
+
+// newProvider adds a model provider, as a platform admin.
+func (e *matrixEnv) newProvider() string {
+	e.t.Helper()
+	v, err := e.app.Models.CreateProvider(context.Background(), e.platformAdmin(), llm.ProviderInput{
+		Name: fmt.Sprintf("provider-%d", e.next()), Kind: "openai-compatible", BaseURL: e.upstream + "/v1", APIKey: "matrix-key"})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return v.Provider.ID.String()
+}
+
+// newModel adds a model to a provider, as a platform admin.
+func (e *matrixEnv) newModel(provider string) string {
+	e.t.Helper()
+	v, err := e.app.Models.CreateModel(context.Background(), e.platformAdmin(), uuid.MustParse(provider),
+		llm.ModelInput{UpstreamID: fmt.Sprintf("model-%d", e.next())})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return v.Model.ID.String()
 }
 
 // newTemplate creates a team template, as the team's owner, in a status.
@@ -229,6 +267,24 @@ func (c *mctx) thread(suffix string, fresh bool) string {
 		t = c.e.newThread(*c.tf, c.tf.agent)
 	}
 	return "/v1/agents/" + c.tf.agent + "/threads/" + t + suffix
+}
+
+// provider is the fixture provider, or a fresh one for a destructive call
+// expected to succeed.
+func (c *mctx) provider(fresh bool) string {
+	if fresh && c.allowed {
+		return c.e.newProvider()
+	}
+	return c.e.provider
+}
+
+// model is the fixture model, or a fresh one for a destructive call expected
+// to succeed.
+func (c *mctx) model(fresh bool) string {
+	if fresh && c.allowed {
+		return c.e.newModel(c.e.provider)
+	}
+	return c.e.model
 }
 
 func (c *mctx) member() string {

@@ -13,6 +13,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/apperr"
 	"github.com/ncecere/pi-durable-platform/internal/audit"
 	"github.com/ncecere/pi-durable-platform/internal/authz"
+	"github.com/ncecere/pi-durable-platform/internal/llm"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 	"github.com/ncecere/pi-durable-platform/internal/teams"
@@ -171,9 +172,31 @@ func (s *Service) Versions(ctx context.Context, a authz.Actor, id uuid.UUID) ([]
 	return s.q.ListTemplateVersions(ctx, id)
 }
 
-// TemplateInput is a new template and its first version.
+// TemplateInput is a new template and its first version. ModelID is the
+// version's model (nil: the platform's default).
 type TemplateInput struct {
 	Slug, Name, Description, Instructions, Notes string
+	ModelID                                      *uuid.UUID
+}
+
+// checkTemplateModel checks a template version's model: a team template's
+// must be usable by the team; a platform template's must be enabled (each
+// deploying team is checked when it deploys).
+func checkTemplateModel(ctx context.Context, q *dbgen.Queries, teamID uuid.NullUUID, modelID uuid.NullUUID) error {
+	if !modelID.Valid {
+		return nil
+	}
+	if teamID.Valid {
+		return llm.CheckUsable(ctx, q, modelID.UUID, teamID.UUID)
+	}
+	return llm.CheckEnabled(ctx, q, modelID.UUID)
+}
+
+func nullID(id *uuid.UUID) uuid.NullUUID {
+	if id == nil {
+		return uuid.NullUUID{}
+	}
+	return uuid.NullUUID{UUID: *id, Valid: true}
 }
 
 func (in *TemplateInput) check() error {
@@ -242,8 +265,11 @@ func (s *Service) CreateTemplate(ctx context.Context, a authz.Actor, teamRef str
 		} else if err != nil {
 			return err
 		}
+		if err := checkTemplateModel(ctx, q, tpl.TeamID, nullID(in.ModelID)); err != nil {
+			return err
+		}
 		if _, err := q.InsertTemplateVersion(ctx, dbgen.InsertTemplateVersionParams{TemplateID: tpl.ID, Version: 1,
-			Instructions: strings.TrimSpace(in.Instructions), Notes: in.Notes, CreatedBy: p.CreatedBy}); err != nil {
+			Instructions: strings.TrimSpace(in.Instructions), Notes: in.Notes, CreatedBy: p.CreatedBy, ModelID: nullID(in.ModelID)}); err != nil {
 			return err
 		}
 		e.TargetID, e.After = tpl.ID.String(), templateSnapshot(tpl)
@@ -291,20 +317,45 @@ func (s *Service) UpdateTemplate(ctx context.Context, a authz.Actor, id uuid.UUI
 		})
 }
 
+// VersionInput is a new template version. ModelID: nil keeps the current
+// version's model, "" the platform's default, or a model's ID.
+type VersionInput struct {
+	Instructions, Notes string
+	ModelID             *string
+}
+
 // AddVersion adds a version, which becomes the one new agents get. Existing
 // agents keep theirs until they are upgraded.
-func (s *Service) AddVersion(ctx context.Context, a authz.Actor, id uuid.UUID, instructions, notes string) (TemplateView, error) {
-	if err := checkVersion(instructions, notes); err != nil {
+func (s *Service) AddVersion(ctx context.Context, a authz.Actor, id uuid.UUID, in VersionInput) (TemplateView, error) {
+	if err := checkVersion(in.Instructions, in.Notes); err != nil {
 		return TemplateView{}, err
+	}
+	var model *uuid.UUID
+	if in.ModelID != nil && *in.ModelID != "" {
+		mid, err := uuid.Parse(*in.ModelID)
+		if err != nil {
+			return TemplateView{}, errBadModelID
+		}
+		model = &mid
 	}
 	return s.changeTemplate(ctx, a, id, -1, "agent_template.version", authz.CheckTemplateEdit,
 		func(q *dbgen.Queries, t dbgen.AgentTemplate) (dbgen.AgentTemplate, error) {
+			modelID := nullID(model)
+			if in.ModelID == nil {
+				cur, err := version(ctx, q, id, t.CurrentVersion)
+				if err != nil {
+					return t, err
+				}
+				modelID = cur.ModelID
+			} else if err := checkTemplateModel(ctx, q, t.TeamID, modelID); err != nil {
+				return t, err
+			}
 			bumped, err := q.BumpTemplateVersion(ctx, id)
 			if err != nil {
 				return t, err
 			}
 			_, err = q.InsertTemplateVersion(ctx, dbgen.InsertTemplateVersionParams{TemplateID: id, Version: bumped.CurrentVersion,
-				Instructions: strings.TrimSpace(instructions), Notes: notes,
+				Instructions: strings.TrimSpace(in.Instructions), Notes: in.Notes, ModelID: modelID,
 				CreatedBy: uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil && a.Service == nil}})
 			return bumped, err
 		})

@@ -9,6 +9,24 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AgentModelSource.
+const (
+	AgentModelSourceAgent    AgentModelSource = "agent"
+	AgentModelSourceTemplate AgentModelSource = "template"
+)
+
+// Valid indicates whether the value is a known member of the AgentModelSource enum.
+func (e AgentModelSource) Valid() bool {
+	switch e {
+	case AgentModelSourceAgent:
+		return true
+	case AgentModelSourceTemplate:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AgentTemplateStatus.
 const (
 	AgentTemplateStatusPending   AgentTemplateStatus = "pending"
@@ -207,6 +225,186 @@ func (e MemberAddResultStatus) Valid() bool {
 	}
 }
 
+// Defines values for ModelAccessMode.
+const (
+	ModelAccessModeDirect ModelAccessMode = "direct"
+	ModelAccessModeProxy  ModelAccessMode = "proxy"
+)
+
+// Valid indicates whether the value is a known member of the ModelAccessMode enum.
+func (e ModelAccessMode) Valid() bool {
+	switch e {
+	case ModelAccessModeDirect:
+		return true
+	case ModelAccessModeProxy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelVisibility.
+const (
+	ModelVisibilityAll   ModelVisibility = "all"
+	ModelVisibilityTeams ModelVisibility = "teams"
+)
+
+// Valid indicates whether the value is a known member of the ModelVisibility enum.
+func (e ModelVisibility) Valid() bool {
+	switch e {
+	case ModelVisibilityAll:
+		return true
+	case ModelVisibilityTeams:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelCreateVisibility.
+const (
+	ModelCreateVisibilityAll   ModelCreateVisibility = "all"
+	ModelCreateVisibilityTeams ModelCreateVisibility = "teams"
+)
+
+// Valid indicates whether the value is a known member of the ModelCreateVisibility enum.
+func (e ModelCreateVisibility) Valid() bool {
+	switch e {
+	case ModelCreateVisibilityAll:
+		return true
+	case ModelCreateVisibilityTeams:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelProviderAccessMode.
+const (
+	ModelProviderAccessModeDirect ModelProviderAccessMode = "direct"
+	ModelProviderAccessModeProxy  ModelProviderAccessMode = "proxy"
+)
+
+// Valid indicates whether the value is a known member of the ModelProviderAccessMode enum.
+func (e ModelProviderAccessMode) Valid() bool {
+	switch e {
+	case ModelProviderAccessModeDirect:
+		return true
+	case ModelProviderAccessModeProxy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelProviderKind.
+const (
+	ModelProviderKindAnthropic           ModelProviderKind = "anthropic"
+	ModelProviderKindAnthropicCompatible ModelProviderKind = "anthropic-compatible"
+	ModelProviderKindOpenai              ModelProviderKind = "openai"
+	ModelProviderKindOpenaiCompatible    ModelProviderKind = "openai-compatible"
+	ModelProviderKindOpenaiResponses     ModelProviderKind = "openai-responses"
+)
+
+// Valid indicates whether the value is a known member of the ModelProviderKind enum.
+func (e ModelProviderKind) Valid() bool {
+	switch e {
+	case ModelProviderKindAnthropic:
+		return true
+	case ModelProviderKindAnthropicCompatible:
+		return true
+	case ModelProviderKindOpenai:
+		return true
+	case ModelProviderKindOpenaiCompatible:
+		return true
+	case ModelProviderKindOpenaiResponses:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelProviderCreateAccessMode.
+const (
+	ModelProviderCreateAccessModeDirect ModelProviderCreateAccessMode = "direct"
+	ModelProviderCreateAccessModeProxy  ModelProviderCreateAccessMode = "proxy"
+)
+
+// Valid indicates whether the value is a known member of the ModelProviderCreateAccessMode enum.
+func (e ModelProviderCreateAccessMode) Valid() bool {
+	switch e {
+	case ModelProviderCreateAccessModeDirect:
+		return true
+	case ModelProviderCreateAccessModeProxy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelProviderCreateKind.
+const (
+	ModelProviderCreateKindAnthropic           ModelProviderCreateKind = "anthropic"
+	ModelProviderCreateKindAnthropicCompatible ModelProviderCreateKind = "anthropic-compatible"
+	ModelProviderCreateKindOpenai              ModelProviderCreateKind = "openai"
+	ModelProviderCreateKindOpenaiCompatible    ModelProviderCreateKind = "openai-compatible"
+	ModelProviderCreateKindOpenaiResponses     ModelProviderCreateKind = "openai-responses"
+)
+
+// Valid indicates whether the value is a known member of the ModelProviderCreateKind enum.
+func (e ModelProviderCreateKind) Valid() bool {
+	switch e {
+	case ModelProviderCreateKindAnthropic:
+		return true
+	case ModelProviderCreateKindAnthropicCompatible:
+		return true
+	case ModelProviderCreateKindOpenai:
+		return true
+	case ModelProviderCreateKindOpenaiCompatible:
+		return true
+	case ModelProviderCreateKindOpenaiResponses:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelProviderUpdateAccessMode.
+const (
+	ModelProviderUpdateAccessModeDirect ModelProviderUpdateAccessMode = "direct"
+	ModelProviderUpdateAccessModeProxy  ModelProviderUpdateAccessMode = "proxy"
+)
+
+// Valid indicates whether the value is a known member of the ModelProviderUpdateAccessMode enum.
+func (e ModelProviderUpdateAccessMode) Valid() bool {
+	switch e {
+	case ModelProviderUpdateAccessModeDirect:
+		return true
+	case ModelProviderUpdateAccessModeProxy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelUpdateVisibility.
+const (
+	ModelUpdateVisibilityAll   ModelUpdateVisibility = "all"
+	ModelUpdateVisibilityTeams ModelUpdateVisibility = "teams"
+)
+
+// Valid indicates whether the value is a known member of the ModelUpdateVisibility enum.
+func (e ModelUpdateVisibility) Valid() bool {
+	switch e {
+	case ModelUpdateVisibilityAll:
+		return true
+	case ModelUpdateVisibilityTeams:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PlatformRole.
 const (
 	None            PlatformRole = "none"
@@ -222,6 +420,51 @@ func (e PlatformRole) Valid() bool {
 	case PlatformAdmin:
 		return true
 	case PlatformAuditor:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProviderTypeAuthHeader.
+const (
+	Authorization ProviderTypeAuthHeader = "authorization"
+	XApiKey       ProviderTypeAuthHeader = "x-api-key"
+)
+
+// Valid indicates whether the value is a known member of the ProviderTypeAuthHeader enum.
+func (e ProviderTypeAuthHeader) Valid() bool {
+	switch e {
+	case Authorization:
+		return true
+	case XApiKey:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProviderTypeId.
+const (
+	ProviderTypeIdAnthropic           ProviderTypeId = "anthropic"
+	ProviderTypeIdAnthropicCompatible ProviderTypeId = "anthropic-compatible"
+	ProviderTypeIdOpenai              ProviderTypeId = "openai"
+	ProviderTypeIdOpenaiCompatible    ProviderTypeId = "openai-compatible"
+	ProviderTypeIdOpenaiResponses     ProviderTypeId = "openai-responses"
+)
+
+// Valid indicates whether the value is a known member of the ProviderTypeId enum.
+func (e ProviderTypeId) Valid() bool {
+	switch e {
+	case ProviderTypeIdAnthropic:
+		return true
+	case ProviderTypeIdAnthropicCompatible:
+		return true
+	case ProviderTypeIdOpenai:
+		return true
+	case ProviderTypeIdOpenaiCompatible:
+		return true
+	case ProviderTypeIdOpenaiResponses:
 		return true
 	default:
 		return false
@@ -403,8 +646,11 @@ type Agent struct {
 	ExternalKey *string            `json:"externalKey,omitempty"`
 	Id          openapi_types.UUID `json:"id"`
 	LastUsedAt  *time.Time         `json:"lastUsedAt,omitempty"`
-	Name        string             `json:"name"`
-	Revision    int64              `json:"revision"`
+
+	// Model The model it runs on (absent - the platform's default model)
+	Model    *AgentModel `json:"model,omitempty"`
+	Name     string      `json:"name"`
+	Revision int64       `json:"revision"`
 
 	// Running Whether its runtime is up now (it hibernates when idle and wakes on the next request)
 	Running  bool               `json:"running"`
@@ -426,7 +672,10 @@ type Agent struct {
 // AgentCreate defines model for AgentCreate.
 type AgentCreate struct {
 	Description *string `json:"description,omitempty"`
-	Name        string  `json:"name"`
+
+	// ModelId A model published to the team (default the template's)
+	ModelId *openapi_types.UUID `json:"modelId,omitempty"`
+	Name    string              `json:"name"`
 
 	// Template A platform template's slug (default assistant), when templateId is not given
 	Template *string `json:"template,omitempty"`
@@ -438,6 +687,9 @@ type AgentCreate struct {
 // AgentEnsure defines model for AgentEnsure.
 type AgentEnsure struct {
 	Description *string `json:"description,omitempty"`
+
+	// ModelId For a new agent, a model published to the team (default the template's)
+	ModelId *openapi_types.UUID `json:"modelId,omitempty"`
 
 	// Name Defaults to the external key
 	Name *string `json:"name,omitempty"`
@@ -458,6 +710,21 @@ type AgentMessageCreate struct {
 	RequestId *string `json:"requestId,omitempty"`
 	Text      string  `json:"text"`
 }
+
+// AgentModel defines model for AgentModel.
+type AgentModel struct {
+	// Available False when the model was disabled or unpublished; the agent does not start until moved to another
+	Available    bool               `json:"available"`
+	Id           openapi_types.UUID `json:"id"`
+	Name         string             `json:"name"`
+	ProviderName string             `json:"providerName"`
+
+	// Source agent: chosen for this agent; template: its template version's
+	Source AgentModelSource `json:"source"`
+}
+
+// AgentModelSource agent: chosen for this agent; template: its template version's
+type AgentModelSource string
 
 // AgentTemplate defines model for AgentTemplate.
 type AgentTemplate struct {
@@ -495,10 +762,13 @@ type AgentTemplateCreate struct {
 	Description *string `json:"description,omitempty"`
 
 	// Instructions The agent's system prompt (version 1)
-	Instructions string  `json:"instructions"`
-	Name         string  `json:"name"`
-	Notes        *string `json:"notes,omitempty"`
-	Slug         string  `json:"slug"`
+	Instructions string `json:"instructions"`
+
+	// ModelId The model version 1 runs on (default the platform's default model)
+	ModelId *openapi_types.UUID `json:"modelId,omitempty"`
+	Name    string              `json:"name"`
+	Notes   *string             `json:"notes,omitempty"`
+	Slug    string              `json:"slug"`
 }
 
 // AgentTemplateReview defines model for AgentTemplateReview.
@@ -524,13 +794,21 @@ type AgentTemplateVersion struct {
 	CreatedAt     time.Time `json:"createdAt"`
 	CreatedByName *string   `json:"createdByName,omitempty"`
 	Instructions  string    `json:"instructions"`
-	Notes         string    `json:"notes"`
-	Version       int32     `json:"version"`
+
+	// ModelId Its model (absent - the platform's default)
+	ModelId           *openapi_types.UUID `json:"modelId,omitempty"`
+	ModelName         *string             `json:"modelName,omitempty"`
+	ModelProviderName *string             `json:"modelProviderName,omitempty"`
+	Notes             string              `json:"notes"`
+	Version           int32               `json:"version"`
 }
 
 // AgentTemplateVersionCreate defines model for AgentTemplateVersionCreate.
 type AgentTemplateVersionCreate struct {
 	Instructions string `json:"instructions"`
+
+	// ModelId The model it runs on (a model's ID; "" for the platform's default; omitted keeps the current version's)
+	ModelId *string `json:"modelId,omitempty"`
 
 	// Notes What changed
 	Notes *string `json:"notes,omitempty"`
@@ -551,7 +829,10 @@ type AgentThread struct {
 type AgentUpdate struct {
 	Description *string `json:"description,omitempty"`
 	Enabled     *bool   `json:"enabled,omitempty"`
-	Name        *string `json:"name,omitempty"`
+
+	// ModelId A model published to the team, or "" for its template's; applies when the agent next starts
+	ModelId *string `json:"modelId,omitempty"`
+	Name    *string `json:"name,omitempty"`
 
 	// TemplateVersion Move to another version of the template (upgrade or roll back); applies when the agent next starts
 	TemplateVersion *int32 `json:"templateVersion,omitempty"`
@@ -748,6 +1029,17 @@ type DevLoginRequest struct {
 	Account string `json:"account"`
 }
 
+// DiscoveredModel defines model for DiscoveredModel.
+type DiscoveredModel struct {
+	// Added Whether the catalog already has it
+	Added         bool   `json:"added"`
+	ContextWindow *int32 `json:"contextWindow,omitempty"`
+
+	// Id The provider's model ID
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}
+
 // ErrorResponse defines model for ErrorResponse.
 type ErrorResponse struct {
 	Error struct {
@@ -857,6 +1149,164 @@ type MemberUser struct {
 	Status      UserStatus         `json:"status"`
 }
 
+// Model defines model for Model.
+type Model struct {
+	AccessMode    *ModelAccessMode   `json:"accessMode,omitempty"`
+	ContextWindow int32              `json:"contextWindow"`
+	CreatedAt     time.Time          `json:"createdAt"`
+	Enabled       bool               `json:"enabled"`
+	Id            openapi_types.UUID `json:"id"`
+
+	// Images Accepts images
+	Images bool `json:"images"`
+
+	// InputPrice USD per million input tokens
+	InputPrice *float64 `json:"inputPrice,omitempty"`
+	MaxTokens  int32    `json:"maxTokens"`
+	Name       string   `json:"name"`
+
+	// OutputPrice USD per million output tokens
+	OutputPrice     *float64           `json:"outputPrice,omitempty"`
+	ProviderEnabled *bool              `json:"providerEnabled,omitempty"`
+	ProviderId      openapi_types.UUID `json:"providerId"`
+	ProviderKind    string             `json:"providerKind"`
+	ProviderName    string             `json:"providerName"`
+	Reasoning       bool               `json:"reasoning"`
+	Revision        int64              `json:"revision"`
+	Teams           *[]ModelTeam       `json:"teams,omitempty"`
+	UpdatedAt       time.Time          `json:"updatedAt"`
+
+	// UpstreamId The provider's ID for the model
+	UpstreamId string `json:"upstreamId"`
+
+	// Visibility all: every team may use it; teams: the listed teams
+	Visibility ModelVisibility `json:"visibility"`
+}
+
+// ModelAccessMode defines model for Model.AccessMode.
+type ModelAccessMode string
+
+// ModelVisibility all: every team may use it; teams: the listed teams
+type ModelVisibility string
+
+// ModelCreate defines model for ModelCreate.
+type ModelCreate struct {
+	// ContextWindow Default 128000
+	ContextWindow *int32   `json:"contextWindow,omitempty"`
+	Enabled       *bool    `json:"enabled,omitempty"`
+	Images        *bool    `json:"images,omitempty"`
+	InputPrice    *float64 `json:"inputPrice,omitempty"`
+
+	// MaxTokens Default 16000
+	MaxTokens *int32 `json:"maxTokens,omitempty"`
+
+	// Name Defaults to upstreamId
+	Name        *string  `json:"name,omitempty"`
+	OutputPrice *float64 `json:"outputPrice,omitempty"`
+	Reasoning   *bool    `json:"reasoning,omitempty"`
+
+	// Teams Team slugs or IDs (visibility teams)
+	Teams      *[]string              `json:"teams,omitempty"`
+	UpstreamId string                 `json:"upstreamId"`
+	Visibility *ModelCreateVisibility `json:"visibility,omitempty"`
+}
+
+// ModelCreateVisibility defines model for ModelCreate.Visibility.
+type ModelCreateVisibility string
+
+// ModelProvider defines model for ModelProvider.
+type ModelProvider struct {
+	// AccessMode proxy: agents call the platform, which adds the key and counts usage; direct: agents get the URL and key
+	AccessMode ModelProviderAccessMode `json:"accessMode"`
+	BaseUrl    string                  `json:"baseUrl"`
+	CreatedAt  time.Time               `json:"createdAt"`
+	Enabled    bool                    `json:"enabled"`
+
+	// HasHeaders Whether extra headers are set (their values are never returned)
+	HasHeaders bool               `json:"hasHeaders"`
+	Id         openapi_types.UUID `json:"id"`
+	Kind       ModelProviderKind  `json:"kind"`
+	ModelCount int64              `json:"modelCount"`
+	Name       string             `json:"name"`
+	Revision   int64              `json:"revision"`
+	UpdatedAt  time.Time          `json:"updatedAt"`
+}
+
+// ModelProviderAccessMode proxy: agents call the platform, which adds the key and counts usage; direct: agents get the URL and key
+type ModelProviderAccessMode string
+
+// ModelProviderKind defines model for ModelProvider.Kind.
+type ModelProviderKind string
+
+// ModelProviderCreate defines model for ModelProviderCreate.
+type ModelProviderCreate struct {
+	// AccessMode Default proxy
+	AccessMode *ModelProviderCreateAccessMode `json:"accessMode,omitempty"`
+	ApiKey     *string                        `json:"apiKey,omitempty"`
+
+	// BaseUrl Default for openai and anthropic; required otherwise (for example https://litellm.example.com/v1)
+	BaseUrl *string `json:"baseUrl,omitempty"`
+	Enabled *bool   `json:"enabled,omitempty"`
+
+	// Headers Extra headers sent with every request (at most 20)
+	Headers *map[string]string      `json:"headers,omitempty"`
+	Kind    ModelProviderCreateKind `json:"kind"`
+	Name    string                  `json:"name"`
+}
+
+// ModelProviderCreateAccessMode Default proxy
+type ModelProviderCreateAccessMode string
+
+// ModelProviderCreateKind defines model for ModelProviderCreate.Kind.
+type ModelProviderCreateKind string
+
+// ModelProviderUpdate defines model for ModelProviderUpdate.
+type ModelProviderUpdate struct {
+	AccessMode *ModelProviderUpdateAccessMode `json:"accessMode,omitempty"`
+
+	// ApiKey Replaces the key
+	ApiKey  *string `json:"apiKey,omitempty"`
+	BaseUrl *string `json:"baseUrl,omitempty"`
+	Enabled *bool   `json:"enabled,omitempty"`
+
+	// Headers Replaces every extra header ({} removes them)
+	Headers *map[string]string `json:"headers,omitempty"`
+	Name    *string            `json:"name,omitempty"`
+}
+
+// ModelProviderUpdateAccessMode defines model for ModelProviderUpdate.AccessMode.
+type ModelProviderUpdateAccessMode string
+
+// ModelTeam defines model for ModelTeam.
+type ModelTeam struct {
+	Id   openapi_types.UUID `json:"id"`
+	Name string             `json:"name"`
+	Slug string             `json:"slug"`
+}
+
+// ModelUpdate defines model for ModelUpdate.
+type ModelUpdate struct {
+	ContextWindow *int32 `json:"contextWindow,omitempty"`
+	Enabled       *bool  `json:"enabled,omitempty"`
+	Images        *bool  `json:"images,omitempty"`
+
+	// InputPrice A negative value clears it
+	InputPrice *float64 `json:"inputPrice,omitempty"`
+	MaxTokens  *int32   `json:"maxTokens,omitempty"`
+	Name       *string  `json:"name,omitempty"`
+
+	// OutputPrice A negative value clears it
+	OutputPrice *float64 `json:"outputPrice,omitempty"`
+	Reasoning   *bool    `json:"reasoning,omitempty"`
+
+	// Teams Replaces the teams (visibility teams)
+	Teams      *[]string              `json:"teams,omitempty"`
+	Visibility *ModelUpdateVisibility `json:"visibility,omitempty"`
+}
+
+// ModelUpdateVisibility defines model for ModelUpdate.Visibility.
+type ModelUpdateVisibility string
+
 // MyTeam defines model for MyTeam.
 type MyTeam struct {
 	Id     openapi_types.UUID `json:"id"`
@@ -878,6 +1328,22 @@ type OwnerAssign struct {
 
 // PlatformRole defines model for PlatformRole.
 type PlatformRole string
+
+// ProviderType defines model for ProviderType.
+type ProviderType struct {
+	// Api The API agents speak to it (openai-responses, anthropic-messages, openai-completions)
+	Api            string                 `json:"api"`
+	AuthHeader     ProviderTypeAuthHeader `json:"authHeader"`
+	DefaultBaseUrl *string                `json:"defaultBaseUrl,omitempty"`
+	Id             ProviderTypeId         `json:"id"`
+	Name           string                 `json:"name"`
+}
+
+// ProviderTypeAuthHeader defines model for ProviderType.AuthHeader.
+type ProviderTypeAuthHeader string
+
+// ProviderTypeId defines model for ProviderType.Id.
+type ProviderTypeId string
 
 // Revision Increases on every change. Send it back in If-Match.
 type Revision = int64
@@ -1106,6 +1572,12 @@ type IfMatchHeader = string
 // LimitParam defines model for LimitParam.
 type LimitParam = int
 
+// ModelIdParam defines model for ModelIdParam.
+type ModelIdParam = openapi_types.UUID
+
+// ProviderIdParam defines model for ProviderIdParam.
+type ProviderIdParam = openapi_types.UUID
+
 // SearchParam defines model for SearchParam.
 type SearchParam = string
 
@@ -1184,6 +1656,18 @@ type AdminListAuditParams struct {
 
 // AdminListAuditParamsActorKind defines parameters for AdminListAudit.
 type AdminListAuditParamsActorKind string
+
+// AdminUpdateModelProviderParams defines parameters for AdminUpdateModelProvider.
+type AdminUpdateModelProviderParams struct {
+	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
+	IfMatch IfMatchHeader `json:"If-Match"`
+}
+
+// AdminUpdateModelParams defines parameters for AdminUpdateModel.
+type AdminUpdateModelParams struct {
+	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
+	IfMatch IfMatchHeader `json:"If-Match"`
+}
 
 // AdminListServiceAccountsParams defines parameters for AdminListServiceAccounts.
 type AdminListServiceAccountsParams struct {
@@ -1316,6 +1800,18 @@ type UpdateServiceAccountParams struct {
 
 // DevLoginJSONRequestBody defines body for DevLogin for application/json ContentType.
 type DevLoginJSONRequestBody = DevLoginRequest
+
+// AdminCreateModelProviderJSONRequestBody defines body for AdminCreateModelProvider for application/json ContentType.
+type AdminCreateModelProviderJSONRequestBody = ModelProviderCreate
+
+// AdminUpdateModelProviderJSONRequestBody defines body for AdminUpdateModelProvider for application/json ContentType.
+type AdminUpdateModelProviderJSONRequestBody = ModelProviderUpdate
+
+// AdminCreateModelJSONRequestBody defines body for AdminCreateModel for application/json ContentType.
+type AdminCreateModelJSONRequestBody = ModelCreate
+
+// AdminUpdateModelJSONRequestBody defines body for AdminUpdateModel for application/json ContentType.
+type AdminUpdateModelJSONRequestBody = ModelUpdate
 
 // AdminCreateTeamJSONRequestBody defines body for AdminCreateTeam for application/json ContentType.
 type AdminCreateTeamJSONRequestBody = TeamCreate

@@ -759,6 +759,164 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/model-provider-kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The types of model provider the platform supports (platform admins and auditors) */
+        get: operations["adminListModelProviderKinds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/model-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every model provider, without its key (platform admins and auditors) */
+        get: operations["adminListModelProviders"];
+        put?: never;
+        /**
+         * Add a model provider (platform admins)
+         * @description The API key (and any extra headers) are stored encrypted and never returned. In proxy mode agents call the platform, which adds the key; in direct mode agents get the provider's URL and key.
+         */
+        post: operations["adminCreateModelProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/model-providers/{providerId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        /** A model provider, without its key (platform admins and auditors) */
+        get: operations["adminGetModelProvider"];
+        put?: never;
+        post?: never;
+        /** Remove a provider and its models (platform admins); refused while templates or agents use them */
+        delete: operations["adminDeleteModelProvider"];
+        options?: never;
+        head?: never;
+        /** Change a provider, replace its key, or turn it off (platform admins) */
+        patch: operations["adminUpdateModelProvider"];
+        trace?: never;
+    };
+    "/v1/admin/model-providers/{providerId}/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask the provider which models it offers (platform admins) */
+        post: operations["adminDiscoverModels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/model-providers/{providerId}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        /** A provider's models (platform admins and auditors) */
+        get: operations["adminListProviderModels"];
+        put?: never;
+        /** Add a model to a provider and publish it (platform admins) */
+        post: operations["adminCreateModel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every model of every provider (platform admins and auditors) */
+        get: operations["adminListModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/models/{modelId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                modelId: components["parameters"]["ModelIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a model (platform admins); refused while templates or agents use it */
+        delete: operations["adminDeleteModel"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a model, who it is published to, or turn it off (platform admins)
+         * @description A disabled model takes no new use; agents running on it do not start again until moved to another model.
+         */
+        patch: operations["adminUpdateModel"];
+        trace?: never;
+    };
+    "/v1/teams/{team}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        /** The models the team may use (its members and service accounts, platform staff) */
+        get: operations["listTeamModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents": {
         parameters: {
             query?: never;
@@ -988,6 +1146,193 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ProviderType: {
+            /** @enum {string} */
+            id: "openai" | "anthropic" | "openai-compatible" | "openai-responses" | "anthropic-compatible";
+            name: string;
+            /** @description The API agents speak to it (openai-responses, anthropic-messages, openai-completions) */
+            api: string;
+            defaultBaseUrl?: string | null;
+            /** @enum {string} */
+            authHeader: "authorization" | "x-api-key";
+        };
+        ModelProvider: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @enum {string} */
+            kind: "openai" | "anthropic" | "openai-compatible" | "openai-responses" | "anthropic-compatible";
+            baseUrl: string;
+            /**
+             * @description proxy: agents call the platform, which adds the key and counts usage; direct: agents get the URL and key
+             * @enum {string}
+             */
+            accessMode: "proxy" | "direct";
+            enabled: boolean;
+            /** @description Whether extra headers are set (their values are never returned) */
+            hasHeaders: boolean;
+            /** Format: int64 */
+            modelCount: number;
+            /** Format: int64 */
+            revision: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ModelProviderCreate: {
+            name: string;
+            /** @enum {string} */
+            kind: "openai" | "anthropic" | "openai-compatible" | "openai-responses" | "anthropic-compatible";
+            /** @description Default for openai and anthropic; required otherwise (for example https://litellm.example.com/v1) */
+            baseUrl?: string;
+            apiKey: string;
+            /**
+             * @description Default proxy
+             * @enum {string}
+             */
+            accessMode?: "proxy" | "direct";
+            /** @description Extra headers sent with every request (at most 20) */
+            headers?: {
+                [key: string]: string;
+            };
+            enabled?: boolean;
+        };
+        ModelProviderUpdate: {
+            name?: string;
+            baseUrl?: string;
+            /** @description Replaces the key */
+            apiKey?: string;
+            /** @enum {string} */
+            accessMode?: "proxy" | "direct";
+            /** @description Replaces every extra header ({} removes them) */
+            headers?: {
+                [key: string]: string;
+            };
+            enabled?: boolean;
+        };
+        DiscoveredModel: {
+            /** @description The provider's model ID */
+            id: string;
+            name: string;
+            /** Format: int32 */
+            contextWindow?: number | null;
+            /** @description Whether the catalog already has it */
+            added: boolean;
+        };
+        ModelTeam: {
+            /** Format: uuid */
+            id: string;
+            slug: string;
+            name: string;
+        };
+        Model: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            providerId: string;
+            providerName: string;
+            providerKind: string;
+            providerEnabled?: boolean | null;
+            /** @enum {string|null} */
+            accessMode?: "proxy" | "direct" | null;
+            /** @description The provider's ID for the model */
+            upstreamId: string;
+            name: string;
+            /** Format: int32 */
+            contextWindow: number;
+            /** Format: int32 */
+            maxTokens: number;
+            /** @description Accepts images */
+            images: boolean;
+            reasoning: boolean;
+            /**
+             * Format: double
+             * @description USD per million input tokens
+             */
+            inputPrice?: number | null;
+            /**
+             * Format: double
+             * @description USD per million output tokens
+             */
+            outputPrice?: number | null;
+            enabled: boolean;
+            /**
+             * @description all: every team may use it; teams: the listed teams
+             * @enum {string}
+             */
+            visibility: "all" | "teams";
+            teams?: components["schemas"]["ModelTeam"][] | null;
+            /** Format: int64 */
+            revision: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ModelCreate: {
+            upstreamId: string;
+            /** @description Defaults to upstreamId */
+            name?: string;
+            /**
+             * Format: int32
+             * @description Default 128000
+             */
+            contextWindow?: number;
+            /**
+             * Format: int32
+             * @description Default 16000
+             */
+            maxTokens?: number;
+            images?: boolean;
+            reasoning?: boolean;
+            /** Format: double */
+            inputPrice?: number;
+            /** Format: double */
+            outputPrice?: number;
+            enabled?: boolean;
+            /** @enum {string} */
+            visibility?: "all" | "teams";
+            /** @description Team slugs or IDs (visibility teams) */
+            teams?: string[];
+        };
+        ModelUpdate: {
+            name?: string;
+            /** Format: int32 */
+            contextWindow?: number;
+            /** Format: int32 */
+            maxTokens?: number;
+            images?: boolean;
+            reasoning?: boolean;
+            /**
+             * Format: double
+             * @description A negative value clears it
+             */
+            inputPrice?: number;
+            /**
+             * Format: double
+             * @description A negative value clears it
+             */
+            outputPrice?: number;
+            enabled?: boolean;
+            /** @enum {string} */
+            visibility?: "all" | "teams";
+            /** @description Replaces the teams (visibility teams) */
+            teams?: string[];
+        };
+        AgentModel: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            providerName: string;
+            /**
+             * @description agent: chosen for this agent; template: its template version's
+             * @enum {string}
+             */
+            source: "agent" | "template";
+            /** @description False when the model was disabled or unpublished; the agent does not start until moved to another */
+            available: boolean;
+        };
         AgentTemplate: {
             /** Format: uuid */
             id: string;
@@ -1031,6 +1376,11 @@ export interface components {
             /** @description The agent's system prompt (version 1) */
             instructions: string;
             notes?: string;
+            /**
+             * Format: uuid
+             * @description The model version 1 runs on (default the platform's default model)
+             */
+            modelId?: string;
         };
         AgentTemplateUpdate: {
             name?: string;
@@ -1043,6 +1393,13 @@ export interface components {
             instructions: string;
             notes: string;
             createdByName?: string | null;
+            /**
+             * Format: uuid
+             * @description Its model (absent - the platform's default)
+             */
+            modelId?: string | null;
+            modelName?: string | null;
+            modelProviderName?: string | null;
             /** Format: date-time */
             createdAt: string;
         };
@@ -1050,6 +1407,8 @@ export interface components {
             instructions: string;
             /** @description What changed */
             notes?: string;
+            /** @description The model it runs on (a model's ID; "" for the platform's default; omitted keeps the current version's) */
+            modelId?: string;
         };
         AgentTemplateReview: {
             /** @enum {string} */
@@ -1085,6 +1444,8 @@ export interface components {
             enabled: boolean;
             /** @description Whether its runtime is up now (it hibernates when idle and wakes on the next request) */
             running: boolean;
+            /** @description The model it runs on (absent - the platform's default model) */
+            model?: components["schemas"]["AgentModel"] | null;
             /** Format: date-time */
             lastUsedAt?: string | null;
             /** Format: int64 */
@@ -1104,6 +1465,11 @@ export interface components {
              * @description The template (from the catalog, or the team's own)
              */
             templateId?: string;
+            /**
+             * Format: uuid
+             * @description A model published to the team (default the template's)
+             */
+            modelId?: string;
         };
         AgentEnsure: {
             /** @description Defaults to the external key */
@@ -1113,6 +1479,11 @@ export interface components {
             template?: string;
             /** Format: uuid */
             templateId?: string;
+            /**
+             * Format: uuid
+             * @description For a new agent, a model published to the team (default the template's)
+             */
+            modelId?: string;
         };
         AgentUpdate: {
             name?: string;
@@ -1123,6 +1494,8 @@ export interface components {
              * @description Move to another version of the template (upgrade or roll back); applies when the agent next starts
              */
             templateVersion?: number;
+            /** @description A model published to the team, or "" for its template's; applies when the agent next starts */
+            modelId?: string;
         };
         AgentThread: {
             threadId: string;
@@ -1628,6 +2001,8 @@ export interface components {
         };
     };
     parameters: {
+        ProviderIdParam: string;
+        ModelIdParam: string;
         TemplateIdParam: string;
         AgentIdParam: string;
         /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
@@ -3095,6 +3470,387 @@ export interface operations {
             };
             401: components["responses"]["ErrorReply"];
             403: components["responses"]["ErrorReply"];
+        };
+    };
+    adminListModelProviderKinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider types */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProviderType"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+        };
+    };
+    adminListModelProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Providers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ModelProvider"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+        };
+    };
+    adminCreateModelProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelProviderCreate"];
+            };
+        };
+        responses: {
+            /** @description Created provider */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ModelProvider"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    adminGetModelProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ModelProvider"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    adminDeleteModelProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Ok"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    adminUpdateModelProvider: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+                "If-Match": components["parameters"]["IfMatchHeader"];
+            };
+            path: {
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelProviderUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated provider */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ModelProvider"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            412: components["responses"]["ErrorReply"];
+            428: components["responses"]["ErrorReply"];
+        };
+    };
+    adminDiscoverModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Models the provider offers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DiscoveredModel"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    adminListProviderModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Models */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Model"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    adminCreateModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                providerId: components["parameters"]["ProviderIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelCreate"];
+            };
+        };
+        responses: {
+            /** @description Created model */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Model"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    adminListModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Models */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Model"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+        };
+    };
+    adminDeleteModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                modelId: components["parameters"]["ModelIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Ok"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    adminUpdateModel: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+                "If-Match": components["parameters"]["IfMatchHeader"];
+            };
+            path: {
+                modelId: components["parameters"]["ModelIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated model */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Model"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            412: components["responses"]["ErrorReply"];
+            428: components["responses"]["ErrorReply"];
+        };
+    };
+    listTeamModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Models published to the team */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Model"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
         };
     };
     listAgents: {

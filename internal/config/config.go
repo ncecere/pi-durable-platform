@@ -108,7 +108,11 @@ type Agents struct {
 	SandboxWarmPool         string
 	SandboxActivationToken  string
 	SandboxActivationSecret string
-	IdleTimeout             time.Duration
+	// GatewayAddr is where the platform listens for agents (the model
+	// proxy); GatewayURL is how agents reach it.
+	GatewayAddr string
+	GatewayURL  string
+	IdleTimeout time.Duration
 	// Model every agent uses: demo (scripted, no key) or openai-compatible.
 	ModelProvider  string
 	ModelBaseURL   string
@@ -177,6 +181,8 @@ func Defaults() Config {
 			RuntimeDir:    "runtime",
 			IdleTimeout:   10 * time.Minute,
 			ModelProvider: "demo",
+			GatewayAddr:   "127.0.0.1:8099",
+			GatewayURL:    "http://127.0.0.1:8099",
 		},
 	}
 }

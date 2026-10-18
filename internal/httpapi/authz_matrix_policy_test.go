@@ -241,4 +241,34 @@ var matrixPolicies = map[string]policy{
 	}},
 	"stopAgentThread":   {scope: scopeTeam, own: members, build: func(c *mctx) request { return post(c.thread("/stop", false), nil) }},
 	"streamAgentThread": {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.thread("/events?once=true", false)) }},
+
+	// The model catalog: platform admins manage providers and models,
+	// auditors read them; a team's members (and platform staff) see the
+	// models it may use.
+	"adminListModelProviderKinds": {own: platform, build: func(*mctx) request { return get("/v1/admin/model-provider-kinds") }},
+	"adminListModelProviders":     {own: platform, build: func(*mctx) request { return get("/v1/admin/model-providers") }},
+	"adminCreateModelProvider": {own: padmin, build: func(c *mctx) request {
+		return post("/v1/admin/model-providers", map[string]any{"name": fmt.Sprintf("p-%d", c.e.next()), "kind": "openai-compatible",
+			"baseUrl": c.e.upstream + "/v1", "apiKey": "matrix-key"})
+	}},
+	"adminGetModelProvider": {own: platform, build: func(c *mctx) request { return get("/v1/admin/model-providers/" + c.provider(false)) }},
+	"adminUpdateModelProvider": {own: padmin, build: func(c *mctx) request {
+		return patch("/v1/admin/model-providers/"+c.provider(true), map[string]any{"enabled": false}).h(rev1)
+	}},
+	"adminDeleteModelProvider": {own: padmin, build: func(c *mctx) request { return del("/v1/admin/model-providers/" + c.provider(true)) }},
+	"adminDiscoverModels": {own: padmin, build: func(c *mctx) request {
+		return post("/v1/admin/model-providers/"+c.provider(false)+"/discover", nil)
+	}},
+	"adminListProviderModels": {own: platform, build: func(c *mctx) request {
+		return get("/v1/admin/model-providers/" + c.provider(false) + "/models")
+	}},
+	"adminCreateModel": {own: padmin, build: func(c *mctx) request {
+		return post("/v1/admin/model-providers/"+c.provider(false)+"/models", map[string]any{"upstreamId": fmt.Sprintf("m-%d", c.e.next())})
+	}},
+	"adminListModels": {own: platform, build: func(*mctx) request { return get("/v1/admin/models") }},
+	"adminUpdateModel": {own: padmin, build: func(c *mctx) request {
+		return patch("/v1/admin/models/"+c.model(true), map[string]any{"enabled": false}).h(rev1)
+	}},
+	"adminDeleteModel": {own: padmin, build: func(c *mctx) request { return del("/v1/admin/models/" + c.model(true)) }},
+	"listTeamModels":   {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.team("/models")) }},
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Agent struct {
@@ -27,6 +28,7 @@ type Agent struct {
 	LastUsedAt      *time.Time
 	ExternalKey     *string
 	TemplateVersion int32
+	ModelID         uuid.NullUUID
 }
 
 type AgentTemplate struct {
@@ -52,6 +54,7 @@ type AgentTemplateVersion struct {
 	Notes        string
 	CreatedBy    uuid.NullUUID
 	CreatedAt    time.Time
+	ModelID      uuid.NullUUID
 }
 
 type ApiKey struct {
@@ -91,6 +94,57 @@ type LoginState struct {
 	NextPath    string
 	CreatedAt   time.Time
 	ExpiresAt   time.Time
+}
+
+type Model struct {
+	ID            uuid.UUID
+	ProviderID    uuid.UUID
+	UpstreamID    string
+	Name          string
+	ContextWindow int32
+	MaxTokens     int32
+	Images        bool
+	Reasoning     bool
+	InputPrice    pgtype.Float8
+	OutputPrice   pgtype.Float8
+	Enabled       bool
+	Visibility    string
+	Revision      int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type ModelProvider struct {
+	ID         uuid.UUID
+	Name       string
+	Kind       string
+	BaseURL    string
+	APIKeyEnc  []byte
+	HeadersEnc []byte
+	AccessMode string
+	Enabled    bool
+	Revision   int64
+	CreatedBy  uuid.NullUUID
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+type ModelTeam struct {
+	ModelID uuid.UUID
+	TeamID  uuid.UUID
+}
+
+type ModelUsage struct {
+	ID               int64
+	TeamID           uuid.UUID
+	AgentID          uuid.NullUUID
+	ModelID          uuid.NullUUID
+	Source           string
+	InputTokens      int64
+	OutputTokens     int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+	CreatedAt        time.Time
 }
 
 type PlatformBootstrap struct {

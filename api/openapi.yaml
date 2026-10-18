@@ -20,6 +20,10 @@ tags:
   description: Personal API keys for scripts and tools
 - name: service-accounts
   description: Team-owned identities for services, agents, CI and scripts
+- name: models
+  description: >-
+    The model catalog: providers (OpenAI, Anthropic, OpenAI- and Anthropic-compatible servers) that platform admins
+    add, the models they publish to teams, and the model each template version and agent runs on.
 - name: agents
   description: >-
     Durable Pi agents that teams deploy from templates, their conversations (threads) and templates. Every agent
@@ -1464,6 +1468,402 @@ paths:
           $ref: '#/components/responses/ErrorReply'
         '403':
           $ref: '#/components/responses/ErrorReply'
+  /v1/admin/model-provider-kinds:
+    get:
+      tags:
+      - models
+      operationId: adminListModelProviderKinds
+      summary: The types of model provider the platform supports (platform admins and auditors)
+      responses:
+        '200':
+          description: Provider types
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProviderType'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/model-providers:
+    get:
+      tags:
+      - models
+      operationId: adminListModelProviders
+      summary: Every model provider, without its key (platform admins and auditors)
+      responses:
+        '200':
+          description: Providers
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ModelProvider'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - models
+      operationId: adminCreateModelProvider
+      summary: Add a model provider (platform admins)
+      description: >-
+        The API key (and any extra headers) are stored encrypted and never returned. In proxy mode agents call the
+        platform, which adds the key; in direct mode agents get the provider's URL and key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelProviderCreate'
+      responses:
+        '201':
+          description: Created provider
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ModelProvider'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/model-providers/{providerId}:
+    parameters:
+    - $ref: '#/components/parameters/ProviderIdParam'
+    get:
+      tags:
+      - models
+      operationId: adminGetModelProvider
+      summary: A model provider, without its key (platform admins and auditors)
+      responses:
+        '200':
+          description: Provider
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ModelProvider'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    patch:
+      tags:
+      - models
+      operationId: adminUpdateModelProvider
+      summary: Change a provider, replace its key, or turn it off (platform admins)
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelProviderUpdate'
+      responses:
+        '200':
+          description: Updated provider
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ModelProvider'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
+          $ref: '#/components/responses/ErrorReply'
+    delete:
+      tags:
+      - models
+      operationId: adminDeleteModelProvider
+      summary: Remove a provider and its models (platform admins); refused while templates or agents use them
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Ok'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/model-providers/{providerId}/discover:
+    parameters:
+    - $ref: '#/components/parameters/ProviderIdParam'
+    post:
+      tags:
+      - models
+      operationId: adminDiscoverModels
+      summary: Ask the provider which models it offers (platform admins)
+      responses:
+        '200':
+          description: Models the provider offers
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DiscoveredModel'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/model-providers/{providerId}/models:
+    parameters:
+    - $ref: '#/components/parameters/ProviderIdParam'
+    get:
+      tags:
+      - models
+      operationId: adminListProviderModels
+      summary: A provider's models (platform admins and auditors)
+      responses:
+        '200':
+          description: Models
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Model'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - models
+      operationId: adminCreateModel
+      summary: Add a model to a provider and publish it (platform admins)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelCreate'
+      responses:
+        '201':
+          description: Created model
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Model'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/models:
+    get:
+      tags:
+      - models
+      operationId: adminListModels
+      summary: Every model of every provider (platform admins and auditors)
+      responses:
+        '200':
+          description: Models
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Model'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/models/{modelId}:
+    parameters:
+    - $ref: '#/components/parameters/ModelIdParam'
+    patch:
+      tags:
+      - models
+      operationId: adminUpdateModel
+      summary: Change a model, who it is published to, or turn it off (platform admins)
+      description: A disabled model takes no new use; agents running on it do not start again until moved to another model.
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelUpdate'
+      responses:
+        '200':
+          description: Updated model
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Model'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
+          $ref: '#/components/responses/ErrorReply'
+    delete:
+      tags:
+      - models
+      operationId: adminDeleteModel
+      summary: Remove a model (platform admins); refused while templates or agents use it
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Ok'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/models:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    get:
+      tags:
+      - models
+      operationId: listTeamModels
+      summary: The models the team may use (its members and service accounts, platform staff)
+      responses:
+        '200':
+          description: Models published to the team
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Model'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
   /v1/agents:
     get:
       tags:
@@ -1912,6 +2312,20 @@ components:
       schema:
         type: string
   parameters:
+    ProviderIdParam:
+      name: providerId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ModelIdParam:
+      name: modelId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     TemplateIdParam:
       name: templateId
       in: path
@@ -2089,6 +2503,299 @@ components:
               data:
                 $ref: '#/components/schemas/Ok'
   schemas:
+    ProviderType:
+      type: object
+      required: [id, name, api, authHeader]
+      properties:
+        id:
+          type: string
+          enum: [openai, anthropic, openai-compatible, openai-responses, anthropic-compatible]
+        name:
+          type: string
+        api:
+          type: string
+          description: The API agents speak to it (openai-responses, anthropic-messages, openai-completions)
+        defaultBaseUrl:
+          type: string
+          nullable: true
+        authHeader:
+          type: string
+          enum: [authorization, x-api-key]
+    ModelProvider:
+      type: object
+      required: [id, name, kind, baseUrl, accessMode, enabled, hasHeaders, modelCount, revision, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [openai, anthropic, openai-compatible, openai-responses, anthropic-compatible]
+        baseUrl:
+          type: string
+        accessMode:
+          type: string
+          enum: [proxy, direct]
+          description: 'proxy: agents call the platform, which adds the key and counts usage; direct: agents get the URL and key'
+        enabled:
+          type: boolean
+        hasHeaders:
+          type: boolean
+          description: Whether extra headers are set (their values are never returned)
+        modelCount:
+          type: integer
+          format: int64
+        revision:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ModelProviderCreate:
+      type: object
+      required: [name, kind, apiKey]
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        kind:
+          type: string
+          enum: [openai, anthropic, openai-compatible, openai-responses, anthropic-compatible]
+        baseUrl:
+          type: string
+          maxLength: 2048
+          description: 'Default for openai and anthropic; required otherwise (for example https://litellm.example.com/v1)'
+        apiKey:
+          type: string
+          maxLength: 4096
+          writeOnly: true
+        accessMode:
+          type: string
+          enum: [proxy, direct]
+          description: Default proxy
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          writeOnly: true
+          description: Extra headers sent with every request (at most 20)
+        enabled:
+          type: boolean
+    ModelProviderUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        baseUrl:
+          type: string
+          maxLength: 2048
+        apiKey:
+          type: string
+          maxLength: 4096
+          writeOnly: true
+          description: Replaces the key
+        accessMode:
+          type: string
+          enum: [proxy, direct]
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          writeOnly: true
+          description: Replaces every extra header ({} removes them)
+        enabled:
+          type: boolean
+    DiscoveredModel:
+      type: object
+      required: [id, name, added]
+      properties:
+        id:
+          type: string
+          description: The provider's model ID
+        name:
+          type: string
+        contextWindow:
+          type: integer
+          format: int32
+          nullable: true
+        added:
+          type: boolean
+          description: Whether the catalog already has it
+    ModelTeam:
+      type: object
+      required: [id, slug, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+    Model:
+      type: object
+      required: [id, providerId, providerName, providerKind, upstreamId, name, contextWindow, maxTokens, images, reasoning, enabled, visibility, revision, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        providerId:
+          type: string
+          format: uuid
+        providerName:
+          type: string
+        providerKind:
+          type: string
+        providerEnabled:
+          type: boolean
+          nullable: true
+        accessMode:
+          type: string
+          nullable: true
+          enum: [proxy, direct]
+        upstreamId:
+          type: string
+          description: The provider's ID for the model
+        name:
+          type: string
+        contextWindow:
+          type: integer
+          format: int32
+        maxTokens:
+          type: integer
+          format: int32
+        images:
+          type: boolean
+          description: Accepts images
+        reasoning:
+          type: boolean
+        inputPrice:
+          type: number
+          format: double
+          nullable: true
+          description: USD per million input tokens
+        outputPrice:
+          type: number
+          format: double
+          nullable: true
+          description: USD per million output tokens
+        enabled:
+          type: boolean
+        visibility:
+          type: string
+          enum: [all, teams]
+          description: 'all: every team may use it; teams: the listed teams'
+        teams:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/ModelTeam'
+        revision:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ModelCreate:
+      type: object
+      required: [upstreamId]
+      properties:
+        upstreamId:
+          type: string
+          maxLength: 200
+        name:
+          type: string
+          maxLength: 100
+          description: Defaults to upstreamId
+        contextWindow:
+          type: integer
+          format: int32
+          description: Default 128000
+        maxTokens:
+          type: integer
+          format: int32
+          description: Default 16000
+        images:
+          type: boolean
+        reasoning:
+          type: boolean
+        inputPrice:
+          type: number
+          format: double
+        outputPrice:
+          type: number
+          format: double
+        enabled:
+          type: boolean
+        visibility:
+          type: string
+          enum: [all, teams]
+        teams:
+          type: array
+          items:
+            type: string
+          description: Team slugs or IDs (visibility teams)
+    ModelUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        contextWindow:
+          type: integer
+          format: int32
+        maxTokens:
+          type: integer
+          format: int32
+        images:
+          type: boolean
+        reasoning:
+          type: boolean
+        inputPrice:
+          type: number
+          format: double
+          description: A negative value clears it
+        outputPrice:
+          type: number
+          format: double
+          description: A negative value clears it
+        enabled:
+          type: boolean
+        visibility:
+          type: string
+          enum: [all, teams]
+        teams:
+          type: array
+          items:
+            type: string
+          description: Replaces the teams (visibility teams)
+    AgentModel:
+      type: object
+      required: [id, name, providerName, source, available]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        providerName:
+          type: string
+        source:
+          type: string
+          enum: [agent, template]
+          description: 'agent: chosen for this agent; template: its template version''s'
+        available:
+          type: boolean
+          description: False when the model was disabled or unpublished; the agent does not start until moved to another
     AgentTemplate:
       type: object
       required: [id, slug, name, description, status, archived, currentVersion, revision, createdAt, updatedAt]
@@ -2161,6 +2868,10 @@ components:
         notes:
           type: string
           maxLength: 2000
+        modelId:
+          type: string
+          format: uuid
+          description: The model version 1 runs on (default the platform's default model)
     AgentTemplateUpdate:
       type: object
       properties:
@@ -2186,6 +2897,17 @@ components:
         createdByName:
           type: string
           nullable: true
+        modelId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Its model (absent - the platform's default)
+        modelName:
+          type: string
+          nullable: true
+        modelProviderName:
+          type: string
+          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -2200,6 +2922,9 @@ components:
           type: string
           maxLength: 2000
           description: What changed
+        modelId:
+          type: string
+          description: The model it runs on (a model's ID; "" for the platform's default; omitted keeps the current version's)
     AgentTemplateReview:
       type: object
       required: [decision]
@@ -2253,6 +2978,11 @@ components:
         running:
           type: boolean
           description: Whether its runtime is up now (it hibernates when idle and wakes on the next request)
+        model:
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/AgentModel'
+          description: The model it runs on (absent - the platform's default model)
         lastUsedAt:
           type: string
           format: date-time
@@ -2283,6 +3013,10 @@ components:
           type: string
           format: uuid
           description: The template (from the catalog, or the team's own)
+        modelId:
+          type: string
+          format: uuid
+          description: A model published to the team (default the template's)
     AgentEnsure:
       type: object
       properties:
@@ -2299,6 +3033,10 @@ components:
         templateId:
           type: string
           format: uuid
+        modelId:
+          type: string
+          format: uuid
+          description: For a new agent, a model published to the team (default the template's)
     AgentUpdate:
       type: object
       properties:
@@ -2314,6 +3052,9 @@ components:
           type: integer
           format: int32
           description: Move to another version of the template (upgrade or roll back); applies when the agent next starts
+        modelId:
+          type: string
+          description: A model published to the team, or "" for its template's; applies when the agent next starts
     AgentThread:
       type: object
       required: [threadId, title, createdAt, updatedAt]

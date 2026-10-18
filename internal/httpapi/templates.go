@@ -50,7 +50,13 @@ func toAPITemplate(v agents.TemplateView) apitypes.AgentTemplate {
 }
 
 func toAPITemplateVersion(v dbgen.ListTemplateVersionsRow) apitypes.AgentTemplateVersion {
-	return apitypes.AgentTemplateVersion{Version: v.Version, Instructions: v.Instructions, Notes: v.Notes, CreatedByName: v.CreatedByName, CreatedAt: v.CreatedAt}
+	out := apitypes.AgentTemplateVersion{Version: v.Version, Instructions: v.Instructions, Notes: v.Notes, CreatedByName: v.CreatedByName,
+		CreatedAt: v.CreatedAt, ModelName: v.ModelName, ModelProviderName: v.ModelProviderName}
+	if v.ModelID.Valid {
+		id := v.ModelID.UUID
+		out.ModelId = &id
+	}
+	return out
 }
 
 func (a *api) writeTemplate(w http.ResponseWriter, r *http.Request, status int, v agents.TemplateView, err error) {
@@ -82,7 +88,7 @@ func decodeTemplateCreate(w http.ResponseWriter, r *http.Request) (agents.Templa
 	if !httpx.Decode(w, r, &in) {
 		return agents.TemplateInput{}, false
 	}
-	ti := agents.TemplateInput{Slug: in.Slug, Name: in.Name, Instructions: in.Instructions}
+	ti := agents.TemplateInput{Slug: in.Slug, Name: in.Name, Instructions: in.Instructions, ModelID: in.ModelId}
 	setIf(&ti.Description, in.Description)
 	setIf(&ti.Notes, in.Notes)
 	return ti, true
@@ -146,9 +152,9 @@ func (a *api) createTemplateVersion(w http.ResponseWriter, r *http.Request) {
 	if !httpx.Decode(w, r, &in) {
 		return
 	}
-	notes := ""
-	setIf(&notes, in.Notes)
-	v, err := a.Agents.AddVersion(r.Context(), a.actor(r), id, in.Instructions, notes)
+	vi := agents.VersionInput{Instructions: in.Instructions, ModelID: in.ModelId}
+	setIf(&vi.Notes, in.Notes)
+	v, err := a.Agents.AddVersion(r.Context(), a.actor(r), id, vi)
 	a.writeTemplate(w, r, http.StatusCreated, v, err)
 }
 

@@ -65,6 +65,12 @@ func (c Config) validateAgents() []error {
 	default:
 		errs = append(errs, errors.New("AGENTS_LAUNCHER must be local, kubernetes or agent-sandbox"))
 	}
+	if u, err := url.Parse(a.GatewayURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Path != "" && u.Path != "/" {
+		errs = append(errs, errors.New("AGENTS_GATEWAY_URL must be an http(s) origin agents can reach (the platform's model proxy)"))
+	}
+	if a.GatewayAddr == "" {
+		errs = append(errs, errors.New("AGENTS_GATEWAY_ADDR is required (where the platform listens for agents)"))
+	}
 	switch a.ModelProvider {
 	case "demo":
 	case "openai-compatible":

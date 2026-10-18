@@ -56,13 +56,16 @@ WHERE id = $1
 RETURNING *;
 
 -- name: InsertTemplateVersion :one
-INSERT INTO agent_template_versions (template_id, version, instructions, notes, created_by)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO agent_template_versions (template_id, version, instructions, notes, created_by, model_id)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
 -- name: ListTemplateVersions :many
-SELECT v.*, u.display_name AS created_by_name
-FROM agent_template_versions v LEFT JOIN users u ON u.id = v.created_by
+SELECT v.*, u.display_name AS created_by_name, m.name AS model_name, p.name AS model_provider_name
+FROM agent_template_versions v
+LEFT JOIN users u ON u.id = v.created_by
+LEFT JOIN models m ON m.id = v.model_id
+LEFT JOIN model_providers p ON p.id = m.provider_id
 WHERE v.template_id = $1
 ORDER BY v.version DESC;
 

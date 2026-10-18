@@ -22,6 +22,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/buildinfo"
 	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi"
+	"github.com/ncecere/pi-durable-platform/internal/llm"
 	"github.com/ncecere/pi-durable-platform/internal/platform"
 	"github.com/ncecere/pi-durable-platform/internal/ratelimit"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
@@ -103,16 +104,25 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 		BaseContext: func(net.Listener) context.Context { return context.WithoutCancel(ctx) },
 	}
 	srv.RegisterOnShutdown(deps.Agents.Host().CloseStreams)
+	// The gateway agents call (the model proxy), on its own listener so the
+	// agents' network reaches nothing else of the platform.
+	gw := &http.Server{
+		Addr:              cfg.Agents.GatewayAddr,
+		Handler:           deps.Models.Gateway(deps.Agents.AuthenticateProxy, log.With("component", "model-proxy")),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return context.WithoutCancel(ctx) },
+	}
 	loopCtx, stopLoops := context.WithCancel(ctx)
 	defer stopLoops()
 	go cleanupLoop(loopCtx, deps.Auth, log)
 	go rateCounterLoop(loopCtx, deps.RateStore, log)
 	go deps.Agents.Host().ReapLoop(loopCtx, 30*time.Second)
-	if err := serve(ctx, srv, log); err != nil {
+	if err := serve(ctx, log, srv, gw); err != nil {
 		return err
 	}
 	stopLoops()
-	err = shutdown(cfg, log, health, srv)
+	err = shutdown(cfg, log, health, srv, gw)
 	// Local runtimes are child processes: stop them gracefully with the
 	// platform. Kubernetes agents keep running and hibernate on their own.
 	if l, ok := deps.Agents.Host().Launcher().(*launcher.Local); ok {
@@ -182,7 +192,8 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (httpapi.D
 	}
 	authSvc := auth.NewService(cfg, pool, log)
 	authSvc.SetRateStore(rates)
-	agentSvc, err := newAgents(cfg, pool, box, log)
+	models := llm.New(pool, box)
+	agentSvc, err := newAgents(cfg, pool, box, models, log)
 	if err != nil {
 		return httpapi.Deps{}, err
 	}
@@ -196,6 +207,7 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (httpapi.D
 		APIKeys:         keys,
 		ServiceAccounts: sas,
 		Agents:          agentSvc,
+		Models:          models,
 		Secrets:         box,
 		RateStore:       rates,
 	}, nil
@@ -240,20 +252,23 @@ func cleanupLoop(ctx context.Context, a *auth.Service, log *slog.Logger) {
 }
 
 // serve runs srv until ctx is cancelled or the server fails.
-func serve(ctx context.Context, srv *http.Server, log *slog.Logger) error {
-	serveErr := make(chan error, 1)
-	go func() {
-		log.Info("http listening", "addr", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			serveErr <- err
-		}
-		close(serveErr)
-	}()
+func serve(ctx context.Context, log *slog.Logger, servers ...*http.Server) error {
+	serveErr := make(chan error, len(servers))
+	for i, srv := range servers {
+		go func() {
+			if i == 0 {
+				log.Info("http listening", "addr", srv.Addr)
+			} else {
+				log.Info("agent gateway listening", "addr", srv.Addr)
+			}
+			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				serveErr <- fmt.Errorf("http server %s: %w", srv.Addr, err)
+			}
+		}()
+	}
 	select {
 	case err := <-serveErr:
-		if err != nil {
-			return fmt.Errorf("http server: %w", err)
-		}
+		return err
 	case <-ctx.Done():
 	}
 	return nil
@@ -283,7 +298,7 @@ func shutdown(cfg config.Config, log *slog.Logger, health *httpapi.Health, serve
 
 // newAgents builds the agents service: a lazily connected pool on the agents
 // database, the provisioner, the configured launcher and the runtime manager.
-func newAgents(cfg config.Config, pool *pgxpool.Pool, box *secrets.Box, log *slog.Logger) (*agents.Service, error) {
+func newAgents(cfg config.Config, pool *pgxpool.Pool, box *secrets.Box, models *llm.Service, log *slog.Logger) (*agents.Service, error) {
 	pcfg, err := pgxpool.ParseConfig(cfg.Agents.DatabaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("AGENTS_DATABASE_URL: %w", err)
@@ -327,7 +342,7 @@ func newAgents(cfg config.Config, pool *pgxpool.Pool, box *secrets.Box, log *slo
 		l = launcher.NewLocal(dir, log.With("component", "launcher"))
 	}
 	host := agenthost.New(l, cfg.Agents.IdleTimeout, log.With("component", "agenthost"))
-	return agents.New(pool, agentsPool, box, host, cfg.Agents), nil
+	return agents.New(pool, agentsPool, box, host, models, cfg.Agents), nil
 }
 
 // ensureAgentsDatabase creates the agents database through the platform's
@@ -364,7 +379,7 @@ func PruneAgentStorage(ctx context.Context, cfg config.Config, log *slog.Logger,
 	if err != nil {
 		return nil, err
 	}
-	svc, err := newAgents(cfg, pool, box, log)
+	svc, err := newAgents(cfg, pool, box, llm.New(pool, box), log)
 	if err != nil {
 		return nil, err
 	}

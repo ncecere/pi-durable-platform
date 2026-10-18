@@ -90,7 +90,7 @@ func (q *Queries) GetPlatformTemplateBySlug(ctx context.Context, slug string) (A
 }
 
 const getTemplateVersion = `-- name: GetTemplateVersion :one
-SELECT template_id, version, instructions, notes, created_by, created_at FROM agent_template_versions WHERE template_id = $1 AND version = $2
+SELECT template_id, version, instructions, notes, created_by, created_at, model_id FROM agent_template_versions WHERE template_id = $1 AND version = $2
 `
 
 type GetTemplateVersionParams struct {
@@ -108,6 +108,7 @@ func (q *Queries) GetTemplateVersion(ctx context.Context, arg GetTemplateVersion
 		&i.Notes,
 		&i.CreatedBy,
 		&i.CreatedAt,
+		&i.ModelID,
 	)
 	return i, err
 }
@@ -206,9 +207,9 @@ func (q *Queries) InsertTemplate(ctx context.Context, arg InsertTemplateParams) 
 }
 
 const insertTemplateVersion = `-- name: InsertTemplateVersion :one
-INSERT INTO agent_template_versions (template_id, version, instructions, notes, created_by)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING template_id, version, instructions, notes, created_by, created_at
+INSERT INTO agent_template_versions (template_id, version, instructions, notes, created_by, model_id)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING template_id, version, instructions, notes, created_by, created_at, model_id
 `
 
 type InsertTemplateVersionParams struct {
@@ -217,6 +218,7 @@ type InsertTemplateVersionParams struct {
 	Instructions string
 	Notes        string
 	CreatedBy    uuid.NullUUID
+	ModelID      uuid.NullUUID
 }
 
 func (q *Queries) InsertTemplateVersion(ctx context.Context, arg InsertTemplateVersionParams) (AgentTemplateVersion, error) {
@@ -226,6 +228,7 @@ func (q *Queries) InsertTemplateVersion(ctx context.Context, arg InsertTemplateV
 		arg.Instructions,
 		arg.Notes,
 		arg.CreatedBy,
+		arg.ModelID,
 	)
 	var i AgentTemplateVersion
 	err := row.Scan(
@@ -235,6 +238,7 @@ func (q *Queries) InsertTemplateVersion(ctx context.Context, arg InsertTemplateV
 		&i.Notes,
 		&i.CreatedBy,
 		&i.CreatedAt,
+		&i.ModelID,
 	)
 	return i, err
 }
@@ -341,20 +345,26 @@ func (q *Queries) ListTeamTemplates(ctx context.Context, teamID uuid.NullUUID) (
 }
 
 const listTemplateVersions = `-- name: ListTemplateVersions :many
-SELECT v.template_id, v.version, v.instructions, v.notes, v.created_by, v.created_at, u.display_name AS created_by_name
-FROM agent_template_versions v LEFT JOIN users u ON u.id = v.created_by
+SELECT v.template_id, v.version, v.instructions, v.notes, v.created_by, v.created_at, v.model_id, u.display_name AS created_by_name, m.name AS model_name, p.name AS model_provider_name
+FROM agent_template_versions v
+LEFT JOIN users u ON u.id = v.created_by
+LEFT JOIN models m ON m.id = v.model_id
+LEFT JOIN model_providers p ON p.id = m.provider_id
 WHERE v.template_id = $1
 ORDER BY v.version DESC
 `
 
 type ListTemplateVersionsRow struct {
-	TemplateID    uuid.UUID
-	Version       int32
-	Instructions  string
-	Notes         string
-	CreatedBy     uuid.NullUUID
-	CreatedAt     time.Time
-	CreatedByName *string
+	TemplateID        uuid.UUID
+	Version           int32
+	Instructions      string
+	Notes             string
+	CreatedBy         uuid.NullUUID
+	CreatedAt         time.Time
+	ModelID           uuid.NullUUID
+	CreatedByName     *string
+	ModelName         *string
+	ModelProviderName *string
 }
 
 func (q *Queries) ListTemplateVersions(ctx context.Context, templateID uuid.UUID) ([]ListTemplateVersionsRow, error) {
@@ -373,7 +383,10 @@ func (q *Queries) ListTemplateVersions(ctx context.Context, templateID uuid.UUID
 			&i.Notes,
 			&i.CreatedBy,
 			&i.CreatedAt,
+			&i.ModelID,
 			&i.CreatedByName,
+			&i.ModelName,
+			&i.ModelProviderName,
 		); err != nil {
 			return nil, err
 		}

@@ -22,16 +22,21 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
+	"github.com/ncecere/pi-durable-platform/internal/llm"
 	"github.com/ncecere/pi-durable-platform/internal/testutil"
 )
 
 type testApp struct {
-	t      *testing.T
-	URL    string
-	Pool   *pgxpool.Pool
-	Client *http.Client
+	t   *testing.T
+	URL string
+	// GatewayURL serves the model proxy agents call.
+	GatewayURL string
+	Pool       *pgxpool.Pool
+	Client     *http.Client
 	// Agents is the agents service (its runtimes run as local processes).
 	Agents *agents.Service
+	// Models is the model catalog.
+	Models *llm.Service
 }
 
 // Test keys (32 bytes, base64): the encryption key and the API key pepper.
@@ -66,6 +71,10 @@ func newTestAppDeps(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 	var handler http.Handler
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { handler.ServeHTTP(w, r) }))
 	t.Cleanup(srv.Close)
+	// The gateway agents call (the model proxy).
+	var gateway http.Handler
+	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { gateway.ServeHTTP(w, r) }))
+	t.Cleanup(gw.Close)
 
 	cfg := config.Defaults()
 	cfg.AppURL, cfg.DevAuth = srv.URL, true
@@ -80,6 +89,7 @@ func newTestAppDeps(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 		t.Fatal(err)
 	}
 	cfg.Agents.Launcher, cfg.Agents.RuntimeDir, cfg.Agents.ModelProvider = config.LauncherLocal, runtimeDir, "demo"
+	cfg.Agents.GatewayURL = gw.URL
 	if mutate != nil {
 		mutate(&cfg)
 	}
@@ -109,9 +119,10 @@ func newTestAppDeps(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 		hook(&deps)
 	}
 	handler = httpapi.NewAPIHandler(deps)
+	gateway = deps.Models.Gateway(deps.Agents.AuthenticateProxy, log)
 
 	jar, _ := cookiejar.New(nil)
-	return &testApp{t: t, URL: srv.URL, Pool: pool, Client: &http.Client{Jar: jar}, Agents: deps.Agents}
+	return &testApp{t: t, URL: srv.URL, GatewayURL: gw.URL, Pool: pool, Client: &http.Client{Jar: jar}, Agents: deps.Agents, Models: deps.Models}
 }
 
 func (a *testApp) do(method, path string, body any, headers map[string]string) (int, []byte) {

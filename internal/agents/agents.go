@@ -11,7 +11,10 @@ package agents
 
 import (
 	"context"
+	"crypto/subtle"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -28,6 +31,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/authz"
 	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
+	"github.com/ncecere/pi-durable-platform/internal/llm"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
@@ -52,6 +56,8 @@ var (
 	errBadName          = apperr.Invalid("invalid_name", "Name must be 1-100 characters on one line")
 	errBadDesc          = apperr.Invalid("invalid_description", "Description must be at most 2000 characters")
 	errBadKey           = apperr.Invalid("invalid_external_key", "External keys are 1-200 letters, digits or . _ : @ -")
+	errBadModelID       = apperr.Invalid("invalid_model_id", "modelId is a model's ID, or empty for the template's model")
+	errModelUnavailable = apperr.Conflict("agent_model_unavailable", "The agent's model is no longer available to its team: choose another model in its settings")
 	externalKeyRE       = regexp.MustCompile(`^[A-Za-z0-9._:@-]{1,200}$`)
 )
 
@@ -63,14 +69,17 @@ type Service struct {
 	box        *secrets.Box
 	prov       *provision.Provisioner
 	host       *agenthost.Manager
+	llm        *llm.Service
 	cfg        config.Agents
 	agentsURL  string // AGENTS_DATABASE_URL, with RuntimeDatabaseHost applied
 }
 
 // New returns a Service. pool is the platform database; agentsPool the
-// agents database, where each agent gets its schema and role.
-func New(pool, agentsPool *pgxpool.Pool, box *secrets.Box, host *agenthost.Manager, cfg config.Agents) *Service {
-	s := &Service{pool: pool, agentsPool: agentsPool, q: dbgen.New(pool), box: box, prov: provision.New(agentsPool), host: host, cfg: cfg, agentsURL: cfg.DatabaseURL}
+// agents database, where each agent gets its schema and role; models the
+// model catalog.
+func New(pool, agentsPool *pgxpool.Pool, box *secrets.Box, host *agenthost.Manager, models *llm.Service, cfg config.Agents) *Service {
+	s := &Service{pool: pool, agentsPool: agentsPool, q: dbgen.New(pool), box: box, prov: provision.New(agentsPool), host: host,
+		llm: models, cfg: cfg, agentsURL: cfg.DatabaseURL}
 	host.Resolve = s.resolve
 	return s
 }
@@ -98,6 +107,52 @@ type View struct {
 	// available when it is above the agent's TemplateVersion).
 	TemplateCurrentVersion int32
 	Running                bool
+	// Model is the model it runs on (nil: the platform's default model).
+	Model *ModelRef
+}
+
+// ModelRef is the model an agent or template version uses.
+type ModelRef struct {
+	ID           uuid.UUID
+	Name         string
+	ProviderName string
+	// Source: "agent" (chosen for this agent) or "template" (its version's).
+	Source string
+	// Available: enabled, and published to the agent's team.
+	Available bool
+}
+
+// effectiveModel is the model an agent runs on: its own choice, else its
+// template version's (uuid.Nil: the platform's default).
+func effectiveModel(ag dbgen.Agent, tv dbgen.AgentTemplateVersion) (uuid.UUID, string) {
+	if ag.ModelID.Valid {
+		return ag.ModelID.UUID, "agent"
+	}
+	if tv.ModelID.Valid {
+		return tv.ModelID.UUID, "template"
+	}
+	return uuid.Nil, ""
+}
+
+// modelRef describes the agent's model.
+func (s *Service) modelRef(ctx context.Context, q *dbgen.Queries, ag dbgen.Agent) (*ModelRef, error) {
+	tv, err := version(ctx, q, ag.TemplateID, ag.TemplateVersion)
+	if err != nil {
+		return nil, err
+	}
+	id, source := effectiveModel(ag, tv)
+	if id == uuid.Nil {
+		return nil, nil
+	}
+	m, err := q.GetModelSummary(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	err = llm.CheckUsable(ctx, q, id, ag.TeamID)
+	if err != nil && !errors.Is(err, llm.ErrUnavailable) {
+		return nil, err
+	}
+	return &ModelRef{ID: id, Name: m.Name, ProviderName: m.ProviderName, Source: source, Available: err == nil}, nil
 }
 
 // List returns the agents of the actor's teams (for a service account, its
@@ -114,11 +169,12 @@ func (s *Service) List(ctx context.Context, a authz.Actor, includeManaged bool) 
 	out := make([]View, len(rows))
 	for i, r := range rows {
 		out[i] = View{
-			Agent: dbgen.Agent{ID: r.ID, TeamID: r.TeamID, TemplateID: r.TemplateID, Name: r.Name, Description: r.Description,
-				Enabled: r.Enabled, Revision: r.Revision, CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
-				LastUsedAt: r.LastUsedAt, ExternalKey: r.ExternalKey, TemplateVersion: r.TemplateVersion},
+			Agent:    r.Agent,
 			TeamSlug: r.TeamSlug, TeamName: r.TeamName, TemplateSlug: r.TemplateSlug, TemplateName: r.TemplateName,
-			TemplateCurrentVersion: r.TemplateCurrentVersion, Running: s.host.Running(r.ID.String()),
+			TemplateCurrentVersion: r.TemplateCurrentVersion, Running: s.host.Running(r.Agent.ID.String()),
+		}
+		if out[i].Model, err = s.modelRef(ctx, s.q, r.Agent); err != nil {
+			return nil, err
 		}
 	}
 	return out, nil
@@ -151,8 +207,12 @@ func (s *Service) view(ctx context.Context, q *dbgen.Queries, ag dbgen.Agent) (V
 	if err != nil {
 		return View{}, err
 	}
+	model, err := s.modelRef(ctx, q, ag)
+	if err != nil {
+		return View{}, err
+	}
 	return View{Agent: ag, TeamSlug: t.Slug, TeamName: t.Name, TemplateSlug: tpl.Slug, TemplateName: tpl.Name,
-		TemplateCurrentVersion: tpl.CurrentVersion, Running: s.host.Running(ag.ID.String())}, nil
+		TemplateCurrentVersion: tpl.CurrentVersion, Running: s.host.Running(ag.ID.String()), Model: model}, nil
 }
 
 func (s *Service) load(ctx context.Context, q *dbgen.Queries, id uuid.UUID) (dbgen.Agent, error) {
@@ -181,10 +241,12 @@ func (s *Service) Get(ctx context.Context, a authz.Actor, id uuid.UUID) (View, e
 
 // CreateInput is a new team agent: its template by ID, or a platform
 // template by slug (default: the assistant). It gets the template's current
-// version.
+// version, and runs on its model unless ModelID chooses another (one
+// published to the team).
 type CreateInput struct {
 	Name, Description, Template string
 	TemplateID                  *uuid.UUID
+	ModelID                     *uuid.UUID
 }
 
 // CreateTeamAgent makes an agent for a team (editors and above, people or
@@ -266,8 +328,22 @@ func (s *Service) createInTeam(ctx context.Context, a authz.Actor, teamRef strin
 		if desc == "" {
 			desc = tpl.Description
 		}
+		tv, err := version(ctx, q, tpl.ID, tpl.CurrentVersion)
+		if err != nil {
+			return err
+		}
+		modelID := uuid.NullUUID{}
+		if in.ModelID != nil {
+			modelID = uuid.NullUUID{UUID: *in.ModelID, Valid: true}
+		}
+		if id, _ := effectiveModel(dbgen.Agent{ModelID: modelID}, tv); id != uuid.Nil {
+			if err := llm.CheckUsable(ctx, q, id, t.ID); err != nil {
+				return err
+			}
+		}
 		ag, err := s.insert(ctx, q, a, dbgen.InsertAgentParams{
 			TeamID: t.ID, TemplateID: tpl.ID, TemplateVersion: tpl.CurrentVersion, Name: in.Name, Description: desc, ExternalKey: key,
+			ModelID: modelID,
 		})
 		if err != nil {
 			return err
@@ -350,6 +426,9 @@ func (s *Service) insert(ctx context.Context, q *dbgen.Queries, a authz.Actor, p
 
 func snapshot(ag dbgen.Agent) map[string]any {
 	m := map[string]any{"name": ag.Name, "description": ag.Description, "enabled": ag.Enabled, "templateVersion": ag.TemplateVersion}
+	if ag.ModelID.Valid {
+		m["modelId"] = ag.ModelID.UUID.String()
+	}
 	if ag.ExternalKey != nil {
 		m["externalKey"] = *ag.ExternalKey
 	}
@@ -363,6 +442,9 @@ type UpdateInput struct {
 	Name, Description *string
 	Enabled           *bool
 	TemplateVersion   *int32
+	// ModelID chooses the agent's model ("" goes back to the template's).
+	// Like a version change, it applies when the agent next starts.
+	ModelID *string
 }
 
 // Update changes an agent's name, description or whether it is on. Turning it
@@ -386,12 +468,34 @@ func (s *Service) Update(ctx context.Context, a authz.Actor, id uuid.UUID, in Up
 		if ag.Revision != expectedRevision {
 			return apperr.Stale()
 		}
-		p := dbgen.UpdateAgentParams{ID: id, Name: ag.Name, Description: ag.Description, Enabled: ag.Enabled, TemplateVersion: ag.TemplateVersion}
+		p := dbgen.UpdateAgentParams{ID: id, Name: ag.Name, Description: ag.Description, Enabled: ag.Enabled,
+			TemplateVersion: ag.TemplateVersion, ModelID: ag.ModelID}
 		if in.TemplateVersion != nil && *in.TemplateVersion != ag.TemplateVersion {
 			if _, err := version(ctx, q, ag.TemplateID, *in.TemplateVersion); err != nil {
 				return err
 			}
 			p.TemplateVersion = *in.TemplateVersion
+		}
+		if in.ModelID != nil {
+			p.ModelID = uuid.NullUUID{}
+			if *in.ModelID != "" {
+				mid, err := uuid.Parse(*in.ModelID)
+				if err != nil {
+					return errBadModelID
+				}
+				p.ModelID = uuid.NullUUID{UUID: mid, Valid: true}
+			}
+		}
+		if p.TemplateVersion != ag.TemplateVersion || p.ModelID != ag.ModelID {
+			tv, err := version(ctx, q, ag.TemplateID, p.TemplateVersion)
+			if err != nil {
+				return err
+			}
+			if mid, _ := effectiveModel(dbgen.Agent{ModelID: p.ModelID}, tv); mid != uuid.Nil {
+				if err := llm.CheckUsable(ctx, q, mid, ag.TeamID); err != nil {
+					return err
+				}
+			}
 		}
 		if in.Name != nil {
 			p.Name = strings.TrimSpace(*in.Name)
@@ -422,8 +526,8 @@ func (s *Service) Update(ctx context.Context, a authz.Actor, id uuid.UUID, in Up
 		out, err = s.view(ctx, q, updated)
 		return err
 	})
-	if err == nil && (!out.Agent.Enabled || (in.TemplateVersion != nil && out.Running)) {
-		// Turned off, or a new version: the runtime restarts with it on the next request.
+	if err == nil && (!out.Agent.Enabled || ((in.TemplateVersion != nil || in.ModelID != nil) && out.Running)) {
+		// Turned off, or a new version or model: the runtime restarts with it on the next request.
 		_ = s.host.Hibernate(ctx, id.String())
 		out.Running = false
 	}
@@ -566,15 +670,80 @@ func (s *Service) spec(ctx context.Context, ag dbgen.Agent) (launcher.Spec, erro
 	if err != nil {
 		return launcher.Spec{}, err
 	}
-	env := map[string]string{"MODEL_PROVIDER": s.cfg.ModelProvider}
-	if s.cfg.ModelProvider == "openai-compatible" {
-		env["MODEL_BASE_URL"], env["MODEL_API_KEY"], env["MODEL_ID"] = s.cfg.ModelBaseURL, s.cfg.ModelAPIKey, s.cfg.ModelID
-		if s.cfg.ModelReasoning {
-			env["MODEL_REASONING"] = "true"
-		}
+	env, err := s.modelEnv(ctx, ag, tv, string(token))
+	if err != nil {
+		return launcher.Spec{}, err
 	}
 	return launcher.Spec{
 		AgentID: ag.ID.String(), Name: ag.Name, Instructions: tv.Instructions,
 		Schema: schema, DatabaseURL: dsn, Token: string(token), Env: env,
 	}, nil
+}
+
+// modelEnv is the runtime's model configuration: the agent's catalog model
+// (through the platform's model proxy, or the provider directly), or the
+// platform's default model (AGENTS_MODEL_*).
+func (s *Service) modelEnv(ctx context.Context, ag dbgen.Agent, tv dbgen.AgentTemplateVersion, token string) (map[string]string, error) {
+	modelID, _ := effectiveModel(ag, tv)
+	if modelID == uuid.Nil {
+		env := map[string]string{"MODEL_PROVIDER": s.cfg.ModelProvider}
+		if s.cfg.ModelProvider == "openai-compatible" {
+			env["MODEL_BASE_URL"], env["MODEL_API_KEY"], env["MODEL_ID"] = s.cfg.ModelBaseURL, s.cfg.ModelAPIKey, s.cfg.ModelID
+			if s.cfg.ModelReasoning {
+				env["MODEL_REASONING"] = "true"
+			}
+		}
+		return env, nil
+	}
+	r, err := s.llm.Resolve(ctx, modelID, ag.TeamID)
+	if errors.Is(err, llm.ErrUnavailable) {
+		return nil, errModelUnavailable
+	} else if err != nil {
+		return nil, err
+	}
+	env := map[string]string{
+		"MODEL_PROVIDER": "catalog", "MODEL_API": r.Kind.API, "MODEL_ID": r.Model.UpstreamID, "MODEL_NAME": r.Model.Name,
+		"MODEL_PROVIDER_NAME":  r.Provider.Name,
+		"MODEL_CONTEXT_WINDOW": fmt.Sprint(r.Model.ContextWindow), "MODEL_MAX_TOKENS": fmt.Sprint(r.Model.MaxTokens),
+		"MODEL_REASONING": fmt.Sprint(r.Model.Reasoning), "MODEL_IMAGES": fmt.Sprint(r.Model.Images),
+	}
+	if r.Provider.AccessMode == llm.ModeDirect {
+		env["MODEL_BASE_URL"], env["MODEL_API_KEY"] = r.Provider.BaseURL, r.APIKey
+		if len(r.Headers) > 0 {
+			b, err := json.Marshal(r.Headers)
+			if err != nil {
+				return nil, err
+			}
+			env["MODEL_HEADERS"] = string(b)
+		}
+	} else {
+		env["MODEL_BASE_URL"] = llm.ProxyBaseURL(s.cfg.GatewayURL, r.Provider.ID)
+		env["MODEL_API_KEY"] = llm.ProxyCredential(ag.ID.String(), token)
+	}
+	return env, nil
+}
+
+// AuthenticateProxy checks an agent's model-proxy credential (its runtime
+// token) and returns its team and model. Turned-off agents are refused.
+func (s *Service) AuthenticateProxy(ctx context.Context, agentID uuid.UUID, token string) (uuid.UUID, uuid.UUID, error) {
+	ag, err := s.load(ctx, s.q, agentID)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+	want, err := s.box.Open(ag.RuntimeTokenEnc, []byte(ag.ID.String()))
+	if err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+	if subtle.ConstantTimeCompare(want, []byte(token)) != 1 {
+		return uuid.Nil, uuid.Nil, apperr.New(401, "unauthorized", "Invalid credential")
+	}
+	if !ag.Enabled {
+		return uuid.Nil, uuid.Nil, errDisabled
+	}
+	tv, err := version(ctx, s.q, ag.TemplateID, ag.TemplateVersion)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+	modelID, _ := effectiveModel(ag, tv)
+	return ag.TeamID, modelID, nil
 }

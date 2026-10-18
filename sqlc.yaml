@@ -16,6 +16,8 @@ sql:
           csrf_token: CSRFToken
           request_id: RequestID
           url: URL
+          base_url: BaseURL
+          api_key_enc: APIKeyEnc
         overrides:
           - db_type: uuid
             go_type: github.com/google/uuid.UUID

@@ -146,6 +146,10 @@ func TestValidate(t *testing.T) {
 			c.AppURL, c.DevAuth, c.Agents.Launcher, c.Agents.SandboxWarmPool = "http://localhost:8098", true, LauncherAgentSandbox, "pool"
 			c.Agents.SandboxActivationToken = strings.Repeat("x", 32)
 		}, "serve", ""},
+		{"gateway URL with a path", func(c *Config) {
+			c.AppURL, c.DevAuth, c.Agents.GatewayURL = "http://localhost:8098", true, "http://platform:8099/model-proxy"
+		}, "serve", "AGENTS_GATEWAY_URL"},
+		{"gateway URL not http", func(c *Config) { c.AppURL, c.DevAuth, c.Agents.GatewayURL = "http://localhost:8098", true, "ftp://x" }, "serve", "AGENTS_GATEWAY_URL"},
 		{"unknown launcher", func(c *Config) { c.AppURL, c.DevAuth, c.Agents.Launcher = "http://localhost:8098", true, "vm" }, "serve", "local, kubernetes or agent-sandbox"},
 	}
 	for _, tc := range cases {

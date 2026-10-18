@@ -44,7 +44,15 @@ func toAPIAgent(v agents.View) apitypes.Agent {
 		TemplateName: v.TemplateName, TemplateVersion: ag.TemplateVersion, TemplateCurrentVersion: v.TemplateCurrentVersion,
 		Enabled: ag.Enabled, Running: v.Running, LastUsedAt: ag.LastUsedAt, Revision: ag.Revision,
 		CreatedAt: ag.CreatedAt, UpdatedAt: ag.UpdatedAt, ExternalKey: ag.ExternalKey,
+		Model: agentModel(v.Model),
 	}
+}
+
+func agentModel(m *agents.ModelRef) *apitypes.AgentModel {
+	if m == nil {
+		return nil
+	}
+	return toAPIAgentModel(&m.ID, m.Name, m.ProviderName, m.Source, m.Available)
 }
 
 func (a *api) writeAgent(w http.ResponseWriter, r *http.Request, status int, v agents.View, err error) {
@@ -65,7 +73,7 @@ func (a *api) createTeamAgent(w http.ResponseWriter, r *http.Request) {
 	if !httpx.Decode(w, r, &in) {
 		return
 	}
-	ci := agents.CreateInput{Name: in.Name, TemplateID: in.TemplateId}
+	ci := agents.CreateInput{Name: in.Name, TemplateID: in.TemplateId, ModelID: in.ModelId}
 	setIf(&ci.Description, in.Description)
 	setIf(&ci.Template, in.Template)
 	v, err := a.Agents.CreateTeamAgent(r.Context(), a.actor(r), r.PathValue("team"), ci)
@@ -86,7 +94,7 @@ func (a *api) ensureTeamAgentByKey(w http.ResponseWriter, r *http.Request) {
 	if r.ContentLength != 0 && !httpx.Decode(w, r, &in) {
 		return
 	}
-	ci := agents.CreateInput{TemplateID: in.TemplateId}
+	ci := agents.CreateInput{TemplateID: in.TemplateId, ModelID: in.ModelId}
 	setIf(&ci.Name, in.Name)
 	setIf(&ci.Description, in.Description)
 	setIf(&ci.Template, in.Template)
@@ -116,7 +124,7 @@ func (a *api) updateAgent(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	v, err := a.Agents.Update(r.Context(), a.actor(r), id, agents.UpdateInput{Name: in.Name, Description: in.Description, Enabled: in.Enabled, TemplateVersion: in.TemplateVersion}, rev)
+	v, err := a.Agents.Update(r.Context(), a.actor(r), id, agents.UpdateInput{Name: in.Name, Description: in.Description, Enabled: in.Enabled, TemplateVersion: in.TemplateVersion, ModelID: in.ModelId}, rev)
 	a.writeAgent(w, r, http.StatusOK, v, err)
 }
 
