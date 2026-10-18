@@ -1,7 +1,8 @@
 # Pi Durable Platform — design
 
-Status: **development spike**. Decisions here were made with the product owner on 2026-10-17; items marked
-*proposed* are defaults to revisit.
+Status: **first release, v0.1.0** (2026-10-18; [release notes](docs/releases/v0.1.0.md)). Development software.
+Decisions here were made with the product owner from 2026-10-17; items marked *proposed* are defaults to revisit and
+are not built.
 
 ## Goal
 
@@ -27,19 +28,20 @@ Later: teams build and upload their own agents (self-service). That requires str
 | 5 | **Single owner per agent** via a session advisory lock on the agent's only connection, never re-established. | A stale pod that loses its connection loses its ability to write at the same moment its lock is released. |
 | 6 | **One runtime per active agent; idle agents hibernate** (no pod, no connection). Requests wake them. | Thousands of per-user agents cannot all hold pods. |
 | 7 | Clients reach agents **only through the platform API**, which authenticates, authorizes and proxies. Runtimes require a per-agent bearer token. | One enforcement point; runtimes are never exposed. |
-| 11 | **Agents belong to teams.** The console is for service owners and platform admins; end users use the teams' apps. | Ownership, data and cost follow the team. |
-| 12 | **Service-managed agents** (created by a service account with its own key) hold the app's users' conversations: only the team's service accounts use them; owners and admins see and delete them, never read them. | End users' chats aren't readable by every team member. A future support-access feature must be explicit and audited. |
-| 13 | **Templates are the governance unit** (built): platform-curated catalog templates and team templates, versioned, agents pinned to a version, team templates published to the catalog with platform-admin approval. Org-wide agents are per-person instances of a template, not one shared agent. | One agent shares one store: shared agents would mix teams' data. |
-| 8 | Agents come from **admin-approved templates** first. Self-service upload is later and gated on sandboxed runtimes (gVisor/Kata). | Template code is trusted; uploaded code is not. |
+| 8 | Agents come from **templates** (instructions, a model and MCP tools; no code) that platform admins or team admins write, running the platform's own runtime. Self-service upload of agent code is later and gated on sandboxed runtimes (gVisor/Kata). | The runtime's code is trusted; uploaded code is not. |
 | 9 | Files and artifacts go to **object storage** with per-agent prefixes; working filesystems are ephemeral unless a template needs one. *(proposed, not built)* | Object storage isolates by prefix; NFS is unsuitable for workspaces. |
-| 10 | Model credentials are injected into runtimes by the platform; browsers never see them. | |
+| 10 | Model credentials are injected into runtimes by the platform (or kept by its model gateway, in proxy mode); browsers never see them. | |
+| 11 | **Agents belong to teams** (a personal workspace is a team of kind `personal`). The console is for service owners and platform admins; end users use the teams' apps. | Ownership, data and cost follow the team. |
+| 12 | **Service-managed agents** (created by a service account with its own key) hold the app's users' conversations: only the team's service accounts use them; owners and admins see and delete them, never read them. | End users' chats aren't readable by every team member. The only other access is a platform admin's reasoned, audited read (Threads). |
+| 13 | **Templates are the governance unit**: platform-curated catalog templates and team templates, versioned, agents pinned to a version, team templates published to the catalog with platform-admin approval. Org-wide agents are per-person instances of a template, not one shared agent. | One agent shares one store: shared agents would mix teams' data. |
 
 ## Architecture
 
 ```text
 Browser / chat app / service ──► Platform (Go)
                                    ├─ auth, teams, roles, service accounts, OAuth Connect, audit
-                                   ├─ templates, agents (owner: a person or a team)
+                                   ├─ templates, agents (each belongs to a team; personal workspaces are teams)
+                                   ├─ model and MCP catalogs; gateway: model proxy, MCP proxy, usage (AGENTS_GATEWAY_ADDR)
                                    ├─ provisioner: per-agent schema + role in the agents database
                                    ├─ launcher: start / stop agent runtimes (local processes | Kubernetes pods | Agent Sandbox)
                                    ├─ reaper: hibernate idle agents
@@ -57,8 +59,8 @@ deploys catalog templates only (for now). Platform admins set defaults for every
 running at once, a monthly cost budget that is recorded but not enforced yet) and may override them for one
 workspace. Models and MCP servers have a `personal` flag: whether personal workspaces may use them (shared teams follow
 their visibility). Platform admins and auditors audit personal workspaces: they see the workspace, its agents, usage
-and audit log, but not conversations (platform admins may open one with a stated reason, which the owner sees: see
-Threads). Sign-in can be limited to IdP groups (`OIDC_ALLOWED_GROUPS`).
+and audit log, but not conversations (platform admins may open one with a stated reason, which the workspace's owner
+sees: see Threads). Sign-in can be limited to IdP groups (`OIDC_ALLOWED_GROUPS`).
 
 ## OAuth Connect
 
@@ -259,8 +261,9 @@ agent, and announces changes on `GET /v1/agents/events`.
   messages `model` ({provider, id}), `usage` (input, output, cache read and write, total tokens) and `stopReason`; tool
   calls `startedAt` (the reply's end) and `endedAt` (when the result arrived). Older entries show what they have.
 - **Platform admins' reasoned reads.** `GET /v1/admin/agents/{id}/threads` lists every thread of any agent, private
-  ones too, with visibility, creator and participants; the titles of private threads, and of every thread of a
-  personal workspace's agent, are withheld (titles are content). `POST .../threads/{thread}/read {reason}` (10-500
+  ones too, with visibility, creator and participants; the titles of private threads, of every thread of a
+  personal workspace's agent and of every thread of a service-managed agent (an app's agent for one of its users)
+  are withheld (titles are content). `POST .../threads/{thread}/read {reason}` (10-500
   characters) returns the conversation once, waking the agent like any read, and records `thread.admin_read` (target
   `agent_thread` `<agentId>/<threadId>`, with the reason, the thread's visibility and whether the workspace is personal)
   in the agent's team's audit log, where its owners see it, before returning it. Platform admins only, with a browser
@@ -299,6 +302,9 @@ sandboxes.
   (`harness.test.ts`); a manual `kill -9` mid-reply resumed and completed the reply.
 
 ## Known limits and open items
+
+The [v0.1.0 release notes](docs/releases/v0.1.0.md#known-limitations) list the product limits (one replica, no budget
+enforcement, text-only messages, no paging, …). The design-level ones:
 
 - Database roles are server-wide: agent roles outlive a dropped agents database (tests remove theirs);
   `prune-agent-storage` only considers schemas in its own database.

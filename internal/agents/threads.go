@@ -422,9 +422,10 @@ func (s *Service) ThreadRemoved(ctx context.Context, id uuid.UUID, threadID stri
 }
 
 // AdminThreads lists every thread of any agent, private ones too, for
-// platform admins. The titles of private threads, and of every thread of a
-// personal workspace's agent, are withheld (TitleHidden): a title is
-// content, which they read only with a reason (AdminRead).
+// platform admins. The titles of private threads, of every thread of a
+// personal workspace's agent, and of every thread of a service-managed agent
+// (an app's agent for one of its users) are withheld (TitleHidden): a title
+// is content, which they read only with a reason (AdminRead).
 func (s *Service) AdminThreads(ctx context.Context, a authz.Actor, agentID uuid.UUID) ([]ThreadView, error) {
 	if !a.IsPlatformAdmin() {
 		return nil, errAdminOnly
@@ -446,7 +447,7 @@ func (s *Service) AdminThreads(ctx context.Context, a authz.Actor, agentID uuid.
 		return nil, err
 	}
 	for i := range out {
-		if team.Kind == teams.KindPersonal || out[i].Visibility == VisibilityPrivate {
+		if team.Kind == teams.KindPersonal || ag.ExternalKey != nil || out[i].Visibility == VisibilityPrivate {
 			out[i].Title, out[i].TitleHidden = "", true
 		}
 	}

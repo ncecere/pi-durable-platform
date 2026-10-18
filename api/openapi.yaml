@@ -5306,8 +5306,9 @@ components:
     AdminAgentThread:
       type: object
       description: >-
-        A thread as platform admins list it. The title of a private thread, and of every thread of a personal
-        workspace's agent, is withheld (null, titleHidden): reading one takes a reason (adminReadAgentThread).
+        A thread as platform admins list it. The title of a private thread, of every thread of a personal
+        workspace's agent and of every thread of a service-managed (by-key) agent is withheld (null, titleHidden):
+        reading one takes a reason (adminReadAgentThread).
       required: [threadId, title, titleHidden, createdAt, updatedAt, busy, visibility, participants]
       properties:
         threadId:

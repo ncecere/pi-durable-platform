@@ -2,6 +2,9 @@
 # and ghcr.io/ncecere/pi-durable-platform-runtime (one agent per container),
 # tagged sha-<first 12 characters of the commit>, and main also as main.
 # linux/amd64 only (the homelab runs amd64). The cluster pins images by digest.
+# Branches only: v* tags are built, checked, signed and published (vX.Y.Z,
+# latest; multi-arch) by image.yml, and a run by hand on a tag does nothing
+# here, so a release never gets a second sha-<12> image.
 name: images
 
 on:
@@ -19,6 +22,7 @@ concurrency:
 jobs:
   build:
     name: Build ${{ matrix.image }}
+    if: github.ref_type == 'branch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

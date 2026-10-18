@@ -71,6 +71,13 @@ func TestAgentsWithKeys(t *testing.T) {
 		t.Fatalf("no reply: %+v", view)
 	}
 
+	// Platform admins don't see the titles of an app's users' conversations.
+	var adminList []apitypes.AdminAgentThread
+	if code := e.admin.get("/v1/admin/agents/"+ag.Id.String()+"/threads", &adminList); code != 200 || len(adminList) != 1 ||
+		adminList[0].Title != nil || !adminList[0].TitleHidden {
+		t.Fatalf("admin lists a service-managed agent's threads %d %+v", code, adminList)
+	}
+
 	// Another service account of the team may use it but not create agents.
 	if code, _ := reader.call("GET", base+"/threads/c1", nil, nil); code != 200 {
 		t.Fatalf("member service account reads: %d", code)

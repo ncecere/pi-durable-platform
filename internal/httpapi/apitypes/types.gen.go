@@ -1017,7 +1017,7 @@ func (e GetTeamUsageParamsGroupBy) Valid() bool {
 	}
 }
 
-// AdminAgentThread A thread as platform admins list it. The title of a private thread, and of every thread of a personal workspace's agent, is withheld (null, titleHidden): reading one takes a reason (adminReadAgentThread).
+// AdminAgentThread A thread as platform admins list it. The title of a private thread, of every thread of a personal workspace's agent and of every thread of a service-managed (by-key) agent is withheld (null, titleHidden): reading one takes a reason (adminReadAgentThread).
 type AdminAgentThread struct {
 	Busy         bool                `json:"busy"`
 	CreatedAt    int64               `json:"createdAt"`

@@ -1,0 +1,450 @@
+# Builds, checks, scans, signs and publishes both release images, and creates
+# the GitHub Release, for v* tags:
+#   ghcr.io/ncecere/pi-durable-platform          the server (Dockerfile)
+#   ghcr.io/ncecere/pi-durable-platform-runtime  the agent runtime (runtime/Dockerfile)
+#
+# Runs only for a tag vX.Y.Z or a pre-release tag vX.Y.Z-rc.N (a hyphen makes
+# it a pre-release). It can also be run by hand (workflow_dispatch) with a
+# tag selected as the ref, to repeat a release; on a branch every job is
+# skipped. images.yml builds the per-commit sha-<12> images for branch pushes
+# only (never for tags), so a release commit's images are published twice
+# under different names: sha-<12> (amd64, from the branch push) and vX.Y.Z
+# (multi-arch, signed, from here).
+#
+# Only a checked image gets a tag. Each image and architecture is built on a
+# native runner and pushed by digest only (untagged). That exact digest is
+# pulled and must report the tag's version, run as its non-root user with a
+# read-only root filesystem and no network, and pass the vulnerability scan.
+# Then the publish job joins each image's checked digests into one multi-arch
+# index (exactly linux/amd64 and linux/arm64), tags it (vX.Y.Z and, for final
+# releases, latest) and signs it (cosign keyless). The SBOM and provenance
+# attestations are built with each image and carried into the index. The
+# release job then creates the GitHub Release (scripts/github-release.sh).
+#
+# Every action is pinned by commit SHA; the comment gives the version.
+#
+# No Docker Hub pulls for the tooling (its anonymous pull limit and outages
+# failed builds on shared runners): BuildKit and the SBOM generator come from
+# mirror.gcr.io, Google's Docker Hub mirror (the digests Open MCP Portal uses).
+# The images' own base images still come from their registries.
+name: image
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.image }}, ${{ matrix.platform }})
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - image: pi-durable-platform
+            context: .
+            dockerfile: Dockerfile
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - image: pi-durable-platform
+            context: .
+            dockerfile: Dockerfile
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - image: pi-durable-platform-runtime
+            context: runtime
+            dockerfile: runtime/Dockerfile
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - image: pi-durable-platform-runtime
+            context: runtime
+            dockerfile: runtime/Dockerfile
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/ncecere/${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Fail before anything is pushed. The server's version comes from the
+      # VERSION build argument (the tag without its "v"; -ldflags -X on
+      # internal/buildinfo.Version); the runtime carries it as the image's
+      # org.opencontainers.image.version label. The defaults in the source
+      # (internal/buildinfo and runtime/package.json) must still match the
+      # tag's base version (v0.1.0-rc.1 -> 0.1.0), so a plain build of the tag
+      # says the same.
+      - name: Check the tag
+        id: ver
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::'${TAG}' is not a vX.Y.Z or vX.Y.Z-pre tag"
+            exit 1
+          fi
+          base="${TAG%%-*}"
+          want=$(sed -n 's/^[[:space:]]*Version = "\([^"]*\)"$/\1/p' internal/buildinfo/buildinfo.go | head -n1)
+          if [ "${base}" != "v${want}" ]; then
+            echo "::error::tag ${TAG} does not match internal/buildinfo's version ${want}"
+            exit 1
+          fi
+          runtime=$(jq -r .version runtime/package.json)
+          if [ "${base}" != "v${runtime}" ]; then
+            echo "::error::tag ${TAG} does not match runtime/package.json's version ${runtime}"
+            exit 1
+          fi
+          if [ ! -f "docs/releases/${base}.md" ]; then
+            echo "::error::no release notes: docs/releases/${base}.md"
+            exit 1
+          fi
+          {
+            echo "version=${TAG#v}"
+            echo "commit=${GITHUB_SHA::12}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Platform name
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: echo "PLATFORM_PAIR=${PLATFORM//\//-}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          # BuildKit from mirror.gcr.io instead of Docker Hub.
+          driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The version and revision labels are set here (they override
+      # metadata-action's defaults, "v0.1.0" and the full SHA, and the
+      # Dockerfiles' own) so the checks below compare against one value.
+      - name: Labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ steps.ver.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      # Untagged: nothing points at this digest until it has been checked.
+      - name: Build and push by digest (${{ matrix.platform }})
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            COMMIT=${{ steps.ver.outputs.commit }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,"name=${{ env.IMAGE }}",push-by-digest=true,name-canonical=true,push=true
+          # SBOM generator from mirror.gcr.io (`sbom: true` pulls it from Docker Hub).
+          attests: type=sbom,generator=mirror.gcr.io/docker/buildkit-syft-scanner:stable-1@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
+          provenance: mode=max
+          cache-from: type=gha,scope=release-${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
+
+      - name: Pull the pushed digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: docker pull "${IMAGE}@${DIGEST}"
+
+      # Both images: the labels name the tag's version and commit.
+      - name: Check the labels
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          version=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "${IMAGE}@${DIGEST}")
+          revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "${IMAGE}@${DIGEST}")
+          if [ "${version}" != "${VERSION}" ] || [ "${revision}" != "${GITHUB_SHA}" ]; then
+            echo "::error::the image is labelled version '${version}' revision '${revision}', not '${VERSION}' '${GITHUB_SHA}'"
+            exit 1
+          fi
+
+      # `pi-durable-platform version` prints "pi-durable-platform <version>
+      # (<commit>)". The image's entrypoint is the binary itself (distroless,
+      # exec form; no shell). The tag, the version and the commit must agree.
+      - name: Check the built version (server)
+        if: matrix.image == 'pi-durable-platform'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          COMMIT: ${{ steps.ver.outputs.commit }}
+        run: |
+          got=$(docker run --rm "${IMAGE}@${DIGEST}" version)
+          echo "image reports: ${got}"
+          if [ "${got}" != "pi-durable-platform ${VERSION} (${COMMIT})" ]; then
+            echo "::error::the image reports '${got}', not 'pi-durable-platform ${VERSION} (${COMMIT})'"
+            exit 1
+          fi
+
+      # Runtime contract of the server (Dockerfile): UID/GID 65532, works with
+      # a read-only root filesystem and no network.
+      - name: Check the runtime contract (server)
+        if: matrix.image == 'pi-durable-platform'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          user=$(docker image inspect --format '{{.Config.User}}' "${IMAGE}@${DIGEST}")
+          if [ "${user}" != "65532:65532" ]; then
+            echo "::error::the image runs as '${user}', not 65532:65532"
+            exit 1
+          fi
+          docker run --rm --read-only --network none "${IMAGE}@${DIGEST}" version
+
+      # Runtime contract of the agent runtime (runtime/Dockerfile): UID/GID
+      # 10001, the release's version in its package.json (the runtime prints
+      # no version of its own; the label is checked above), a read-only root
+      # filesystem with /tmp writable (an emptyDir on Kubernetes). Started in
+      # standby (as an Agent Sandbox warm pool runs it), it loads every module
+      # and listens without a database or network.
+      - name: Check the runtime contract (agent runtime)
+        if: matrix.image == 'pi-durable-platform-runtime'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          user=$(docker image inspect --format '{{.Config.User}}' "${IMAGE}@${DIGEST}")
+          if [ "${user}" != "10001:10001" ]; then
+            echo "::error::the image runs as '${user}', not 10001:10001"
+            exit 1
+          fi
+          got=$(docker run --rm --read-only --network none --entrypoint node "${IMAGE}@${DIGEST}" \
+            -p 'require("/app/package.json").version')
+          if [ "${got}" != "${VERSION%%-*}" ]; then
+            echo "::error::the runtime's package.json says '${got}', not '${VERSION%%-*}'"
+            exit 1
+          fi
+          cid=$(docker run -d --read-only --tmpfs /tmp --network none \
+            -e RUNTIME_ACTIVATION_TOKEN=release-check "${IMAGE}@${DIGEST}")
+          trap 'docker rm -f "${cid}" >/dev/null' EXIT
+          for _ in $(seq 1 60); do
+            if docker logs "${cid}" 2>&1 | grep -q 'listening on'; then break; fi
+            sleep 1
+          done
+          docker logs "${cid}"
+          if [ "$(docker inspect --format '{{.State.Running}}' "${cid}")" != "true" ] ||
+            ! docker logs "${cid}" 2>&1 | grep -q 'listening on'; then
+            echo "::error::the runtime did not start in standby"
+            exit 1
+          fi
+
+      # Fixable HIGH and CRITICAL findings fail the build (Open MCP Portal's
+      # and Grounded's policy).
+      - name: Scan image (${{ matrix.platform }})
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PLATFORM: ${{ matrix.platform }}
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Record the checked digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/digests"
+          touch "${RUNNER_TEMP}/digests/${DIGEST#sha256:}"
+
+      # Named digests-<image>-linux-<arch>: the publish job's pattern
+      # digests-<image>-linux-* never matches the other image's.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digests-${{ matrix.image }}-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: publish (${{ matrix.image }})
+    needs: [build]
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [pi-durable-platform, pi-durable-platform-runtime]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # cosign keyless signing (Sigstore OIDC)
+    env:
+      IMAGE: ghcr.io/ncecere/${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ matrix.image }}-linux-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          # BuildKit from mirror.gcr.io instead of Docker Hub.
+          driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tags and annotations
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: index
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: |
+            latest=false
+          # Tags keep the git tag's "v" (v0.1.0, v0.1.0-rc.1); metadata-action's
+          # semver patterns would drop it. `latest` only for final releases
+          # (no hyphen in the tag).
+          tags: |
+            type=raw,value=${{ github.ref_name }},priority=1000
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.licenses=MIT
+
+      - name: Tag the checked digests as one multi-arch image
+        id: index
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          ANNOTATIONS: ${{ steps.meta.outputs.annotations }}
+        run: |
+          args=()
+          while IFS= read -r tag; do [ -n "${tag}" ] && args+=(--tag "${tag}"); done <<<"${TAGS}"
+          while IFS= read -r note; do [ -n "${note}" ] && args+=(--annotation "${note}"); done <<<"${ANNOTATIONS}"
+          sources=()
+          for digest in *; do sources+=("${IMAGE}@sha256:${digest}"); done
+          if [ "${#sources[@]}" -ne 2 ]; then
+            echo "::error::expected 2 checked digests (amd64, arm64), found ${#sources[@]}"
+            exit 1
+          fi
+          docker buildx imagetools create "${args[@]}" "${sources[@]}"
+          first=$(head -n1 <<<"${TAGS}")
+          digest=$(docker buildx imagetools inspect "${first}" --format '{{json .Manifest}}' | jq -r .digest)
+          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no index digest for ${first}"; exit 1; }
+          platforms=$(docker buildx imagetools inspect --raw "${IMAGE}@${digest}" \
+            | jq -r '[.manifests[] | select(.platform != null and .platform.os != "unknown") | .platform.os + "/" + .platform.architecture] | sort | join(",")')
+          if [ "${platforms}" != "linux/amd64,linux/arm64" ]; then
+            echo "::error::index ${digest} has platforms '${platforms}'"
+            exit 1
+          fi
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      # Signing the index digest covers every tag. Only checked, scanned
+      # digests reach this job.
+      - name: Sign (cosign keyless)
+        env:
+          DIGEST: ${{ steps.index.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      # A matrix job's outputs would overwrite each other: the release job
+      # reads each image's index digest from an artifact instead.
+      - name: Record the index digest
+        env:
+          DIGEST: ${{ steps.index.outputs.digest }}
+          NAME: ${{ matrix.image }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/index"
+          echo "${DIGEST}" > "${RUNNER_TEMP}/index/${NAME}.digest"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: index-${{ matrix.image }}
+          path: ${{ runner.temp }}/index/${{ matrix.image }}.digest
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Job summary
+        if: always() && steps.index.outputs.digest != ''
+        env:
+          DIGEST: ${{ steps.index.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          {
+            echo "## ${IMAGE}"
+            echo
+            echo "Deploy by digest:"
+            echo
+            echo '```'
+            echo "${IMAGE}@${DIGEST}"
+            echo '```'
+            echo
+            echo "Tags:"
+            echo
+            while IFS= read -r tag; do echo "- ${tag}"; done <<<"${TAGS}"
+            echo
+            echo "Verify the signature:"
+            echo
+            echo '```'
+            echo "cosign verify ${IMAGE}@${DIGEST} \\"
+            echo "  --certificate-identity https://github.com/${GITHUB_REPOSITORY}/.github/workflows/image.yml@${GITHUB_REF} \\"
+            echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # GitHub Release, after both images are checked, scanned, tagged and signed:
+  # notes from docs/releases/vX.Y.Z.md (the base version for pre-release tags)
+  # plus both digests and verification commands, and as assets each image's
+  # SPDX SBOM per platform, its digest and checksums.txt. Tags with a hyphen
+  # (v0.2.0-rc.1) become pre-releases.
+  release:
+    needs: [publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      packages: read # the images' SBOM attestations
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ${{ runner.temp }}/index
+          pattern: index-*
+          merge-multiple: true
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          DIGEST=$(cat "${RUNNER_TEMP}/index/pi-durable-platform.digest")
+          RUNTIME_DIGEST=$(cat "${RUNNER_TEMP}/index/pi-durable-platform-runtime.digest")
+          export DIGEST RUNTIME_DIGEST
+          bash scripts/github-release.sh

@@ -1,6 +1,7 @@
 GO      ?= go
 SQLC    ?= $(shell command -v sqlc 2>/dev/null || echo $(HOME)/go/bin/sqlc)
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+# The version without the tag's "v" (v0.1.0 -> 0.1.0), as the release images report it.
+VERSION ?= $(patsubst v%,%,$(shell git describe --tags --always --dirty 2>/dev/null || echo dev))
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 PKG     := github.com/ncecere/pi-durable-platform
 LDFLAGS := -s -w -X $(PKG)/internal/buildinfo.Version=$(VERSION) -X $(PKG)/internal/buildinfo.Commit=$(COMMIT)
@@ -13,7 +14,7 @@ export PDP_TEST_DATABASE_URL ?= postgres://pdp:pdp-local-only@127.0.0.1:55432/po
 # Go sources checked by gofmt (runtime/ is the TypeScript agent runtime).
 GOFMT_PATHS := cmd internal migrations web/embed.go
 
-.PHONY: help deps-up deps-down generate check-generated build run migrate doctor test test-integration test-ci lint fmt web web-test web-dev
+.PHONY: help deps-up deps-down generate check-generated build run migrate doctor test test-integration test-ci lint actionlint fmt web web-test web-dev docker docker-runtime
 
 help: ## Show targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -62,6 +63,11 @@ lint: ## go vet and gofmt check
 	$(GO) vet ./...
 	@test -z "$$(gofmt -l $(GOFMT_PATHS))" || (gofmt -l $(GOFMT_PATHS) && echo "run 'make fmt'" && exit 1)
 
+ACTIONLINT_VERSION ?= v1.7.12
+
+actionlint: ## Check the GitHub Actions workflows
+	$(GO) run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
+
 fmt: ## Format Go code
 	gofmt -w $(GOFMT_PATHS)
 
@@ -70,6 +76,12 @@ web: ## Build the web UI into web/dist (embedded by `make build`)
 
 web-test: ## Type-check and test the web UI
 	cd web && npm run typecheck && npm test
+
+docker: ## Build the platform image pi-durable-platform:<version> (local)
+	docker build --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) -t pi-durable-platform:$(VERSION) .
+
+docker-runtime: ## Build the agent runtime image pi-durable-platform-runtime:<version> (local)
+	docker build --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) -f runtime/Dockerfile -t pi-durable-platform-runtime:$(VERSION) runtime
 
 web-dev: ## Run the Vite dev server on :5176 (proxies the API to `make run` on :8098)
 	cd web && npm run dev
