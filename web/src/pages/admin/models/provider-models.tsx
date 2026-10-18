@@ -13,8 +13,9 @@ import { Card } from "@/components/ui/card/card";
 import { CellText, type DataTableColumn } from "@/components/ui/data-table/data-table";
 import { Inline } from "@/components/ui/layout/layout";
 import { toast } from "@/components/ui/toast/toast";
+import { tokens } from "@/lib/format";
 import s from "../../shared.module.css";
-import { price, publishedTo, tokens } from "./labels";
+import { price, publishedTo } from "./labels";
 import m from "./models.module.css";
 
 const columns: DataTableColumn<Model>[] = [

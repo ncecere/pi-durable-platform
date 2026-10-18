@@ -32,14 +32,6 @@ export const accessOptions: { value: AccessMode; label: string; description: str
 export const whatIsAProvider =
   "A provider is an API the platform's agents reach models through: OpenAI, Anthropic, or a compatible server such as LiteLLM, vLLM or Ollama. Its key is stored encrypted and never shown again.";
 
-/** "128K", "131K", "1M", "1.5M", "8,192": compact from 10,000 up, exact below. */
-export function tokens(n: number | null | undefined): string {
-  if (n == null) return "—";
-  if (n >= 1_000_000) return `${Number((n / 1_000_000).toFixed(1))}M`;
-  if (n >= 10_000) return `${Math.round(n / 1_000)}K`;
-  return n.toLocaleString();
-}
-
 /** "$3.00" per million tokens, or "—". */
 export const price = (p: number | null | undefined) => (p == null ? "—" : `$${p.toFixed(2)}`);
 

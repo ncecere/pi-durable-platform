@@ -43,11 +43,13 @@ const pages = {
   people: () => import("./pages/admin/people/routes"),
   adminAudit: () => import("./pages/admin/audit/page"),
   adminModels: () => import("./pages/admin/models/routes"),
+  adminUsage: () => import("./pages/admin/usage/page"),
   teamLayout: () => import("./pages/team/layout"),
   teamSettings: () => import("./pages/team/settings/page"),
   serviceAccounts: () => import("./pages/team/service-accounts/routes"),
   teamAgents: () => import("./pages/team/agents/routes"),
   templates: () => import("./pages/templates/routes"),
+  teamUsage: () => import("./pages/team/usage/page"),
 };
 const lazy = lazyRouteComponent;
 type Page = ReturnType<typeof lazyRouteComponent>;
@@ -203,6 +205,13 @@ const teamTemplatesRoute = createRoute({
   validateSearch: (s: Record<string, unknown>): Record<string, unknown> => s,
   component: lazy(pages.templates, "TeamTemplatesPage"),
 });
+/** The team's model usage; the period, grouping and agent (?range=, ?groupBy=, ?agentId=) pass through. */
+const teamUsageRoute = createRoute({
+  getParentRoute: () => teamRoute,
+  path: "usage",
+  validateSearch: (s: Record<string, unknown>): Record<string, unknown> => s,
+  component: lazy(pages.teamUsage, "TeamUsagePage"),
+});
 /** An agent: Overview · Test · Settings. */
 const teamAgentRoute = createRoute({
   getParentRoute: () => teamRoute,
@@ -262,6 +271,7 @@ const appTree = appRoute.addChildren([
     teamAgentsRoute,
     teamAgentRoute,
     teamTemplatesRoute,
+    teamUsageRoute,
   ]),
   adminRoute.addChildren([
     adminIndexRoute,
@@ -276,6 +286,7 @@ const appTree = appRoute.addChildren([
     adminList("audit", lazy(pages.adminAudit, "AdminAuditPage")),
     adminList("templates", lazy(pages.templates, "AdminTemplatesPage")),
     adminList("models", lazy(pages.adminModels, "AdminModelsPage")),
+    adminList("usage", lazy(pages.adminUsage, "AdminUsagePage")),
     adminTabs(
       "models/providers/$providerId",
       providerTabs,

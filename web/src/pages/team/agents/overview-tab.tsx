@@ -16,6 +16,7 @@ import { Time } from "@/components/ui/time/time";
 import { toast } from "@/components/ui/toast/toast";
 import s from "../../shared.module.css";
 import { AgentModelValue } from "./agent-model";
+import { AgentUsageCard } from "./agent-usage";
 import {
   type Agent,
   type AgentAbilities,
@@ -88,6 +89,7 @@ export function OverviewTab({ agent, abilities }: Props) {
           ]}
         />
       </Card>
+      <AgentUsageCard agent={agent} />
       <UsageCard agent={agent} />
     </Stack>
   );

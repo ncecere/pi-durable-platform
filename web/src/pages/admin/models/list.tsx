@@ -15,10 +15,11 @@ import { CellText, type DataTableColumn } from "@/components/ui/data-table/data-
 import { Stack } from "@/components/ui/layout/layout";
 import { TextLink } from "@/components/ui/text-link/text-link";
 import { cx } from "@/lib/bitop-utils";
+import { tokens } from "@/lib/format";
 import s from "../../shared.module.css";
 import { useIsPlatformAdmin } from "../hooks";
 import { AddProviderDialog } from "./add-provider-dialog";
-import { accessLabels, kindLabel, publishedTo, tokens, whatIsAProvider } from "./labels";
+import { accessLabels, kindLabel, publishedTo, whatIsAProvider } from "./labels";
 
 const providerLink = (providerId: string, search: Record<string, string> = {}) => (
   <Link to="/admin/models/providers/$providerId" params={{ providerId }} search={search} />

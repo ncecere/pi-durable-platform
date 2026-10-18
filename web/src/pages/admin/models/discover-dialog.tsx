@@ -10,8 +10,8 @@ import { Field } from "@/components/ui/field/field";
 import { Input } from "@/components/ui/input/input";
 import { Loading } from "@/components/ui/spinner/spinner";
 import { toast } from "@/components/ui/toast/toast";
+import { tokens } from "@/lib/format";
 import s from "../../shared.module.css";
-import { tokens } from "./labels";
 import m from "./models.module.css";
 
 const matches = (d: DiscoveredModel, q: string) => !q || `${d.name} ${d.id}`.toLowerCase().includes(q.toLowerCase());

@@ -16,6 +16,7 @@
 import {
   BookOpen,
   Bot,
+  ChartColumn,
   Cpu,
   FileClock,
   Home,
@@ -105,6 +106,7 @@ export type TeamPath =
   | "/teams/$team"
   | "/teams/$team/agents"
   | "/teams/$team/templates"
+  | "/teams/$team/usage"
   | "/teams/$team/service-accounts"
   | "/teams/$team/settings";
 
@@ -160,6 +162,13 @@ const teamNav: TeamNavItem[] = [
     ],
   },
   {
+    to: "/teams/$team/usage",
+    label: "Usage",
+    icon: icon(ChartColumn),
+    access: (a) => a.member || a.staff,
+    keywords: ["usage", "tokens", "cost", "spend", "requests", "billing", "models"],
+  },
+  {
     to: "/teams/$team/service-accounts",
     label: terms.serviceAccounts,
     icon: icon(Bot),
@@ -204,6 +213,7 @@ export type AdminPath =
   | "/admin/teams"
   | "/admin/templates"
   | "/admin/models"
+  | "/admin/usage"
   | "/admin/audit";
 
 export type AdminNavItem = {
@@ -235,6 +245,7 @@ export const adminSections: {
     items: [
       { to: "/admin/templates", label: "Templates", icon: icon(BookOpen) },
       { to: "/admin/models", label: "Models", icon: icon(Cpu) },
+      { to: "/admin/usage", label: "Usage", icon: icon(ChartColumn) },
       { to: "/admin/audit", label: terms.auditLog, icon: icon(FileClock) },
     ],
   },
@@ -282,6 +293,7 @@ export const adminKeywords: Partial<Record<AdminPath, string[]>> = {
     "discover",
     "publish",
   ],
+  "/admin/usage": ["usage", "tokens", "cost", "spend", "requests", "billing", "teams", "models"],
   "/admin/audit": [
     "audit log",
     "history",
