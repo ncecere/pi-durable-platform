@@ -9,7 +9,7 @@ and manage the agents their apps use.
 
 - Website: <https://pdp.bitop.dev>
 - Documentation: <https://docs.pdp.bitop.dev>
-- Latest release: [v0.1.0](docs/releases/v0.1.0.md) ([changelog](CHANGELOG.md)). Development software: it has not run in
+- Latest release: [v0.1.1](docs/releases/v0.1.1.md) ([changelog](CHANGELOG.md)). Development software: it has not run in
   production outside the maintainer's own installation.
 
 Pi Durable Platform is an independent project. It runs agents built with Pi and pi-durable, and is not affiliated with or
@@ -40,7 +40,7 @@ endorsed by Earendil.
 - **Operations and security.** Append-only audit log, `doctor`, forward-only migrations, sealed secrets, peppered key
   digests, an address guard for team-chosen URLs, production safety checks.
 
-[The release notes](docs/releases/v0.1.0.md) list what is in v0.1.0 and its known limitations, and
+[The v0.1.0 release notes](docs/releases/v0.1.0.md) list what is in the first release and its known limitations ([v0.1.1](docs/releases/v0.1.1.md) is a fix release), and
 [DESIGN.md](DESIGN.md) explains how it works.
 
 ## Images

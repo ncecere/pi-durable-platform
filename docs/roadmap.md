@@ -16,7 +16,7 @@ documentation, and the first app's requests (a chat app using OAuth Connect).
 3. **Then what agents can do.** Files, scheduled work and tool approvals change what agents are trusted with.
 4. **Then budgets and limits that hold**, once agents can run unattended.
 
-Already fixed after v0.1.0 (branch `fix/v0.1.1-ui`, to ship as v0.1.1): a set of small UI bugs, `doctor` checking the
+Already fixed after v0.1.0, in [v0.1.1](releases/v0.1.1.md): a set of small UI bugs, `doctor` checking the
 agents database, and a console path for platform staff to a shared team's agents.
 
 ## Overview

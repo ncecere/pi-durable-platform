@@ -8,6 +8,8 @@ the entry says how to adapt. The design is in [DESIGN.md](DESIGN.md), and each r
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-18
+
 ### Added
 
 - **Doctor checks the agents database.** `pi-durable-platform doctor` connects to `AGENTS_DATABASE_URL` and checks
@@ -80,5 +82,6 @@ runtime).
   version, the non-root user and the read-only root filesystem, scans them with Trivy, publishes a multi-arch index,
   signs it, and creates the GitHub Release with SBOMs and checksums.
 
-[Unreleased]: https://github.com/ncecere/pi-durable-platform/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ncecere/pi-durable-platform/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/ncecere/pi-durable-platform/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ncecere/pi-durable-platform/releases/tag/v0.1.0

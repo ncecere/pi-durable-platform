@@ -1,6 +1,6 @@
 # Pi Durable Platform — design
 
-Status: **first release, v0.1.0** (2026-10-18; [release notes](docs/releases/v0.1.0.md)). Development software.
+Status: **released, v0.1.1** (2026-10-18; first release [v0.1.0](docs/releases/v0.1.0.md), fixes in [v0.1.1](docs/releases/v0.1.1.md)). Development software.
 Decisions here were made with the product owner from 2026-10-17; items marked *proposed* are defaults to revisit and
 are not built.
 
