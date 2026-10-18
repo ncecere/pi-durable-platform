@@ -168,6 +168,11 @@ Success responses are `{"data": …}`; errors are `{"error": {"code", "message"}
 
 Forked from the reusable foundation of [Open MCP Portal](https://github.com/ncecere/open-mcp-portal).
 
+## Roadmap
+
+What comes after v0.1.0, phase by phase (deployment and operations, apps at scale, what agents can do, budgets and
+limits), is in [docs/roadmap.md](docs/roadmap.md). Each item is a GitHub issue with the `roadmap` label and a milestone.
+
 ## License
 
 [MIT](LICENSE).
