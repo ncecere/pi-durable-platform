@@ -56,7 +56,6 @@ export function TeamAgentPage() {
 function Record({ agent }: { agent: Agent }) {
   const ctx = useTeam();
   const { capabilities } = useCurrentUser();
-  const staff = capabilities.platformAdmin || capabilities.platformAuditor;
   const qc = useQueryClient();
   const abilities = agentAbilities(ctx, agent);
   const status = agentStatus(agent);
