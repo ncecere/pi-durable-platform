@@ -1,4 +1,7 @@
-/* Admin team › Overview: its members and owners at a glance, its description and its recent changes. */
+/*
+ * Admin team › Overview: its members and owners at a glance, its description and its recent changes. A personal
+ * workspace shows its owner, its agents against its limits and where to audit it instead.
+ */
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, Crown, MailPlus, UsersRound } from "lucide-react";
@@ -14,13 +17,16 @@ import { SkeletonText } from "@/components/ui/skeleton/skeleton";
 import { StatCard } from "@/components/ui/stat-card/stat-card";
 import { Time } from "@/components/ui/time/time";
 import { ErrorAlert } from "@/components/ui/alert/alert";
+import { isPersonal } from "@/api/personal";
 import { ownersHint } from "./common";
+import { AuditLinks, PersonalStats } from "./personal-overview";
 import t from "./people.module.css";
 
 type Summary = Schemas["TeamSummary"];
 
-export function TeamOverviewTab({ summary }: { summary: Summary }) {
+export function TeamOverviewTab({ summary, owner }: { summary: Summary; owner?: { name: string; email: string } }) {
   const slug = summary.team.slug;
+  const personal = isPersonal(summary.team);
   const audit = useQuery({
     queryKey: ["team", slug, "audit", "recent"],
     queryFn: async () => unwrap(await api.GET("/v1/teams/{team}/audit", { params: { path: { team: slug }, query: { limit: 5 } } })),
@@ -34,16 +40,23 @@ export function TeamOverviewTab({ summary }: { summary: Summary }) {
   return (
     <div className={t.overview}>
       <div className={t.stats}>
-        <StatCard
-          label="Members"
-          value={summary.memberCount.toLocaleString()}
-          icon={<UsersRound />}
-          hint={ownersHint(summary)}
-          render={<Link to="/admin/teams/$team" params={{ team: slug }} search={{ tab: "members" }} />}
-        />
-        <StatCard label="Owners" value={summary.ownerCount.toLocaleString()} icon={<Crown />} />
-        <StatCard label="Owner invites" value={summary.ownerInvites.toLocaleString()} icon={<MailPlus />} hint="Invited by email, not signed in yet" />
+        {personal ? (
+          <PersonalStats slug={slug} />
+        ) : (
+          <>
+            <StatCard
+              label="Members"
+              value={summary.memberCount.toLocaleString()}
+              icon={<UsersRound />}
+              hint={ownersHint(summary)}
+              render={<Link to="/admin/teams/$team" params={{ team: slug }} search={{ tab: "members" }} />}
+            />
+            <StatCard label="Owners" value={summary.ownerCount.toLocaleString()} icon={<Crown />} />
+            <StatCard label="Owner invites" value={summary.ownerInvites.toLocaleString()} icon={<MailPlus />} hint="Invited by email, not signed in yet" />
+          </>
+        )}
       </div>
+      {personal && <AuditLinks slug={slug} />}
       <div className={t.columns}>
         <Card title="Recent changes" flush={items.length > 0}>
           {audit.isLoading ? (
@@ -78,7 +91,12 @@ export function TeamOverviewTab({ summary }: { summary: Summary }) {
         >
           <DescriptionList
             items={[
-              { label: "Description", value: summary.team.description || "No description" },
+              ...(personal
+                ? [
+                    { label: "Kind", value: "Personal workspace" },
+                    { label: "Owner", value: owner ? `${owner.name}${owner.name !== owner.email ? ` (${owner.email})` : ""}` : "—" },
+                  ]
+                : [{ label: "Description", value: summary.team.description || "No description" }]),
               { label: "Created", value: <Time value={summary.team.createdAt} format="date" /> },
               ...(summary.team.archivedAt ? [{ label: "Archived", value: <Time value={summary.team.archivedAt} format="date" /> }] : []),
             ]}

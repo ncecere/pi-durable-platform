@@ -31,10 +31,12 @@ const formOf = (t: Team): Form => ({ name: t.name, description: t.description })
 const nameError = (name: string) => (name.trim().length < 1 ? "Enter a name." : name.trim().length > 100 ? "Use at most 100 characters." : undefined);
 
 export function GeneralTab() {
-  const { slug, team, role, archived } = useTeam();
+  const { slug, team, role, archived, personal } = useTeam();
   const me = useCurrentUser();
   const qc = useQueryClient();
   const isPlatformAdmin = me.capabilities.platformAdmin;
+  // A personal workspace is always named "Personal": nothing here to edit.
+  const canRename = isPlatformAdmin && !personal;
   // Edits survive a change made elsewhere; SettingsPage asks whose to keep.
   const [form, setForm, revision] = useRevisionForm<Form>(formOf(team), team.revision);
   const save = useMutation({
@@ -54,9 +56,9 @@ export function GeneralTab() {
   return (
     <SettingsPage
       revision={revision}
-      canEdit={isPlatformAdmin}
+      canEdit={canRename}
       // One notice for people who can't rename the team (the section said it a second time).
-      readOnlyNote={role ? "Platform admins rename teams. Ask one if something here needs to change." : adminOnly}
+      readOnlyNote={personal ? "A personal workspace is always called Personal." : role ? "Platform admins rename teams. Ask one if something here needs to change." : adminOnly}
       dirty={dirty}
       saving={save.isPending && !("status" in (save.variables ?? {}))}
       error={save.error}
@@ -67,9 +69,9 @@ export function GeneralTab() {
     >
       <SettingsSection
         title="General"
-        description="The team's name and description, shown to its members and in the team switcher."
+        description={personal ? "A personal workspace: only its owner uses it." : "The team's name and description, shown to its members and in the team switcher."}
       >
-        {isPlatformAdmin ? (
+        {canRename ? (
           <>
             <Field label="Name" error={invalid}>
               <Input required maxLength={100} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
@@ -94,14 +96,16 @@ export function GeneralTab() {
           dividers
           items={[
             { label: "Status", value: archived ? `${lifecycleLabels.archived}: read-only` : lifecycleLabels.active },
-            { label: "Your role", value: role ? <RoleBadge role={role} /> : "Not a member (platform staff)" },
+            personal
+              ? { label: "Kind", value: "Personal workspace" }
+              : { label: "Your role", value: role ? <RoleBadge role={role} /> : "Not a member (platform staff)" },
             { label: "Created", value: <Time value={team.createdAt} format="date" /> },
           ]}
         />
       </SettingsSection>
-      {(role || isPlatformAdmin) && (
+      {((role && !personal) || isPlatformAdmin) && (
         <DangerZone>
-          {role && <LeaveTeam slug={slug} myUserId={me.user.id} />}
+          {role && !personal && <LeaveTeam slug={slug} myUserId={me.user.id} />}
           {isPlatformAdmin && <ArchiveTeam archived={archived} name={team.name} save={save} />}
         </DangerZone>
       )}

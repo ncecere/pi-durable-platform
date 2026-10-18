@@ -60,9 +60,10 @@ function columns(team: string): DataTableColumn<ServiceAccount>[] {
 }
 
 export function ServiceAccountsPage() {
-  const { slug, team, isManager, archived } = useTeam();
+  const { slug, team, isManager, archived, personal } = useTeam();
   const form = useFormParam();
-  const canCreate = isManager && !archived;
+  // A personal workspace has no service accounts (the server refuses them); its page is only reached by address.
+  const canCreate = isManager && !archived && !personal;
   const accounts = useQuery(serviceAccountsQuery(slug));
   const create = canCreate && (
     <Button onClick={() => form.open("new")}>
@@ -99,7 +100,11 @@ export function ServiceAccountsPage() {
           { label: "Keys", render: open(a, "keys") },
           { label: "Settings", hidden: !canCreate, render: open(a, "settings") },
         ]}
-        empty={{ icon: <Bot />, title: "No service accounts yet.", description: whatIsAServiceAccount, action: create || undefined }}
+        empty={
+          personal
+            ? { icon: <Bot />, title: "A personal workspace has no service accounts.", description: "Use a shared team's service accounts for services, CI and scripts." }
+            : { icon: <Bot />, title: "No service accounts yet.", description: whatIsAServiceAccount, action: create || undefined }
+        }
         tableProps={{ columnsMenuMin: 6 }}
       />
       {canCreate && form.id === "new" && <CreateServiceAccountForm team={slug} onClose={form.close} />}

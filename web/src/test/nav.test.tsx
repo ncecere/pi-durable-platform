@@ -23,7 +23,7 @@ describe("navigation lists", () => {
       ["Catalog", "/catalog"],
     ]);
     expect(teamNavFor(meFor("none", "member"), team.slug).find((n) => n.label === "Service accounts")?.to).toBe("/teams/$team/service-accounts");
-    expect(adminNav.map((n) => n.to)).toEqual(["/admin/users", "/admin/teams", "/admin/templates", "/admin/models", "/admin/mcp-servers", "/admin/usage", "/admin/audit"]);
+    expect(adminNav.map((n) => n.to)).toEqual(["/admin/users", "/admin/teams", "/admin/templates", "/admin/models", "/admin/mcp-servers", "/admin/usage", "/admin/audit", "/admin/settings"]);
   });
 
   it("resolve the record routes the lists link to (API keys, service accounts, users, teams)", () => {
@@ -44,15 +44,18 @@ describe("navigation lists", () => {
 
   it("works out team access like the server: managers, editors, an archived team and staff", () => {
     const me = meFor("none", "owner");
-    expect(teamAccess(me, myTeam("owner"))).toEqual({ member: true, canEdit: true, isManager: true, staff: false });
+    expect(teamAccess(me, myTeam("owner"))).toEqual({ member: true, canEdit: true, isManager: true, staff: false, personal: false });
     expect(teamAccess(me, myTeam("editor"))).toMatchObject({ canEdit: true, isManager: false });
     expect(teamAccess(me, myTeam("member"))).toMatchObject({ canEdit: false, isManager: false });
     expect(teamAccess(me, myTeam("admin", { status: "archived" }))).toMatchObject({ canEdit: false, isManager: false });
-    expect(teamAccess(meFor("platform_admin", null), undefined)).toEqual({ member: false, canEdit: false, isManager: false, staff: true });
+    expect(teamAccess(meFor("platform_admin", null), undefined)).toEqual({ member: false, canEdit: false, isManager: false, staff: true, personal: false });
+    expect(teamAccess(me, myTeam("owner", { kind: "personal" }))).toMatchObject({ personal: true, isManager: true });
   });
 
   it("groups the admin pages and finds the current page's group", () => {
-    expect(adminSections.map((s) => s.label)).toEqual(["People", "Records"]);
+    // Settings sits at the end on its own, without a group.
+    expect(adminSections.map((s) => s.label)).toEqual(["People", "Records", undefined]);
+    expect(activeAdminGroup("/admin/settings")).toBeUndefined();
     expect(activeAdminGroup("/admin/users/abc")).toBe("People");
     expect(activeAdminGroup("/admin/teams")).toBe("People");
     expect(activeAdminGroup("/admin/audit")).toBe("Records");

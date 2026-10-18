@@ -3,8 +3,8 @@
  * Kept here so the router can validate ?tab= without loading page chunks.
  */
 
-/** Admin → Teams › one team: Overview · Members · Settings. */
-export const adminTeamTabs = ["overview", "members", "settings"] as const;
+/** Admin → Teams › one team: Overview · Members · Settings; a personal workspace: Overview · Limits · Settings. */
+export const adminTeamTabs = ["overview", "members", "limits", "settings"] as const;
 export type AdminTeamTab = (typeof adminTeamTabs)[number];
 
 /** Admin → Models › one provider: Models · Settings. */

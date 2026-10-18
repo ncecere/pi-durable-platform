@@ -1932,7 +1932,10 @@ type TeamSummary struct {
 
 	// OwnerInvites Open owner invites (an owner invited by email who hasn't signed in yet)
 	OwnerInvites int64 `json:"ownerInvites"`
-	Team         Team  `json:"team"`
+
+	// PersonalOwner A personal workspace's person
+	PersonalOwner *MemberUser `json:"personalOwner,omitempty"`
+	Team          Team        `json:"team"`
 }
 
 // TeamUpdate defines model for TeamUpdate.

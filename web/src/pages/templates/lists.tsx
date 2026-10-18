@@ -157,10 +157,11 @@ export function CatalogPage() {
 
 /** /teams/$team/templates: the team's own templates. */
 export function TeamTemplatesPage() {
-  const { slug, team, canEdit } = useTeam();
+  const { slug, team, canEdit, personal } = useTeam();
   const templates = useQuery(teamTemplatesQuery(slug));
   const [creating, setCreating] = useState(false);
-  const create = canEdit && (
+  // A personal workspace deploys catalog templates only (the server refuses its own).
+  const create = canEdit && !personal && (
     <Button onClick={() => setCreating(true)}>
       <Plus aria-hidden /> New template
     </Button>

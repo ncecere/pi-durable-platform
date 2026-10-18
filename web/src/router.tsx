@@ -46,6 +46,7 @@ const pages = {
   adminModels: () => import("./pages/admin/models/routes"),
   adminMcp: () => import("./pages/admin/mcp/routes"),
   adminUsage: () => import("./pages/admin/usage/page"),
+  adminSettings: () => import("./pages/admin/settings/page"),
   teamLayout: () => import("./pages/team/layout"),
   teamSettings: () => import("./pages/team/settings/page"),
   serviceAccounts: () => import("./pages/team/service-accounts/routes"),
@@ -289,6 +290,7 @@ const appTree = appRoute.addChildren([
     adminList("templates", lazy(pages.templates, "AdminTemplatesPage")),
     adminList("models", lazy(pages.adminModels, "AdminModelsPage")),
     adminList("usage", lazy(pages.adminUsage, "AdminUsagePage")),
+    adminList("settings", lazy(pages.adminSettings, "AdminSettingsPage")),
     adminTabs(
       "models/providers/$providerId",
       providerTabs,

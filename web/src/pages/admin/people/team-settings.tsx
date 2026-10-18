@@ -1,6 +1,7 @@
 /* Admin team › Settings: name and description in one form, and Archive in the Danger zone. */
 import { adminOnly } from "@/lib/terms";
 import type { Schemas } from "@/api/client";
+import { isPersonal } from "@/api/personal";
 import { DangerAction, DangerZone, SettingsPage, SettingsSection } from "@/components/templates/settings-page";
 import { useRevisionForm } from "@/components/templates/revision-form";
 import { Button } from "@/components/ui/button/button";
@@ -23,6 +24,7 @@ export function TeamSettingsTab({ team, isAdmin, onArchive, status }: Props) {
   const dirty = form.name.trim() !== saved.name || form.description !== saved.description;
   const invalid = nameError(form.name);
   const archived = team.status === "archived";
+  const personal = isPersonal(team);
   return (
     <SettingsPage
       revision={revision}
@@ -37,9 +39,12 @@ export function TeamSettingsTab({ team, isAdmin, onArchive, status }: Props) {
       saveDisabled={Boolean(invalid)}
       message={invalid ? "Not saved: fix the highlighted field" : undefined}
     >
-      <SettingsSection title="General" description="The team's name and description, shown to its members and in the team switcher.">
-        <Field label="Name" error={invalid}>
-          <Input required maxLength={100} disabled={!isAdmin} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+      <SettingsSection
+        title="General"
+        description={personal ? "A personal workspace's description, shown to its owner." : "The team's name and description, shown to its members and in the team switcher."}
+      >
+        <Field label="Name" error={invalid} description={personal ? "A personal workspace is always called Personal." : undefined}>
+          <Input required maxLength={100} disabled={!isAdmin || personal} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </Field>
         <Field label="Description" labelHint="Optional">
           <Textarea maxLength={2000} disabled={!isAdmin} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
@@ -61,7 +66,7 @@ export function TeamSettingsTab({ team, isAdmin, onArchive, status }: Props) {
           ) : (
             <DangerAction
               title="Archive this team"
-              description="The team becomes read-only for its members. You can unarchive it later."
+              description={personal ? "The workspace becomes read-only for its owner. You can unarchive it later." : "The team becomes read-only for its members. You can unarchive it later."}
               action={
                 <Button variant="danger" onClick={onArchive}>
                   Archive team

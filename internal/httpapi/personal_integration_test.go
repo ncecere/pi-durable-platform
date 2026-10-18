@@ -110,7 +110,9 @@ func TestPersonalWorkspaces(t *testing.T) {
 	found := false
 	if code := auditor.get("/v1/admin/teams?kind=personal", &page); code == 200 {
 		for _, it := range page.Items { // everyone who signed in has one: admin, auditor, user
-			found = found || it.Team.Slug == mine[0].Slug
+			if it.Team.Slug == mine[0].Slug {
+				found = it.PersonalOwner != nil && it.PersonalOwner.Email == "user@localhost"
+			}
 			if it.Team.Kind == nil || *it.Team.Kind != "personal" {
 				t.Fatalf("kind=personal listed %+v", it.Team)
 			}

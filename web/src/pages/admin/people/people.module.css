@@ -51,3 +51,10 @@
   flex-direction: column;
   gap: var(--space-6);
 }
+
+/* A personal workspace's limit: its field, then "Use the default". */
+.limit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}

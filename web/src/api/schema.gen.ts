@@ -2295,6 +2295,8 @@ export interface components {
              * @description Open owner invites (an owner invited by email who hasn't signed in yet)
              */
             ownerInvites: number;
+            /** @description A personal workspace's person */
+            personalOwner?: components["schemas"]["MemberUser"] | null;
         };
         TeamUpdate: {
             name?: string;

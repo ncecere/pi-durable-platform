@@ -141,7 +141,7 @@ function WorkspaceNav({ me, active }: { me: Me; active: ActiveTeam }) {
       </SidebarSection>
       {slug && (
         <SidebarSection label={active.name ?? "Team"}>
-          {teamNavFor(me, slug).map((item) => (
+          {teamNavFor(me, slug, active.kind).map((item) => (
             <SidebarItem
               key={item.to}
               icon={item.icon}

@@ -41,9 +41,13 @@ func toAPITeam(t dbgen.Team) apitypes.Team {
 }
 
 func toAPISummary(s teams.Summary) apitypes.TeamSummary {
-	return apitypes.TeamSummary{
+	out := apitypes.TeamSummary{
 		Team: toAPITeam(s.Team), MemberCount: s.MemberCount, OwnerCount: s.OwnerCount, OwnerInvites: s.OwnerInvites,
 	}
+	if u := s.PersonalOwner; u != nil {
+		out.PersonalOwner = &apitypes.MemberUser{Id: u.ID, Email: u.Email, DisplayName: u.DisplayName, Status: apitypes.UserStatus(u.Status)}
+	}
+	return out
 }
 
 func toAPIMyTeams(rows []dbgen.ListTeamsForUserRow) []apitypes.MyTeam {

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useParams, useRouterState } from "@tanstack/react-router";
 import { Lock } from "lucide-react";
 import type { ReactNode } from "react";
+import { isPersonal } from "../../api/personal";
 import { teamQuery } from "../../api/queries";
 import { NotFoundState, isNotFound } from "../../components/not-found";
 import { PageSkeleton } from "../../components/page-skeleton";
@@ -21,6 +22,8 @@ import { TeamContext, teamCtx, useTeam } from "./common";
  * otherwise it is members only.
  */
 const staffPage = (path: string) => /^\/teams\/[^/]+(\/settings|\/usage|\/(service-accounts)(\/[^/]+)?)?\/?$/.test(path);
+/** In a personal workspace platform staff also audit its agents (their settings and status, not their conversations). */
+const staffAuditPage = (path: string) => /^\/teams\/[^/]+\/agents(\/[^/]+)?\/?$/.test(path);
 
 /** The team area: loads the team and provides it to the current team page. */
 export function TeamLayout() {
@@ -36,7 +39,7 @@ export function TeamLayout() {
   const ctx = teamCtx(view.data.team, view.data.role);
   // Platform staff can see a team's overview, settings and members but not its content,
   // which is private to members. Say so instead of showing a load error.
-  if (!view.data.role && !staffPage(path)) {
+  if (!view.data.role && !staffPage(path) && !(isPersonal(view.data.team) && staffAuditPage(path))) {
     return (
       <Stack gap={6} className={s.page}>
         <PageHeader title={view.data.team.name} />

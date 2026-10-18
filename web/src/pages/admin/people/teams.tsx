@@ -1,13 +1,15 @@
 /*
  * Admin → Teams: every team as a ListPage (status facet and search in the
  * URL, filtered by the server) with its members and owners, so a team
- * without an owner stands out. Platform admins create teams here.
+ * without an owner stands out. Platform admins create teams here. A kind
+ * facet (?kind=) narrows it to shared teams or personal workspaces.
  */
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Plus, Settings2, Users, UsersRound } from "lucide-react";
 import { useState } from "react";
 import { api, unwrap, type Schemas } from "@/api/client";
+import { isPersonal, type TeamKind } from "@/api/personal";
 import { PersonCell } from "@/components/person-cell";
 import { ListPage, timeColumn, useListFilters } from "@/components/templates/list-page";
 import { Badge } from "@/components/ui/badge/badge";
@@ -34,20 +36,37 @@ const facets: Facet<Summary>[] = [
       { value: "archived", label: "Archived" },
     ],
   },
+  {
+    id: "kind",
+    label: "Kind",
+    type: "toggle",
+    allLabel: "All",
+    options: [
+      { value: "team", label: "Teams" },
+      { value: "personal", label: "Personal workspaces" },
+    ],
+  },
 ];
 
 const columns: DataTableColumn<Summary>[] = [
   {
     id: "team",
     header: "Team",
-    accessor: (r) => r.team.name,
+    accessor: (r) => (r.personalOwner ? `${r.team.name} ${r.personalOwner.displayName || r.personalOwner.email}` : r.team.name),
     rowHeader: true,
     hideable: false,
-    cell: ({ team }) => (
+    cell: ({ team, personalOwner }) => (
       <PersonCell name={team.name} shape="square">
         <CellText
-          primary={<TextLink render={<Link to="/admin/teams/$team" params={{ team: team.slug }} />}>{team.name}</TextLink>}
-          secondary={<span className={s.mono}>{team.slug}</span>}
+          primary={
+            <span className={s.badges}>
+              <TextLink render={<Link to="/admin/teams/$team" params={{ team: team.slug }} />}>
+                {personalOwner ? personalOwner.displayName || personalOwner.email : team.name}
+              </TextLink>
+              {isPersonal(team) && <Badge size="sm">Personal</Badge>}
+            </span>
+          }
+          secondary={<span className={s.mono}>{personalOwner ? personalOwner.email : team.slug}</span>}
         />
       </PersonCell>
     ),
@@ -83,9 +102,11 @@ export function AdminTeamsPage() {
   const { values, query } = useListFilters(facets);
   const q = useDebounced(query.trim());
   const status = one(values, "status") as Schemas["TeamStatus"] | "";
+  const kind = one(values, "kind") as TeamKind | "";
   const teams = useInfiniteQuery({
-    queryKey: ["admin", "teams", q, status],
-    queryFn: async ({ pageParam }) => unwrap(await api.GET("/v1/admin/teams", { params: { query: { q: q || undefined, status: status || undefined, cursor: pageParam, limit: 50 } } })),
+    queryKey: ["admin", "teams", q, status, kind],
+    queryFn: async ({ pageParam }) =>
+      unwrap(await api.GET("/v1/admin/teams", { params: { query: { q: q || undefined, status: status || undefined, kind: kind || undefined, cursor: pageParam, limit: 50 } } })),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
@@ -100,7 +121,7 @@ export function AdminTeamsPage() {
       <ListPage<Summary>
         id="admin-teams"
         title="Teams"
-        description="Teams own agents and service accounts, and decide who may use them. Only platform admins create teams."
+        description="Teams own agents and service accounts, and decide who may use them. Only platform admins create teams; personal workspaces are created when people sign in."
         primaryAction={create}
         caption="Teams"
         columns={columns}
@@ -115,10 +136,10 @@ export function AdminTeamsPage() {
         onRetry={() => void teams.refetch()}
         rowActions={(r) => [
           { label: "Open", icon: <Users aria-hidden />, render: <Link to="/admin/teams/$team" params={{ team: r.team.slug }} /> },
-          { label: "Members", render: <Link to="/admin/teams/$team" params={{ team: r.team.slug }} search={{ tab: "members" }} /> },
+          { label: "Members", hidden: isPersonal(r.team), render: <Link to="/admin/teams/$team" params={{ team: r.team.slug }} search={{ tab: "members" }} /> },
           { label: "Settings", icon: <Settings2 aria-hidden />, render: <Link to="/admin/teams/$team" params={{ team: r.team.slug }} search={{ tab: "settings" }} /> },
         ]}
-        empty={{ icon: <UsersRound />, title: q || status ? "No teams match." : "No teams yet.", action: create || undefined }}
+        empty={{ icon: <UsersRound />, title: q || status || kind ? "No teams match." : "No teams yet.", action: create || undefined }}
         tableProps={{ facetCounts: false, loadMore: { hasMore: Boolean(teams.hasNextPage), loading: teams.isFetchingNextPage, onLoadMore: () => void teams.fetchNextPage() } }}
       />
       <CreateTeamDialog open={creating} onOpenChange={setCreating} />

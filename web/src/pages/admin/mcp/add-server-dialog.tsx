@@ -32,6 +32,7 @@ export function AddMcpServerDialog({ onClose }: { onClose: () => void }) {
   const [accessMode, setAccessMode] = useState<McpAccessMode>("proxy");
   const [visibility, setVisibility] = useState<McpVisibility>("all");
   const [teams, setTeams] = useState<string[]>([]);
+  const [personal, setPersonal] = useState(true);
   const [headers, setHeaders] = useState<HeaderRow[]>([]);
   const [submitted, setSubmitted] = useState(false);
   const [taken, setTaken] = useState(false);
@@ -60,6 +61,7 @@ export function AddMcpServerDialog({ onClose }: { onClose: () => void }) {
             accessMode,
             visibility,
             teams: visibility === "teams" ? teams : undefined,
+            personal,
             headers: Object.keys(extra).length ? extra : undefined,
           },
         }),
@@ -120,10 +122,12 @@ export function AddMcpServerDialog({ onClose }: { onClose: () => void }) {
       <PublishFields
         visibility={visibility}
         teams={teams}
+        personal={personal}
         error={shown(problems.teams)}
         onChange={(next) => {
           if (next.visibility) setVisibility(next.visibility);
           if (next.teams) setTeams(next.teams);
+          if (next.personal !== undefined) setPersonal(next.personal);
         }}
       />
       <Disclosure title="Advanced" summary={headers.length ? `${headers.length} ${headers.length === 1 ? "header" : "headers"}` : undefined}>

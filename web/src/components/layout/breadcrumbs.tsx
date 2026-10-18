@@ -222,7 +222,7 @@ function useTrail(
       return crumbs;
     }
     // The team page's own label from the navigation ("Overview", "Team settings"); an unknown page adds nothing (the not-found tail follows).
-    const page = teamNavFor(me, slug).find(
+    const page = teamNavFor(me, slug, team.data?.team.kind).find(
       (n) => n.to.slice("/teams/$team".length) === (sub === "/" ? "" : sub),
     );
     if (page) crumbs.push({ label: page.label });

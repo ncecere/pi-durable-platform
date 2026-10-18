@@ -22,7 +22,16 @@ import { accessLabels, type HeaderRow, headersOf, headersProblem, urlProblem } f
 import { type McpAccessMode, mcpAccessOptions, type McpVisibility, teamsProblem } from "./labels";
 import { PublishFields } from "./publish-fields";
 
-type Form = { name: string; description: string; url: string; accessMode: McpAccessMode; enabled: boolean; visibility: McpVisibility; teams: string[] };
+type Form = {
+  name: string;
+  description: string;
+  url: string;
+  accessMode: McpAccessMode;
+  enabled: boolean;
+  visibility: McpVisibility;
+  teams: string[];
+  personal: boolean;
+};
 const formOf = (m: McpServer): Form => ({
   name: m.name,
   description: m.description,
@@ -31,8 +40,18 @@ const formOf = (m: McpServer): Form => ({
   enabled: m.enabled,
   visibility: m.visibility,
   teams: (m.teams ?? []).map((t) => t.slug),
+  personal: m.personal,
 });
-const labels = { name: "Name", description: "Description", url: "URL", accessMode: "Access", enabled: "Enabled", visibility: "Published to", teams: "Teams" };
+const labels = {
+  name: "Name",
+  description: "Description",
+  url: "URL",
+  accessMode: "Access",
+  enabled: "Enabled",
+  visibility: "Published to",
+  teams: "Teams",
+  personal: "Personal workspaces",
+};
 const choices = { accessMode: accessLabels, visibility: { all: "All teams", teams: "Selected teams" } };
 
 type Props = { server: McpServer; isAdmin: boolean; onDelete: () => void };
@@ -64,6 +83,7 @@ export function McpSettingsTab({ server, isAdmin, onDelete }: Props) {
             enabled: form.enabled,
             visibility: form.visibility,
             teams: form.visibility === "teams" ? form.teams : undefined,
+            personal: form.personal,
             headers: headers ? headersOf(headers) : undefined,
           },
         }),
@@ -121,8 +141,16 @@ export function McpSettingsTab({ server, isAdmin, onDelete }: Props) {
           onCheckedChange={(v) => set({ enabled: v })}
         />
       </SettingsSection>
-      <SettingsSection title="Who may use it" description="Teams it's published to can give its tools to their templates' agents.">
-        <PublishFields visibility={form.visibility} teams={form.teams} currentTeams={server.teams} disabled={!isAdmin} error={shown(problems.teams)} onChange={set} />
+      <SettingsSection title="Who may use it" description="Teams it's published to can give its tools to their templates' agents; personal workspaces, to their agents.">
+        <PublishFields
+          visibility={form.visibility}
+          teams={form.teams}
+          personal={form.personal}
+          currentTeams={server.teams}
+          disabled={!isAdmin}
+          error={shown(problems.teams)}
+          onChange={set}
+        />
       </SettingsSection>
       <SettingsSection title="Headers" description="Sent with every request to the server, for example Authorization. Stored encrypted and never shown, here or in the API.">
         <HeadersSetting

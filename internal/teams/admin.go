@@ -24,6 +24,21 @@ type Summary struct {
 	OwnerCount  int64
 	// OwnerInvites are open, unexpired owner invites ("Owner invited", not "No owner").
 	OwnerInvites int64
+	// PersonalOwner is a personal workspace's person.
+	PersonalOwner *dbgen.User
+}
+
+// withOwner adds a personal workspace's person.
+func withOwner(ctx context.Context, q *dbgen.Queries, s Summary) (Summary, error) {
+	if !s.Team.PersonalOwner.Valid {
+		return s, nil
+	}
+	u, err := q.GetUser(ctx, s.Team.PersonalOwner.UUID)
+	if err != nil {
+		return s, err
+	}
+	s.PersonalOwner = &u
+	return s, nil
 }
 
 // CreateInput describes a new team. Only platform admins create teams.
@@ -88,7 +103,10 @@ func (s *Service) Create(ctx context.Context, a authz.Actor, in CreateInput) (Su
 
 func summary(ctx context.Context, q *dbgen.Queries, t dbgen.Team) (Summary, error) {
 	c, err := q.TeamCounts(ctx, t.ID)
-	return Summary{Team: t, MemberCount: c.MemberCount, OwnerCount: c.OwnerCount, OwnerInvites: c.OwnerInvites}, err
+	if err != nil {
+		return Summary{}, err
+	}
+	return withOwner(ctx, q, Summary{Team: t, MemberCount: c.MemberCount, OwnerCount: c.OwnerCount, OwnerInvites: c.OwnerInvites})
 }
 
 func teamSnapshot(t dbgen.Team) map[string]any {
@@ -115,7 +133,9 @@ func (s *Service) ListAll(ctx context.Context, a authz.Actor, p ListParams) ([]S
 	}
 	out := make([]Summary, len(rows))
 	for i, r := range rows {
-		out[i] = Summary{Team: r.Team, MemberCount: r.MemberCount, OwnerCount: r.OwnerCount, OwnerInvites: r.OwnerInvites}
+		if out[i], err = withOwner(ctx, s.q, Summary{Team: r.Team, MemberCount: r.MemberCount, OwnerCount: r.OwnerCount, OwnerInvites: r.OwnerInvites}); err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
 }

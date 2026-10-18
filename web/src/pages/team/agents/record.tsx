@@ -3,6 +3,8 @@
  * runtime and how an app reaches it), Test (a chat with it, for the team's
  * members) and Settings. Service-managed agents show to the team's owners
  * and admins without Test: their conversations belong to the app's users.
+ * Platform staff auditing a personal workspace see Overview and Settings,
+ * read-only, without Test (the API keeps conversations from them).
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
@@ -101,7 +103,8 @@ function Record({ agent }: { agent: Agent }) {
         },
       ]}
       primaryAction={
-        agent.running ? (
+        // Platform staff auditing a personal workspace's agent only look.
+        agent.running && ctx.role ? (
           <Button
             variant="secondary"
             loading={hibernate.isPending}
@@ -113,6 +116,11 @@ function Record({ agent }: { agent: Agent }) {
       }
       notices={
         <>
+          {!ctx.role ? (
+            <Alert tone="info" title="You're viewing this agent as platform staff">
+              You can see its settings, status and usage, not its conversations.
+            </Alert>
+          ) : null}
           {agent.externalKey ? (
             <Alert tone="info" title="Service-managed">
               {whatIsServiceManaged}

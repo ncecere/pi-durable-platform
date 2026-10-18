@@ -1,6 +1,7 @@
 /* Admin › MCP servers: labels and helpers shared by the list, the add dialog and a server's page. */
 import type { McpServer } from "@/api/mcp";
 import { plural } from "@/lib/format";
+import { publishedTo } from "../models/labels";
 
 export type McpAccessMode = McpServer["accessMode"];
 export type McpVisibility = McpServer["visibility"];
@@ -21,13 +22,8 @@ export const mcpAccessOptions: { value: McpAccessMode; label: string; descriptio
 export const whatIsAnMcpServer =
   "An MCP server gives agents tools: a remote server the platform reads the tool list of, published to every team or to chosen teams. Templates pick which servers and tools their agents get.";
 
-/** Who may attach the server: "All teams", "Platform Tools", "3 teams". */
-export function mcpPublishedTo(m: Pick<McpServer, "visibility" | "teams">): string {
-  if (m.visibility === "all") return "All teams";
-  const teams = m.teams ?? [];
-  if (teams.length === 0) return "No teams";
-  return teams.length === 1 ? teams[0]!.name : `${teams.length} teams`;
-}
+/** Who may attach the server: "All teams", "Platform Tools", "3 teams", with "Personal workspaces" when they may (as models say it). */
+export const mcpPublishedTo = (m: Pick<McpServer, "visibility" | "teams" | "personal">): string => publishedTo(m);
 
 /** "3 tools", or "—" when they couldn't be read and none are known. */
 export const toolCount = (m: McpServer) => (m.toolsError && m.tools.length === 0 ? "—" : plural(m.tools.length, "tool"));

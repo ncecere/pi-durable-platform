@@ -15,8 +15,10 @@ import {
   Settings,
   User,
   UserPlus,
+  UserRound,
   Users,
 } from "lucide-react";
+import { isPersonal, type TeamKind } from "../../api/personal";
 import { useMemo } from "react";
 import { requestIntent } from "../../lib/intents";
 import { type TeamSettingsTab } from "../../lib/tabs";
@@ -53,6 +55,7 @@ function pageGroup(
   slug: string | undefined,
   mine: Membership | undefined,
   mode: ColorMode,
+  kind: TeamKind | undefined,
 ): CommandGroup {
   const items: Item[] = [
     ...workspaceNav.map((n) => ({
@@ -101,7 +104,7 @@ function pageGroup(
     ...themeCommands(mode),
   ];
   if (slug) {
-    for (const item of teamNavFor(me, slug)) {
+    for (const item of teamNavFor(me, slug, kind)) {
       items.push({
         id: "team:" + item.to,
         label: item.label,
@@ -121,8 +124,9 @@ function teamPlacesGroup(
   me: Me,
   team: { slug: string; name: string },
   mine: Membership | undefined,
+  kind: TeamKind | undefined,
 ): CommandGroup {
-  const a = teamAccess(me, mine);
+  const a = teamAccess(me, mine, kind);
   const hint = terms.teamSettings;
   const go = (tab: TeamSettingsTab) => () =>
     void navigate({
@@ -147,7 +151,8 @@ function teamPlacesGroup(
         "owner",
         "editor",
       ],
-      show: a.member || a.staff,
+      // A personal workspace has only its owner.
+      show: !a.personal && (a.member || a.staff),
       hint,
       onSelect: go("members"),
     },
@@ -199,6 +204,7 @@ function teamActionGroup(
   const actions: CommandGroup = { label: "Actions", items: [] };
   if (
     mine.status === "active" &&
+    mine.kind !== "personal" &&
     (mine.role === "owner" || mine.role === "admin")
   ) {
     actions.items.push({
@@ -242,9 +248,9 @@ function teamsGroup(navigate: Navigate, teams: Me["teams"]): CommandGroup {
     items: teams.map((t) => ({
       id: "t:" + t.slug,
       label: t.name,
-      icon: icon(Boxes),
-      hint: roleLabels[t.role],
-      keywords: [t.slug, "team"],
+      icon: isPersonal(t) ? icon(UserRound) : icon(Boxes),
+      hint: isPersonal(t) ? "Personal workspace" : roleLabels[t.role],
+      keywords: isPersonal(t) ? [t.slug, "personal", "workspace", "mine"] : [t.slug, "team"],
       onSelect: () =>
         void navigate({ to: "/teams/$team", params: { team: t.slug } }),
     })),
@@ -289,10 +295,18 @@ export function useCommands(
   const teamName = active.name ?? "Team";
   const { mode } = useColorMode();
   const groups = useMemo(() => {
-    const groups: CommandGroup[] = [pageGroup(navigate, me, slug, mine, mode)];
+    const groups: CommandGroup[] = [
+      pageGroup(navigate, me, slug, mine, mode, active.kind),
+    ];
     if (slug)
       groups.push(
-        teamPlacesGroup(navigate, me, { slug, name: teamName }, mine),
+        teamPlacesGroup(
+          navigate,
+          me,
+          { slug, name: teamName },
+          mine,
+          active.kind,
+        ),
       );
     if (slug && mine) groups.push(teamActionGroup(navigate, slug, mine));
     groups.push(teamsGroup(navigate, me.teams));
@@ -305,6 +319,7 @@ export function useCommands(
     slug,
     mine,
     teamName,
+    active.kind,
     me.teams,
     me.capabilities,
     canAdmin,

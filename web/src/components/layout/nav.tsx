@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { type ReactNode } from "react";
 import { terms } from "../../lib/terms";
+import { type TeamKind } from "../../api/personal";
 import { type Me } from "../../session";
 
 export const icon = (C: typeof Home) => <C aria-hidden />;
@@ -89,9 +90,11 @@ export type TeamAccess = {
   isManager: boolean;
   /** A platform admin or auditor (may view any team's overview, settings and service accounts). */
   staff: boolean;
+  /** Someone's personal workspace: no members, service accounts or own templates. */
+  personal: boolean;
 };
 
-export function teamAccess(me: Me, mine: Membership | undefined): TeamAccess {
+export function teamAccess(me: Me, mine: Membership | undefined, kind?: TeamKind): TeamAccess {
   const active = mine?.status === "active";
   const role = mine?.role;
   const isManager = active && (role === "owner" || role === "admin");
@@ -100,6 +103,7 @@ export function teamAccess(me: Me, mine: Membership | undefined): TeamAccess {
     canEdit: isManager || (active && role === "editor"),
     isManager,
     staff: me.capabilities.platformAdmin || me.capabilities.platformAuditor,
+    personal: (kind ?? mine?.kind) === "personal",
   };
 }
 
@@ -135,8 +139,8 @@ const teamNav: TeamNavItem[] = [
     to: "/teams/$team/agents",
     label: terms.agents,
     icon: icon(Sparkles),
-    // Agents and their conversations are the team's own: platform staff don't get them.
-    access: (a) => a.member,
+    // Agents and their conversations are the team's own: platform staff only audit a personal workspace's agents.
+    access: (a) => a.member || (a.staff && a.personal),
     keywords: [
       "agent",
       "agents",
@@ -152,7 +156,8 @@ const teamNav: TeamNavItem[] = [
     to: "/teams/$team/templates",
     label: "Templates",
     icon: icon(BookOpen),
-    access: (a) => a.member || a.staff,
+    // A personal workspace deploys catalog templates only.
+    access: (a) => !a.personal && (a.member || a.staff),
     keywords: [
       "template",
       "templates",
@@ -173,7 +178,7 @@ const teamNav: TeamNavItem[] = [
     to: "/teams/$team/service-accounts",
     label: terms.serviceAccounts,
     icon: icon(Bot),
-    access: (a) => a.member || a.staff,
+    access: (a) => !a.personal && (a.member || a.staff),
     keywords: [
       "service account",
       "bot",
@@ -198,13 +203,19 @@ const teamNav: TeamNavItem[] = [
   },
 ];
 
-/** The team pages the user can open in the team at `slug`. */
-export function teamNavFor(me: Me, slug: string): TeamNavItem[] {
+/**
+ * The team pages the user can open in the team at `slug`. `kind` is the team's (from the team view) when the
+ * user isn't a member; members' come from their membership. A personal workspace's settings are "Settings".
+ */
+export function teamNavFor(me: Me, slug: string, kind?: TeamKind): TeamNavItem[] {
   const a = teamAccess(
     me,
     me.teams.find((t) => t.slug === slug),
+    kind,
   );
-  return teamNav.filter((item) => item.access(a));
+  return teamNav
+    .filter((item) => item.access(a))
+    .map((item) => (a.personal && item.to === "/teams/$team/settings" ? { ...item, label: "Settings" } : item));
 }
 
 /* ---------------- admin ---------------- */
@@ -216,7 +227,8 @@ export type AdminPath =
   | "/admin/models"
   | "/admin/mcp-servers"
   | "/admin/usage"
-  | "/admin/audit";
+  | "/admin/audit"
+  | "/admin/settings";
 
 export type AdminNavItem = {
   to: AdminPath;
@@ -252,6 +264,8 @@ export const adminSections: {
       { to: "/admin/audit", label: terms.auditLog, icon: icon(FileClock) },
     ],
   },
+  // The platform's settings, at the end on their own (no group to collapse).
+  { items: [{ to: "/admin/settings", label: "Settings", icon: icon(Settings) }] },
 ];
 
 export const adminNav = adminSections.flatMap((section) => section.items);
@@ -298,6 +312,7 @@ export const adminKeywords: Partial<Record<AdminPath, string[]>> = {
   ],
   "/admin/mcp-servers": ["mcp", "tools", "tool servers", "headers", "publish"],
   "/admin/usage": ["usage", "tokens", "cost", "spend", "requests", "billing", "teams", "models"],
+  "/admin/settings": ["settings", "personal workspaces", "personal", "limits", "max agents", "budget", "defaults"],
   "/admin/audit": [
     "audit log",
     "history",

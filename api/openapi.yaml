@@ -4745,6 +4745,11 @@ components:
           type: integer
           format: int64
           description: Open owner invites (an owner invited by email who hasn't signed in yet)
+        personalOwner:
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/MemberUser'
+          description: A personal workspace's person
     TeamUpdate:
       type: object
       properties:

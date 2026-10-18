@@ -19,6 +19,8 @@ export type TeamCtx = {
   canEdit: boolean;
   /** Admins and owners. */
   isManager: boolean;
+  /** Someone's personal workspace: only its owner, no service accounts or own templates. */
+  personal: boolean;
 };
 
 export function teamCtx(team: Team, role?: TeamRole): TeamCtx {
@@ -31,6 +33,7 @@ export function teamCtx(team: Team, role?: TeamRole): TeamCtx {
     archived,
     isManager,
     canEdit: !archived && (isManager || role === "editor"),
+    personal: team.kind === "personal",
   };
 }
 

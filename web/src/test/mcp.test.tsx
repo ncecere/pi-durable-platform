@@ -74,6 +74,7 @@ describe("Admin › MCP servers › Add MCP server", () => {
       url: "https://mcp.example.com/mcp",
       accessMode: "direct",
       visibility: "all",
+      personal: true,
       headers: { Authorization: "Bearer secret-token" },
     });
     await waitFor(() => expect(router.state.location.pathname).toBe(`/admin/mcp-servers/${serverId}`));
@@ -129,11 +130,20 @@ describe("Admin › MCP servers › a server", () => {
     );
     renderApp(`/admin/mcp-servers/${serverId}?tab=settings`);
     await u.click(await screen.findByRole("switch", { name: "Enabled" }));
+    await u.click(screen.getByRole("checkbox", { name: "Also available in personal workspaces" }));
     await u.click(screen.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(made(calls, "PATCH", serverPath)).toHaveLength(1));
     const patch = made(calls, "PATCH", serverPath)[0]!;
     expect(patch.headers.get("If-Match")).toBe('"3"');
-    expect(patch.body).toEqual({ name: "Fake Tools", description: "Echo and search", url: "https://mcp.example.com/mcp", accessMode: "proxy", enabled: false, visibility: "all" });
+    expect(patch.body).toEqual({
+      name: "Fake Tools",
+      description: "Echo and search",
+      url: "https://mcp.example.com/mcp",
+      accessMode: "proxy",
+      enabled: false,
+      visibility: "all",
+      personal: false,
+    });
     await u.click(screen.getByRole("button", { name: "Delete MCP server" }));
     const ask = await screen.findByRole("alertdialog", { name: "Delete Fake Tools?" });
     await u.click(within(ask).getByRole("button", { name: "Delete MCP server" }));

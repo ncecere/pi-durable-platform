@@ -3,12 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import type { Schemas } from "@/api/client";
 import { teamChoicesQuery } from "@/api/models";
 import { FormSection } from "@/components/templates/form-page";
+import { Checkbox } from "@/components/ui/checkbox/checkbox";
 import { Combobox } from "@/components/ui/combobox/combobox";
 import { Field } from "@/components/ui/field/field";
 import { Input } from "@/components/ui/input/input";
 import { NumberInput } from "@/components/ui/number-input/number-input";
 import { RadioGroup } from "@/components/ui/radio-group/radio-group";
 import { Switch } from "@/components/ui/switch/switch";
+import { personalHint, personalLabel } from "./labels";
 import type { ModelForm, ModelProblems } from "./model-form-state";
 import m from "./models.module.css";
 
@@ -84,6 +86,13 @@ export function ModelFields({ form, setForm, isNew, currentTeams, errors }: Prop
             />
           </Field>
         ) : null}
+        <Checkbox
+          className={m.wide}
+          label={personalLabel}
+          description={personalHint}
+          checked={form.personal}
+          onCheckedChange={(v) => set({ personal: v })}
+        />
       </FormSection>
     </>
   );

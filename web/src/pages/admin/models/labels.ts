@@ -35,13 +35,17 @@ export const whatIsAProvider =
 /** "$3.00" per million tokens, or "—". */
 export const price = (p: number | null | undefined) => (p == null ? "—" : `$${p.toFixed(2)}`);
 
-/** Who may use the model: "All teams", "Platform Tools", "3 teams". */
-export function publishedTo(m: Model): string {
-  if (m.visibility === "all") return "All teams";
+/** Who may use the model: "All teams", "Platform Tools", "3 teams", with "Personal workspaces" when they may. */
+export function publishedTo(m: Pick<Model, "visibility" | "teams" | "personal">): string {
   const teams = m.teams ?? [];
-  if (teams.length === 0) return "No teams";
-  return teams.length === 1 ? teams[0]!.name : `${teams.length} teams`;
+  const shared = m.visibility === "all" ? "All teams" : teams.length === 0 ? "" : teams.length === 1 ? teams[0]!.name : `${teams.length} teams`;
+  if (!m.personal) return shared || "No teams";
+  return shared ? `${shared} and personal workspaces` : "Personal workspaces";
 }
+
+/** The "Published to" checkbox for personal workspaces (models and MCP servers). */
+export const personalLabel = "Also available in personal workspaces";
+export const personalHint = "People's own workspaces can use it too. Shared teams follow the choice above.";
 
 /** Extra headers as edited: rows of name and value. */
 export type HeaderRow = { name: string; value: string };

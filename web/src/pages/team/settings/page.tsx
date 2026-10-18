@@ -22,14 +22,15 @@ import { GeneralTab } from "./general";
 import { MembersTab } from "./members";
 
 /** The page's description: what its tabs hold for this reader. */
-export function settingsDescription(name: string, canAudit: boolean) {
+export function settingsDescription(name: string, canAudit: boolean, personal = false) {
+  if (personal) return canAudit ? "This personal workspace's audit log and details." : "This personal workspace's details.";
   return canAudit
     ? `The members, open invites, audit log and general details of ${name}.`
     : `The members and general details of ${name}.`;
 }
 
 export function TeamSettingsPage() {
-  const { slug, team, role } = useTeam();
+  const { slug, team, role, personal } = useTeam();
   const me = useCurrentUser();
   const [tab, setTab] = useUrlTab(teamSettingsTabs);
   const staff = me.capabilities.platformAdmin || me.capabilities.platformAuditor;
@@ -37,9 +38,9 @@ export function TeamSettingsPage() {
 
   return (
     <Stack gap={6} className={s.page}>
-      <PageHeader title={terms.teamSettings} description={settingsDescription(team.name, canAudit)} />
+      <PageHeader title={personal ? "Settings" : terms.teamSettings} description={settingsDescription(team.name, canAudit, personal)} />
       <ArchivedNotice />
-      {!role && (
+      {!role && !personal && (
         <Alert tone="info" title="You're viewing this team as platform staff">
           You can see its members, audit log and details. Owners are assigned on its{" "}
           <TextLink render={<Link to="/admin/teams/$team" params={{ team: slug }} />}>admin page</TextLink>.
@@ -51,7 +52,8 @@ export function TeamSettingsPage() {
         onValueChange={setTab}
         crumb="always"
         tabs={[
-          { value: "members", label: "Members", icon: <Users aria-hidden />, content: <MembersTab /> },
+          // A personal workspace has only its owner: no members or invites.
+          { value: "members", label: "Members", icon: <Users aria-hidden />, hidden: personal, content: <MembersTab /> },
           { value: "audit", label: terms.auditLog, icon: <FileClock aria-hidden />, hidden: !canAudit, content: <TeamAuditLog /> },
           { value: "general", label: "General", icon: <Settings aria-hidden />, content: <GeneralTab /> },
         ]}

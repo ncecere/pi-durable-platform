@@ -1,24 +1,29 @@
 /*
  * Admin → Teams › one team: a DetailPage with Overview · Members · Settings.
- * Archive is a menu action and a Danger zone entry, never a solid red header
- * button.
+ * A personal workspace has no members to manage or owner to assign: it shows
+ * its owner and Overview · Limits · Settings instead. Archive is a menu
+ * action and a Danger zone entry, never a solid red header button.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { Archive, ArchiveRestore, ExternalLink, LayoutDashboard, Settings2, UsersRound } from "lucide-react";
+import { Archive, ArchiveRestore, ExternalLink, Gauge, LayoutDashboard, Settings2, UsersRound } from "lucide-react";
 import { useState } from "react";
 import { api, ifMatch, unwrap, type Schemas } from "@/api/client";
+import { isPersonal } from "@/api/personal";
 import { adminTeamQuery } from "@/api/queries";
 import { isNotFound, NotFoundState } from "@/components/not-found";
 import { PageSkeleton } from "@/components/page-skeleton";
 import { DetailPage } from "@/components/templates/detail-page";
 import { Alert, ErrorAlert } from "@/components/ui/alert/alert";
+import { Badge } from "@/components/ui/badge/badge";
 import { AlertDialog } from "@/components/ui/dialog/dialog";
 import { toast } from "@/components/ui/toast/toast";
 import { plural } from "@/lib/format";
 import { adminTeamTabs } from "@/lib/tabs";
 import { useIsPlatformAdmin } from "../hooks";
 import { TeamStatusBadge } from "./common";
+import { usePersonalOwner } from "./personal-overview";
+import { TeamLimitsTab } from "./team-limits";
 import { TeamMembersTab } from "./team-members";
 import { TeamOverviewTab } from "./team-overview";
 import { TeamSettingsTab } from "./team-settings";
@@ -47,6 +52,8 @@ export function AdminTeamPage() {
   const [archiving, setArchiving] = useState(false);
   const t = summary.data?.team;
   const status = useTeamUpdate(team, t?.revision, () => setArchiving(false));
+  const personal = isPersonal(t);
+  const owner = usePersonalOwner(summary.data?.personalOwner);
 
   if (summary.isLoading) return <PageSkeleton />;
   if (isNotFound(summary.error)) return <NotFoundState what="team" />;
@@ -58,23 +65,43 @@ export function AdminTeamPage() {
     <>
       <DetailPage
         title={t.name}
-        meta={<TeamStatusBadge status={t.status} />}
-        facts={[
-          { label: "Slug", value: <code>{t.slug}</code> },
-          { label: "Members", value: plural(sum.memberCount, "member") },
-          { label: "Owners", value: plural(sum.ownerCount, "owner") },
-        ]}
+        meta={
+          <>
+            {personal && <Badge>Personal workspace</Badge>}
+            <TeamStatusBadge status={t.status} />
+          </>
+        }
+        facts={
+          personal
+            ? [
+                { label: "Owner", value: owner ? owner.name : undefined },
+                { label: "Slug", value: <code>{t.slug}</code> },
+              ]
+            : [
+                { label: "Slug", value: <code>{t.slug}</code> },
+                { label: "Members", value: plural(sum.memberCount, "member") },
+                { label: "Owners", value: plural(sum.ownerCount, "owner") },
+              ]
+        }
         menuActions={[
-          { label: "Open the team's pages", icon: <ExternalLink aria-hidden />, render: <Link to="/teams/$team" params={{ team: t.slug }} /> },
+          {
+            label: personal ? "Open the workspace's pages" : "Open the team's pages",
+            icon: <ExternalLink aria-hidden />,
+            render: <Link to="/teams/$team" params={{ team: t.slug }} />,
+          },
+          { label: "Open the owner", icon: <UsersRound aria-hidden />, hidden: !owner, render: <Link to="/admin/users/$userId" params={{ userId: owner?.id ?? "" }} /> },
           { label: "Unarchive team", icon: <ArchiveRestore aria-hidden />, hidden: !isAdmin || !archived, onSelect: () => status.mutate({ status: "active" }) },
           { label: "Archive team…", icon: <Archive aria-hidden />, danger: true, hidden: !isAdmin || archived, onSelect: () => setArchiving(true) },
         ]}
-        notices={archived && <Alert tone="warning">Archived: read-only for its members.</Alert>}
+        notices={archived && <Alert tone="warning">{personal ? "Archived: read-only for its owner." : "Archived: read-only for its members."}</Alert>}
         tabIds={adminTeamTabs}
         tabsLabel="Team sections"
         tabs={[
-          { value: "overview", label: "Overview", icon: <LayoutDashboard aria-hidden />, content: <TeamOverviewTab summary={sum} /> },
-          { value: "members", label: "Members", icon: <UsersRound aria-hidden />, count: sum.memberCount, content: <TeamMembersTab team={team} isAdmin={isAdmin} /> },
+          { value: "overview", label: "Overview", icon: <LayoutDashboard aria-hidden />, content: <TeamOverviewTab summary={sum} owner={owner} /> },
+          // A personal workspace has only its owner: no members to manage, no owner to assign.
+          personal
+            ? { value: "limits", label: "Limits", icon: <Gauge aria-hidden />, content: <TeamLimitsTab team={t} isAdmin={isAdmin} /> }
+            : { value: "members", label: "Members", icon: <UsersRound aria-hidden />, count: sum.memberCount, content: <TeamMembersTab team={team} isAdmin={isAdmin} /> },
           {
             value: "settings",
             label: "Settings",
@@ -86,8 +113,12 @@ export function AdminTeamPage() {
       <AlertDialog
         open={archiving}
         onOpenChange={setArchiving}
-        title={`Archive ${t.name}?`}
-        description="The team becomes read-only: members keep access but can't change anything. You can unarchive it later."
+        title={personal ? `Archive ${owner ? `${owner.name}'s` : "this"} personal workspace?` : `Archive ${t.name}?`}
+        description={
+          personal
+            ? "The workspace becomes read-only: its owner keeps access but can't change anything. You can unarchive it later."
+            : "The team becomes read-only: members keep access but can't change anything. You can unarchive it later."
+        }
         confirmLabel="Archive team"
         busy={status.isPending}
         error={status.error}

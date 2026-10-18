@@ -5,6 +5,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
+import { type TeamKind } from "../../api/personal";
 import { teamQuery } from "../../api/queries";
 import { type Me } from "../../session";
 import { isTeamRoute, type Location } from "./location";
@@ -34,6 +35,8 @@ export type ActiveTeam = {
   membership?: Me["teams"][number];
   /** It's the team of the current page (not the remembered one). */
   fromPage: boolean;
+  /** A shared team or someone's personal workspace. */
+  kind?: TeamKind;
 };
 
 export function useActiveTeam(me: Me, loc: Location): ActiveTeam {
@@ -53,6 +56,7 @@ export function useActiveTeam(me: Me, loc: Location): ActiveTeam {
       name: pageMembership?.name ?? view.data?.team.name,
       membership: pageMembership,
       fromPage: true,
+      kind: pageMembership?.kind ?? view.data?.team.kind,
     };
   }
   const fallback =
@@ -62,5 +66,6 @@ export function useActiveTeam(me: Me, loc: Location): ActiveTeam {
     name: fallback?.name,
     membership: fallback,
     fromPage: false,
+    kind: fallback?.kind,
   };
 }

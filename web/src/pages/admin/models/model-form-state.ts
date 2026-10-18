@@ -15,6 +15,8 @@ export type ModelForm = {
   visibility: Model["visibility"];
   /** Team slugs (visibility "teams"). */
   teams: string[];
+  /** Also available in personal workspaces. */
+  personal: boolean;
 };
 
 /** The API's defaults for a new model. */
@@ -30,6 +32,7 @@ export const newModelForm: ModelForm = {
   enabled: true,
   visibility: "all",
   teams: [],
+  personal: true,
 };
 
 const text = (n: number | null | undefined) => (n == null ? "" : String(n));
@@ -46,6 +49,7 @@ export const formOf = (m: Model): ModelForm => ({
   enabled: m.enabled,
   visibility: m.visibility,
   teams: (m.teams ?? []).map((t) => t.slug),
+  personal: m.personal,
 });
 
 const count = (v: string) => (/^\d+$/.test(v.trim()) && Number(v) > 0 ? undefined : "Enter a whole number of tokens.");
@@ -73,6 +77,7 @@ const common = (f: ModelForm) => ({
   enabled: f.enabled,
   visibility: f.visibility,
   teams: f.visibility === "teams" ? f.teams : undefined,
+  personal: f.personal,
 });
 
 /** A new model: empty prices are left out; the name defaults to the model ID. */
