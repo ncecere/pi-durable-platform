@@ -64,7 +64,9 @@ function registerModel(models: MutableModels, env: Env, api: string): AgentModel
 		contextWindow: positive(env.MODEL_CONTEXT_WINDOW, 128_000),
 		maxTokens: positive(env.MODEL_MAX_TOKENS, 16_000),
 		...(headers ? { headers } : {}),
-		...(api === "openai-completions" ? { compat: { supportsDeveloperRole: false } } : {}),
+		// Compatible servers implement the core of chat completions; some (Open Model Gateway) refuse fields they
+		// don't know, such as store.
+		...(api === "openai-completions" ? { compat: { supportsDeveloperRole: false, supportsStore: false } } : {}),
 	} as Model<Api>;
 	const label = env.MODEL_PROVIDER_NAME?.trim() || host;
 	const usage = env.MODEL_USAGE_URL && env.MODEL_USAGE_KEY ? new UsageReporter(env.MODEL_USAGE_URL, env.MODEL_USAGE_KEY) : undefined;

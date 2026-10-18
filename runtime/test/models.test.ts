@@ -58,7 +58,9 @@ describe("agent models", () => {
 			MODEL_API_KEY: "k",
 			MODEL_ID: "qwen",
 		});
-		expect(models.getModel(model.provider, model.modelId)?.api).toBe("openai-completions");
+		const m = models.getModel(model.provider, model.modelId);
+		expect(m?.api).toBe("openai-completions");
+		expect(m?.compat).toMatchObject({ supportsStore: false, supportsDeveloperRole: false });
 	});
 
 	it("refuses an unknown API or provider", () => {
