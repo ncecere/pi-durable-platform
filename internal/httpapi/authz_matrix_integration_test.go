@@ -17,6 +17,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/authz"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
+	"github.com/ncecere/pi-durable-platform/internal/mcp"
 )
 
 // The authorization matrix. Every operation in api/openapi.yaml is
@@ -53,8 +54,8 @@ type matrixEnv struct {
 	spareUser, spareTeam string
 	// provider and model: a model provider and one of its models;
 	// upstream serves the provider's model list.
-	provider, model, upstream string
-	n                         int
+	provider, model, upstream, mcpServer string
+	n                                    int
 }
 
 func (e *matrixEnv) next() int { e.n++; return e.n }
@@ -162,7 +163,20 @@ func newMatrixEnv(t *testing.T) *matrixEnv {
 	e.upstream = upstream.URL
 	e.provider = e.newProvider()
 	e.model = e.newModel(e.provider)
+	e.mcpServer = e.newMCPServer()
 	return e
+}
+
+// newMCPServer adds an MCP server (its tools can't be read: the upstream is
+// not an MCP server), as a platform admin.
+func (e *matrixEnv) newMCPServer() string {
+	e.t.Helper()
+	v, err := e.app.MCP.CreateServer(context.Background(), e.platformAdmin(), mcp.ServerInput{
+		Name: fmt.Sprintf("mcp-server-%d", e.next()), URL: e.upstream + "/mcp"})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return v.Server.ID.String()
 }
 
 func (e *matrixEnv) platformAdmin() authz.Actor {
@@ -285,6 +299,15 @@ func (c *mctx) model(fresh bool) string {
 		return c.e.newModel(c.e.provider)
 	}
 	return c.e.model
+}
+
+// mcpServer is the fixture MCP server, or a fresh one for a destructive call
+// expected to succeed.
+func (c *mctx) mcpServer(fresh bool) string {
+	if fresh && c.allowed {
+		return c.e.newMCPServer()
+	}
+	return c.e.mcpServer
 }
 
 func (c *mctx) member() string {

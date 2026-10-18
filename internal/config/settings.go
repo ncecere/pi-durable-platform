@@ -141,6 +141,8 @@ var settings = []setting{
 	{key: "AGENTS_SANDBOX_ACTIVATION_TOKEN", secret: true, apply: str(func(c *Config) *string { return &c.Agents.SandboxActivationToken })},
 	{key: "AGENTS_GATEWAY_ADDR", apply: str(func(c *Config) *string { return &c.Agents.GatewayAddr })},
 	{key: "AGENTS_GATEWAY_URL", apply: str(func(c *Config) *string { return &c.Agents.GatewayURL })},
+	{key: "AGENTS_CLIENT_MCP_HOSTS", apply: str(func(c *Config) *string { return &c.Agents.ClientMCPHosts })},
+	{key: "AGENTS_CLIENT_MCP_MODE", apply: str(func(c *Config) *string { return &c.Agents.ClientMCPMode })},
 	{key: "AGENTS_SANDBOX_ACTIVATION_SECRET", apply: str(func(c *Config) *string { return &c.Agents.SandboxActivationSecret })},
 	{key: "AGENTS_IDLE_TIMEOUT", apply: duration(func(c *Config) *time.Duration { return &c.Agents.IdleTimeout }, 10*time.Second, 7*24*time.Hour)},
 	{key: "AGENTS_MODEL_PROVIDER", apply: str(func(c *Config) *string { return &c.Agents.ModelProvider })},

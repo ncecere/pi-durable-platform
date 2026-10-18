@@ -30,7 +30,12 @@ type teamEnv struct {
 
 func newTeamEnv(t *testing.T) *teamEnv {
 	t.Helper()
-	app := newTestApp(t, nil)
+	return newTeamEnvOn(t, newTestApp(t, nil))
+}
+
+// newTeamEnvOn is newTeamEnv on an app configured by the caller.
+func newTeamEnvOn(t *testing.T, app *testApp) *teamEnv {
+	t.Helper()
 	e := &teamEnv{t: t, app: app}
 	e.admin, e.auditor = app.signIn("admin"), app.signIn("auditor")
 	e.owner, e.editor, e.member, e.outsider = app.signIn("user"), app.signIn("alex"), app.signIn("blair"), app.signIn("casey")

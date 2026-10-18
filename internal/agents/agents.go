@@ -32,6 +32,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
+	"github.com/ncecere/pi-durable-platform/internal/mcp"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
@@ -70,6 +71,7 @@ type Service struct {
 	prov       *provision.Provisioner
 	host       *agenthost.Manager
 	llm        *llm.Service
+	mcp        *mcp.Service
 	cfg        config.Agents
 	agentsURL  string // AGENTS_DATABASE_URL, with RuntimeDatabaseHost applied
 }
@@ -77,9 +79,9 @@ type Service struct {
 // New returns a Service. pool is the platform database; agentsPool the
 // agents database, where each agent gets its schema and role; models the
 // model catalog.
-func New(pool, agentsPool *pgxpool.Pool, box *secrets.Box, host *agenthost.Manager, models *llm.Service, cfg config.Agents) *Service {
+func New(pool, agentsPool *pgxpool.Pool, box *secrets.Box, host *agenthost.Manager, models *llm.Service, servers *mcp.Service, cfg config.Agents) *Service {
 	s := &Service{pool: pool, agentsPool: agentsPool, q: dbgen.New(pool), box: box, prov: provision.New(agentsPool), host: host,
-		llm: models, cfg: cfg, agentsURL: cfg.DatabaseURL}
+		llm: models, mcp: servers, cfg: cfg, agentsURL: cfg.DatabaseURL}
 	host.Resolve = s.resolve
 	return s
 }
@@ -674,6 +676,9 @@ func (s *Service) spec(ctx context.Context, ag dbgen.Agent) (launcher.Spec, erro
 	if err != nil {
 		return launcher.Spec{}, err
 	}
+	if err := s.mcpEnv(ctx, ag, tv, string(token), env); err != nil {
+		return launcher.Spec{}, err
+	}
 	return launcher.Spec{
 		AgentID: ag.ID.String(), Name: ag.Name, Instructions: tv.Instructions,
 		Schema: schema, DatabaseURL: dsn, Token: string(token), Env: env,
@@ -753,4 +758,89 @@ func (s *Service) AuthenticateProxy(ctx context.Context, agentID uuid.UUID, toke
 	}
 	modelID, _ := effectiveModel(ag, tv)
 	return ag.TeamID, modelID, nil
+}
+
+// mcpEnv adds the agent's MCP servers to its runtime's environment: the
+// template version's (MCP_SERVERS, JSON), and where to fetch the servers apps
+// give its threads (MCP_THREADS_URL), with its gateway credential (MCP_KEY).
+func (s *Service) mcpEnv(ctx context.Context, ag dbgen.Agent, tv dbgen.AgentTemplateVersion, token string, env map[string]string) error {
+	info := mcp.Agent{ID: ag.ID, TeamID: ag.TeamID, TemplateID: ag.TemplateID, Version: ag.TemplateVersion, ClientMCP: tv.ClientMcp,
+		Credential: llm.ProxyCredential(ag.ID.String(), token)}
+	servers, err := s.mcp.TemplateServers(ctx, info, s.cfg.GatewayURL)
+	if err != nil {
+		return err
+	}
+	if len(servers) > 0 {
+		b, err := json.Marshal(servers)
+		if err != nil {
+			return err
+		}
+		env["MCP_SERVERS"] = string(b)
+	}
+	if tv.ClientMcp && len(s.mcp.Client.Hosts) > 0 {
+		env["MCP_THREADS_URL"] = strings.TrimRight(s.cfg.GatewayURL, "/") + "/thread-mcp"
+		env["MCP_KEY"] = info.Credential
+	}
+	return nil
+}
+
+// AuthenticateMCP checks an agent's gateway credential for the MCP routes.
+func (s *Service) AuthenticateMCP(ctx context.Context, agentID uuid.UUID, token string) (mcp.Agent, error) {
+	ag, err := s.load(ctx, s.q, agentID)
+	if err != nil {
+		return mcp.Agent{}, err
+	}
+	want, err := s.box.Open(ag.RuntimeTokenEnc, []byte(ag.ID.String()))
+	if err != nil {
+		return mcp.Agent{}, err
+	}
+	if subtle.ConstantTimeCompare(want, []byte(token)) != 1 {
+		return mcp.Agent{}, apperr.New(401, "unauthorized", "Invalid credential")
+	}
+	if !ag.Enabled {
+		return mcp.Agent{}, errDisabled
+	}
+	tv, err := version(ctx, s.q, ag.TemplateID, ag.TemplateVersion)
+	if err != nil {
+		return mcp.Agent{}, err
+	}
+	return mcp.Agent{ID: ag.ID, TeamID: ag.TeamID, TemplateID: ag.TemplateID, Version: ag.TemplateVersion, ClientMCP: tv.ClientMcp,
+		Credential: llm.ProxyCredential(ag.ID.String(), token)}, nil
+}
+
+// SetThreadMCP replaces the MCP servers an app gives one of the agent's
+// threads (anyone who may use the agent; its template version must allow it).
+func (s *Service) SetThreadMCP(ctx context.Context, a authz.Actor, agentID uuid.UUID, threadID string, servers []mcp.ClientServer) error {
+	ag, err := s.load(ctx, s.q, agentID)
+	if err != nil {
+		return err
+	}
+	sub, err := subject(ctx, s.q, a, ag)
+	if err != nil {
+		return err
+	}
+	if err := authz.CheckAgentUse(sub); err != nil {
+		return err
+	}
+	tv, err := version(ctx, s.q, ag.TemplateID, ag.TemplateVersion)
+	if err != nil {
+		return err
+	}
+	return s.mcp.SetThreadServers(ctx, agentID, threadID, tv.ClientMcp, servers)
+}
+
+// ThreadMCP lists the MCP servers apps gave a thread (names and URLs only).
+func (s *Service) ThreadMCP(ctx context.Context, a authz.Actor, agentID uuid.UUID, threadID string) ([]dbgen.ThreadMcpServer, error) {
+	ag, err := s.load(ctx, s.q, agentID)
+	if err != nil {
+		return nil, err
+	}
+	sub, err := subject(ctx, s.q, a, ag)
+	if err != nil {
+		return nil, err
+	}
+	if err := authz.CheckAgentUse(sub); err != nil {
+		return nil, err
+	}
+	return s.mcp.ThreadServers(ctx, agentID, threadID)
 }

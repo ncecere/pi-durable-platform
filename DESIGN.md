@@ -76,6 +76,25 @@ the gateway's `/usage` with its credential; reports for a proxied model are igno
 cost estimate from the models' current prices. Service-managed agents are named only for the team's owners, admins and
 service accounts.
 
+## MCP servers
+
+Platform admins add remote MCP servers (Streamable HTTP; **Admin › MCP servers**) with optional headers (for example
+`Authorization`, sealed with `ENCRYPTION_KEY`), and publish them to every team or chosen teams. The platform reads each
+server's tool list (`internal/mcp/client.go`) and keeps it. A template version gives its agents servers, all their tools
+or some, and can let apps give its agents their own servers for one thread (`clientMcp`).
+
+- **Catalog servers** reach agents as `mcp__<slug>__<tool>` tools, defined from the stored tool list and connected on
+  first use with pi-mcp. More than 20 MCP tools are deferred behind `tool_search`. Per server, **proxy** (default:
+  the agent calls `/mcp-proxy/server/<id>` on the gateway, which adds the headers, refuses `tools/call` for tools the
+  version left out and logs each call in `mcp_calls`) or **direct** (the runtime gets the URL and headers).
+- **App servers**: a chat app sends the MCP servers its user enabled with a message (`mcpServers`) or with
+  `PUT .../threads/{thread}/mcp-servers`. The platform keeps them per thread with headers sealed until they expire
+  (default a day) and never forwards them in the message. Before each message the runtime fetches the thread's servers
+  from the gateway (`/thread-mcp`), lists their tools and offers them only in that thread, as `mcpc__<slug>__<tool>`;
+  at start it reinstalls every thread's, so resumed runs keep their tools. Hosts must match
+  `AGENTS_CLIENT_MCP_HOSTS` (none by default), and `AGENTS_CLIENT_MCP_MODE` says whether agents reach them through the
+  gateway (proxy, default) or directly.
+
 ## Launchers
 
 | `AGENTS_LAUNCHER` | Runtime per active agent | Hibernate | Wake |

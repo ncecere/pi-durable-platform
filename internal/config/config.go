@@ -112,7 +112,12 @@ type Agents struct {
 	// proxy); GatewayURL is how agents reach it.
 	GatewayAddr string
 	GatewayURL  string
-	IdleTimeout time.Duration
+	// ClientMCPHosts are the hosts apps may give agents MCP servers on
+	// (comma-separated [scheme://]host[:port], "*." for subdomains; empty:
+	// none), reached as ClientMCPMode says: proxy or direct.
+	ClientMCPHosts string
+	ClientMCPMode  string
+	IdleTimeout    time.Duration
 	// Model every agent uses: demo (scripted, no key) or openai-compatible.
 	ModelProvider  string
 	ModelBaseURL   string
@@ -183,6 +188,7 @@ func Defaults() Config {
 			ModelProvider: "demo",
 			GatewayAddr:   "127.0.0.1:8099",
 			GatewayURL:    "http://127.0.0.1:8099",
+			ClientMCPMode: "proxy",
 		},
 	}
 }

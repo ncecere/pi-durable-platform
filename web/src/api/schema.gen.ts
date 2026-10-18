@@ -957,6 +957,112 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/mcp-servers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every MCP server, without header values (platform admins and auditors) */
+        get: operations["adminListMcpServers"];
+        put?: never;
+        /**
+         * Add a remote MCP server and read its tools (platform admins)
+         * @description Headers (for example Authorization) are stored encrypted and never returned. A server that cannot be reached is still added; toolsError says why.
+         */
+        post: operations["adminCreateMcpServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/mcp-servers/{serverId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                serverId: components["parameters"]["McpServerIdParam"];
+            };
+            cookie?: never;
+        };
+        /** An MCP server and its tools (platform admins and auditors) */
+        get: operations["adminGetMcpServer"];
+        put?: never;
+        post?: never;
+        /** Remove an MCP server (platform admins); refused while template versions use it */
+        delete: operations["adminDeleteMcpServer"];
+        options?: never;
+        head?: never;
+        /** Change an MCP server, who it is published to, or turn it off (platform admins) */
+        patch: operations["adminUpdateMcpServer"];
+        trace?: never;
+    };
+    "/v1/admin/mcp-servers/{serverId}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                serverId: components["parameters"]["McpServerIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read the server's tools again (platform admins) */
+        post: operations["adminRefreshMcpServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/teams/{team}/mcp-servers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        /** The MCP servers the team may give its templates (its members and service accounts, platform staff) */
+        get: operations["listTeamMcpServers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agentId}/threads/{threadId}/mcp-servers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                threadId: components["parameters"]["ThreadIdParam"];
+            };
+            cookie?: never;
+        };
+        /** The MCP servers an app gave this thread (without headers) */
+        get: operations["getThreadMcpServers"];
+        /**
+         * Give the thread the MCP servers its user enabled in the app (replaces them; [] removes them)
+         * @description For template versions with clientMcp, on hosts the platform allows (AGENTS_CLIENT_MCP_HOSTS). Headers, such as the user's token, are stored encrypted until the server expires (default a day). The same list can be sent with a message as mcpServers.
+         */
+        put: operations["setThreadMcpServers"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents": {
         parameters: {
             query?: never;
@@ -1186,6 +1292,107 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        McpTool: {
+            name: string;
+            title?: string | null;
+            description?: string | null;
+        };
+        McpServer: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @description Names its tools for the model (mcp__<slug>__<tool>) */
+            slug: string;
+            description: string;
+            url: string;
+            /**
+             * @description proxy: agents call the platform, which adds the headers, allows only their tools and logs calls; direct: agents get the URL and headers
+             * @enum {string}
+             */
+            accessMode: "proxy" | "direct";
+            enabled: boolean;
+            /** @enum {string} */
+            visibility: "all" | "teams";
+            teams?: components["schemas"]["ModelTeam"][] | null;
+            hasHeaders: boolean;
+            tools: components["schemas"]["McpTool"][];
+            /** Format: date-time */
+            toolsRefreshedAt?: string | null;
+            /** @description Why the tools could not be read the last time */
+            toolsError?: string | null;
+            /** Format: int64 */
+            revision: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        McpServerCreate: {
+            name: string;
+            /** @description Default from the name; cannot change later */
+            slug?: string;
+            description?: string;
+            /** @description The server's Streamable HTTP endpoint */
+            url: string;
+            headers?: {
+                [key: string]: string;
+            };
+            /** @enum {string} */
+            accessMode?: "proxy" | "direct";
+            /** @enum {string} */
+            visibility?: "all" | "teams";
+            teams?: string[];
+            enabled?: boolean;
+        };
+        McpServerUpdate: {
+            name?: string;
+            description?: string;
+            url?: string;
+            /** @description Replaces every header ({} removes them) */
+            headers?: {
+                [key: string]: string;
+            };
+            /** @enum {string} */
+            accessMode?: "proxy" | "direct";
+            /** @enum {string} */
+            visibility?: "all" | "teams";
+            teams?: string[];
+            enabled?: boolean;
+        };
+        McpAttach: {
+            /** Format: uuid */
+            serverId: string;
+            /** @description Only these of its tools (absent - all) */
+            tools?: string[] | null;
+        };
+        McpAttached: {
+            /** Format: uuid */
+            serverId: string;
+            name: string;
+            slug: string;
+            tools?: string[] | null;
+        };
+        ClientMcpServer: {
+            /** @description Shown to the model; names the server's tools (mcpc__<slug>__<tool>) */
+            name: string;
+            url: string;
+            /** @description For example the user's Authorization header */
+            headers?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int32
+             * @description Default a day, at most a week
+             */
+            expiresInSeconds?: number;
+        };
+        ThreadMcpServer: {
+            name: string;
+            slug: string;
+            url: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
         UsageRow: {
             /** Format: date */
             day?: string | null;
@@ -1474,6 +1681,10 @@ export interface components {
              * @description The model version 1 runs on (default the platform's default model)
              */
             modelId?: string;
+            /** @description MCP servers its agents get */
+            mcp?: components["schemas"]["McpAttach"][];
+            /** @description Let apps give its agents MCP servers for a thread */
+            clientMcp?: boolean;
         };
         AgentTemplateUpdate: {
             name?: string;
@@ -1493,6 +1704,8 @@ export interface components {
             modelId?: string | null;
             modelName?: string | null;
             modelProviderName?: string | null;
+            mcp?: components["schemas"]["McpAttached"][];
+            clientMcp?: boolean;
             /** Format: date-time */
             createdAt: string;
         };
@@ -1502,6 +1715,10 @@ export interface components {
             notes?: string;
             /** @description The model it runs on (a model's ID; "" for the platform's default; omitted keeps the current version's) */
             modelId?: string;
+            /** @description MCP servers its agents get (omitted keeps the current version's; [] none) */
+            mcp?: components["schemas"]["McpAttach"][];
+            /** @description Let apps give its agents MCP servers for a thread (omitted keeps the current version's) */
+            clientMcp?: boolean;
         };
         AgentTemplateReview: {
             /** @enum {string} */
@@ -1608,6 +1825,8 @@ export interface components {
             text: string;
             /** @description Idempotency key; a repeated one is not submitted again */
             requestId?: string;
+            /** @description The MCP servers this thread's user enabled in the app (replaces the thread's; [] removes them). For template versions with clientMcp, on hosts the platform allows. Never forwarded to the agent: the platform keeps them. */
+            mcpServers?: components["schemas"]["ClientMcpServer"][];
         };
         AgentMessageAccepted: {
             /** Format: int64 */
@@ -2094,6 +2313,7 @@ export interface components {
         };
     };
     parameters: {
+        McpServerIdParam: string;
         ProviderIdParam: string;
         ModelIdParam: string;
         TemplateIdParam: string;
@@ -4013,6 +4233,278 @@ export interface operations {
             401: components["responses"]["ErrorReply"];
             403: components["responses"]["ErrorReply"];
             404: components["responses"]["ErrorReply"];
+        };
+    };
+    adminListMcpServers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description MCP servers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["McpServer"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+        };
+    };
+    adminCreateMcpServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["McpServerCreate"];
+            };
+        };
+        responses: {
+            /** @description Created server */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["McpServer"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    adminGetMcpServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                serverId: components["parameters"]["McpServerIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["McpServer"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    adminDeleteMcpServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                serverId: components["parameters"]["McpServerIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Ok"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    adminUpdateMcpServer: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+                "If-Match": components["parameters"]["IfMatchHeader"];
+            };
+            path: {
+                serverId: components["parameters"]["McpServerIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["McpServerUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated server */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["McpServer"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            412: components["responses"]["ErrorReply"];
+            428: components["responses"]["ErrorReply"];
+        };
+    };
+    adminRefreshMcpServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                serverId: components["parameters"]["McpServerIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["McpServer"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    listTeamMcpServers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description MCP servers published to the team */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["McpServer"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    getThreadMcpServers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                threadId: components["parameters"]["ThreadIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Servers that have not expired */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadMcpServer"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    setThreadMcpServers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                threadId: components["parameters"]["ThreadIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    servers: components["schemas"]["ClientMcpServer"][];
+                };
+            };
+        };
+        responses: {
+            /** @description Servers of the thread */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadMcpServer"][];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
         };
     };
     listAgents: {

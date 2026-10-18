@@ -23,6 +23,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
+	"github.com/ncecere/pi-durable-platform/internal/mcp"
 	"github.com/ncecere/pi-durable-platform/internal/platform"
 	"github.com/ncecere/pi-durable-platform/internal/ratelimit"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
@@ -108,7 +109,7 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	// agents' network reaches nothing else of the platform.
 	gw := &http.Server{
 		Addr:              cfg.Agents.GatewayAddr,
-		Handler:           deps.Models.Gateway(deps.Agents.AuthenticateProxy, log.With("component", "model-proxy")),
+		Handler:           httpapi.NewGatewayHandler(deps),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return context.WithoutCancel(ctx) },
@@ -193,7 +194,12 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (httpapi.D
 	authSvc := auth.NewService(cfg, pool, log)
 	authSvc.SetRateStore(rates)
 	models := llm.New(pool, box)
-	agentSvc, err := newAgents(cfg, pool, box, models, log)
+	hosts, err := mcp.ParseHostPatterns(cfg.Agents.ClientMCPHosts)
+	if err != nil {
+		return httpapi.Deps{}, fmt.Errorf("AGENTS_CLIENT_MCP_HOSTS: %w", err)
+	}
+	servers := mcp.New(pool, box, mcp.ClientPolicy{Hosts: hosts, Mode: cfg.Agents.ClientMCPMode})
+	agentSvc, err := newAgents(cfg, pool, box, models, servers, log)
 	if err != nil {
 		return httpapi.Deps{}, err
 	}
@@ -208,6 +214,7 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (httpapi.D
 		ServiceAccounts: sas,
 		Agents:          agentSvc,
 		Models:          models,
+		MCP:             servers,
 		Secrets:         box,
 		RateStore:       rates,
 	}, nil
@@ -298,7 +305,7 @@ func shutdown(cfg config.Config, log *slog.Logger, health *httpapi.Health, serve
 
 // newAgents builds the agents service: a lazily connected pool on the agents
 // database, the provisioner, the configured launcher and the runtime manager.
-func newAgents(cfg config.Config, pool *pgxpool.Pool, box *secrets.Box, models *llm.Service, log *slog.Logger) (*agents.Service, error) {
+func newAgents(cfg config.Config, pool *pgxpool.Pool, box *secrets.Box, models *llm.Service, servers *mcp.Service, log *slog.Logger) (*agents.Service, error) {
 	pcfg, err := pgxpool.ParseConfig(cfg.Agents.DatabaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("AGENTS_DATABASE_URL: %w", err)
@@ -342,7 +349,7 @@ func newAgents(cfg config.Config, pool *pgxpool.Pool, box *secrets.Box, models *
 		l = launcher.NewLocal(dir, log.With("component", "launcher"))
 	}
 	host := agenthost.New(l, cfg.Agents.IdleTimeout, log.With("component", "agenthost"))
-	return agents.New(pool, agentsPool, box, host, models, cfg.Agents), nil
+	return agents.New(pool, agentsPool, box, host, models, servers, cfg.Agents), nil
 }
 
 // ensureAgentsDatabase creates the agents database through the platform's
@@ -379,7 +386,7 @@ func PruneAgentStorage(ctx context.Context, cfg config.Config, log *slog.Logger,
 	if err != nil {
 		return nil, err
 	}
-	svc, err := newAgents(cfg, pool, box, llm.New(pool, box), log)
+	svc, err := newAgents(cfg, pool, box, llm.New(pool, box), mcp.New(pool, box, mcp.ClientPolicy{}), log)
 	if err != nil {
 		return nil, err
 	}

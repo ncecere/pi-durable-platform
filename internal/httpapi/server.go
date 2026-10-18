@@ -18,6 +18,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
+	"github.com/ncecere/pi-durable-platform/internal/mcp"
 	"github.com/ncecere/pi-durable-platform/internal/platform"
 	"github.com/ncecere/pi-durable-platform/internal/ratelimit"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
@@ -43,6 +44,8 @@ type Deps struct {
 	Agents *agents.Service
 	// Models is the model catalog and the model proxy.
 	Models *llm.Service
+	// MCP is the MCP catalog, apps' thread servers and the MCP proxy.
+	MCP *mcp.Service
 	// Secrets seals values stored in the database with ENCRYPTION_KEY
 	// (nil in tests that don't need it).
 	Secrets *secrets.Box
@@ -88,7 +91,7 @@ func apiRoutes(d Deps) []route {
 	routes := opsRoutes(d)
 	// Add a new area's route groups here (and its paths to api/openapi.yaml).
 	for _, group := range [][]route{a.authRoutes(), a.teamRoutes(), a.platformAdminRoutes(), a.apiKeyRoutes(),
-		a.serviceAccountRoutes(), a.serviceAccountAdminRoutes(), a.agentRoutes(), a.templateRoutes(), a.modelRoutes()} {
+		a.serviceAccountRoutes(), a.serviceAccountAdminRoutes(), a.agentRoutes(), a.templateRoutes(), a.modelRoutes(), a.mcpRoutes()} {
 		routes = append(routes, group...)
 	}
 	return routes
@@ -171,4 +174,15 @@ func NewAPIHandler(d Deps) http.Handler {
 		fallback = spaHandler(d.Web, d.WebBuilt, d.spaOptions())
 	}
 	return build(d, apiRoutes(d), fallback)
+}
+
+// NewGatewayHandler is what agents call, on its own listener
+// (AGENTS_GATEWAY_ADDR): the model proxy, usage reports, the MCP proxy and
+// their threads' MCP servers.
+func NewGatewayHandler(d Deps) http.Handler {
+	mux := http.NewServeMux()
+	log := d.Log.With("component", "gateway")
+	d.Models.RegisterGateway(mux, d.Agents.AuthenticateProxy, log)
+	d.MCP.RegisterGateway(mux, d.Agents.AuthenticateMCP, d.Config.Agents.GatewayURL, llm.Credential, log)
+	return mux
 }

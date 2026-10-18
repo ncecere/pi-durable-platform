@@ -4,7 +4,9 @@ package config
 
 import (
 	"errors"
+
 	"fmt"
+	"github.com/ncecere/pi-durable-platform/internal/mcp"
 	"net"
 	"net/url"
 	"slices"
@@ -67,6 +69,12 @@ func (c Config) validateAgents() []error {
 	}
 	if u, err := url.Parse(a.GatewayURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Path != "" && u.Path != "/" {
 		errs = append(errs, errors.New("AGENTS_GATEWAY_URL must be an http(s) origin agents can reach (the platform's model proxy)"))
+	}
+	if a.ClientMCPMode != "proxy" && a.ClientMCPMode != "direct" {
+		errs = append(errs, errors.New("AGENTS_CLIENT_MCP_MODE must be proxy or direct"))
+	}
+	if _, err := mcp.ParseHostPatterns(a.ClientMCPHosts); err != nil {
+		errs = append(errs, fmt.Errorf("AGENTS_CLIENT_MCP_HOSTS: %w", err))
 	}
 	if a.GatewayAddr == "" {
 		errs = append(errs, errors.New("AGENTS_GATEWAY_ADDR is required (where the platform listens for agents)"))

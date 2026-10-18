@@ -273,4 +273,25 @@ var matrixPolicies = map[string]policy{
 	"listTeamModels":   {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.team("/models")) }},
 	"getTeamUsage":     {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.team("/usage?groupBy=agent")) }},
 	"adminGetUsage":    {own: platform, build: func(*mctx) request { return get("/v1/admin/usage?groupBy=team") }},
+
+	// The MCP catalog: platform admins manage servers, auditors read them; a
+	// team's members (and platform staff) see what the team may use; anyone
+	// who may use an agent sets the MCP servers an app gives its thread.
+	"adminListMcpServers": {own: platform, build: func(*mctx) request { return get("/v1/admin/mcp-servers") }},
+	"adminCreateMcpServer": {own: padmin, build: func(c *mctx) request {
+		return post("/v1/admin/mcp-servers", map[string]any{"name": fmt.Sprintf("mcp-%d", c.e.next()), "url": c.e.upstream + "/mcp"})
+	}},
+	"adminGetMcpServer": {own: platform, build: func(c *mctx) request { return get("/v1/admin/mcp-servers/" + c.mcpServer(false)) }},
+	"adminUpdateMcpServer": {own: padmin, build: func(c *mctx) request {
+		return patch("/v1/admin/mcp-servers/"+c.mcpServer(true), map[string]any{"enabled": false}).h(rev1)
+	}},
+	"adminDeleteMcpServer":  {own: padmin, build: func(c *mctx) request { return del("/v1/admin/mcp-servers/" + c.mcpServer(true)) }},
+	"adminRefreshMcpServer": {own: padmin, build: func(c *mctx) request { return post("/v1/admin/mcp-servers/"+c.mcpServer(false)+"/refresh", nil) }},
+	"listTeamMcpServers": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request {
+		return get(c.team("/mcp-servers"))
+	}},
+	"getThreadMcpServers": {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.thread("/mcp-servers", false)) }},
+	"setThreadMcpServers": {scope: scopeTeam, own: members, build: func(c *mctx) request {
+		return request{method: "PUT", path: c.thread("/mcp-servers", false), body: map[string]any{"servers": []any{}}}
+	}},
 }

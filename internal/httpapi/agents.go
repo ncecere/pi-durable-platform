@@ -171,6 +171,9 @@ func (a *api) agentProxy(suffix string) http.HandlerFunc {
 		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, 256<<10)
 		}
+		if suffix == "/messages" && !a.takeMCPServers(w, r, r.PathValue("threadId")) {
+			return
+		}
 		a.Agents.Host().Proxy(w, r, spec, path)
 	}
 }

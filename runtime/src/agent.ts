@@ -1,6 +1,7 @@
 import type { RequestListener } from "node:http";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createRegistry, Harness } from "@earendil-works/pi-durable";
+import { AgentMcp } from "./mcp.ts";
 import { createAgentModels } from "./models.ts";
 import { createRuntimeServer } from "./server.ts";
 import { AgentOwnedElsewhereError, openPostgresAgentStorage } from "./storage/postgres.ts";
@@ -57,6 +58,10 @@ export async function startAgent(config: AgentConfig): Promise<RunningAgent> {
 	const registry = createRegistry();
 	const extension = assistantExtension(config.instructions);
 	registry.install(extension);
+	// MCP servers: the template's, and those apps gave threads (installed before resuming, so resumed runs find their tools).
+	const mcp = new AgentMcp(config.modelEnv, (ext) => registry.install(ext));
+	for (const ext of mcp.extensions) registry.install(ext);
+	await mcp.restore().catch((error: unknown) => console.error(`[agent ${config.agentId}] thread MCP servers:`, (error as Error).message));
 	const harness = await Harness.open(
 		storage.storage,
 		{ models, registry, onReport: (error) => console.error(`[agent ${config.agentId}]`, error) },
@@ -73,12 +78,22 @@ export async function startAgent(config: AgentConfig): Promise<RunningAgent> {
 		}
 	});
 
-	const threads = new ThreadStore(harness, () => ({ model, extensions: [extension] }));
+	const threads = new ThreadStore(harness, () => ({ model, extensions: [extension, ...mcp.extensions] }));
+	const mcpActive = mcp.extensions.length > 0 || mcp.clientServers;
 	const { handler } = createRuntimeServer({
 		harness,
 		threads,
 		token: config.token,
 		info: { agentId: config.agentId, name: config.name, model: `${model.provider}/${model.modelId}` },
+		beforeMessage: mcpActive
+			? async (threadId, conversation) => {
+					const extensions = await mcp.forThread(threadId, [extension]).catch((error: unknown) => {
+						console.error(`[agent ${config.agentId}] MCP servers of thread ${threadId}:`, (error as Error).message);
+						return [extension, ...mcp.extensions];
+					});
+					await conversation.configure({ extensions }, ctx);
+				}
+			: undefined,
 	});
 	return {
 		handler,
@@ -86,6 +101,7 @@ export async function startAgent(config: AgentConfig): Promise<RunningAgent> {
 			closing = true;
 			await harness.close(ctx).catch(() => {});
 			await usage?.flush();
+			await mcp.close();
 		},
 	};
 }

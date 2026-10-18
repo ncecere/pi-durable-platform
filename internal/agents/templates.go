@@ -14,6 +14,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/audit"
 	"github.com/ncecere/pi-durable-platform/internal/authz"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
+	"github.com/ncecere/pi-durable-platform/internal/mcp"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 	"github.com/ncecere/pi-durable-platform/internal/teams"
@@ -164,12 +165,29 @@ func (s *Service) Template(ctx context.Context, a authz.Actor, id uuid.UUID) (Te
 	return v, authz.CheckTemplateSee(sub)
 }
 
+// VersionView is a template version with its MCP servers.
+type VersionView struct {
+	Version dbgen.ListTemplateVersionsRow
+	MCP     []dbgen.ListTemplateVersionMCPRow
+}
+
 // Versions lists a template's versions, newest first.
-func (s *Service) Versions(ctx context.Context, a authz.Actor, id uuid.UUID) ([]dbgen.ListTemplateVersionsRow, error) {
+func (s *Service) Versions(ctx context.Context, a authz.Actor, id uuid.UUID) ([]VersionView, error) {
 	if _, err := s.Template(ctx, a, id); err != nil {
 		return nil, err
 	}
-	return s.q.ListTemplateVersions(ctx, id)
+	rows, err := s.q.ListTemplateVersions(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]VersionView, len(rows))
+	for i, r := range rows {
+		out[i].Version = r
+		if out[i].MCP, err = s.q.ListTemplateVersionMCP(ctx, dbgen.ListTemplateVersionMCPParams{TemplateID: id, Version: r.Version}); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // TemplateInput is a new template and its first version. ModelID is the
@@ -177,6 +195,10 @@ func (s *Service) Versions(ctx context.Context, a authz.Actor, id uuid.UUID) ([]
 type TemplateInput struct {
 	Slug, Name, Description, Instructions, Notes string
 	ModelID                                      *uuid.UUID
+	// MCP are the MCP servers its agents get; ClientMCP lets apps give them
+	// their own for a thread.
+	MCP       []mcp.Attach
+	ClientMCP bool
 }
 
 // checkTemplateModel checks a template version's model: a team template's
@@ -268,8 +290,15 @@ func (s *Service) CreateTemplate(ctx context.Context, a authz.Actor, teamRef str
 		if err := checkTemplateModel(ctx, q, tpl.TeamID, nullID(in.ModelID)); err != nil {
 			return err
 		}
+		if err := mcp.CheckAttach(ctx, q, tpl.TeamID, in.MCP); err != nil {
+			return err
+		}
 		if _, err := q.InsertTemplateVersion(ctx, dbgen.InsertTemplateVersionParams{TemplateID: tpl.ID, Version: 1,
-			Instructions: strings.TrimSpace(in.Instructions), Notes: in.Notes, CreatedBy: p.CreatedBy, ModelID: nullID(in.ModelID)}); err != nil {
+			Instructions: strings.TrimSpace(in.Instructions), Notes: in.Notes, CreatedBy: p.CreatedBy, ModelID: nullID(in.ModelID),
+			ClientMcp: in.ClientMCP}); err != nil {
+			return err
+		}
+		if err := mcp.SaveAttach(ctx, q, tpl.ID, 1, in.MCP); err != nil {
 			return err
 		}
 		e.TargetID, e.After = tpl.ID.String(), templateSnapshot(tpl)
@@ -322,6 +351,9 @@ func (s *Service) UpdateTemplate(ctx context.Context, a authz.Actor, id uuid.UUI
 type VersionInput struct {
 	Instructions, Notes string
 	ModelID             *string
+	// MCP and ClientMCP: nil keeps the current version's.
+	MCP       *[]mcp.Attach
+	ClientMCP *bool
 }
 
 // AddVersion adds a version, which becomes the one new agents get. Existing
@@ -340,24 +372,45 @@ func (s *Service) AddVersion(ctx context.Context, a authz.Actor, id uuid.UUID, i
 	}
 	return s.changeTemplate(ctx, a, id, -1, "agent_template.version", authz.CheckTemplateEdit,
 		func(q *dbgen.Queries, t dbgen.AgentTemplate) (dbgen.AgentTemplate, error) {
+			cur, err := version(ctx, q, id, t.CurrentVersion)
+			if err != nil {
+				return t, err
+			}
 			modelID := nullID(model)
 			if in.ModelID == nil {
-				cur, err := version(ctx, q, id, t.CurrentVersion)
-				if err != nil {
-					return t, err
-				}
 				modelID = cur.ModelID
 			} else if err := checkTemplateModel(ctx, q, t.TeamID, modelID); err != nil {
 				return t, err
+			}
+			clientMCP := cur.ClientMcp
+			if in.ClientMCP != nil {
+				clientMCP = *in.ClientMCP
+			}
+			var attach []mcp.Attach
+			if in.MCP == nil {
+				rows, err := q.ListTemplateVersionMCP(ctx, dbgen.ListTemplateVersionMCPParams{TemplateID: id, Version: t.CurrentVersion})
+				if err != nil {
+					return t, err
+				}
+				for _, r := range rows {
+					attach = append(attach, mcp.Attach{ServerID: r.ServerID, Tools: r.Tools})
+				}
+			} else {
+				attach = *in.MCP
+				if err := mcp.CheckAttach(ctx, q, t.TeamID, attach); err != nil {
+					return t, err
+				}
 			}
 			bumped, err := q.BumpTemplateVersion(ctx, id)
 			if err != nil {
 				return t, err
 			}
-			_, err = q.InsertTemplateVersion(ctx, dbgen.InsertTemplateVersionParams{TemplateID: id, Version: bumped.CurrentVersion,
-				Instructions: strings.TrimSpace(in.Instructions), Notes: in.Notes, ModelID: modelID,
-				CreatedBy: uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil && a.Service == nil}})
-			return bumped, err
+			if _, err = q.InsertTemplateVersion(ctx, dbgen.InsertTemplateVersionParams{TemplateID: id, Version: bumped.CurrentVersion,
+				Instructions: strings.TrimSpace(in.Instructions), Notes: in.Notes, ModelID: modelID, ClientMcp: clientMCP,
+				CreatedBy: uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil && a.Service == nil}}); err != nil {
+				return t, err
+			}
+			return bumped, mcp.SaveAttach(ctx, q, id, bumped.CurrentVersion, attach)
 		})
 }
 

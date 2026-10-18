@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type RequestListener, type Server, type ServerResponse } from "node:http";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { type Harness, LiveDoc } from "@earendil-works/pi-durable";
+import { type Harness, LiveDoc, type Conversation } from "@earendil-works/pi-durable";
 import type { ThreadStore } from "./threads.ts";
 import { buildView, type ChatView } from "./view.ts";
 
@@ -15,6 +15,8 @@ export type RuntimeOptions = {
 	/** Shared secret the platform presents; every route but /healthz requires it. */
 	token: string;
 	info: { agentId: string; name: string; model: string };
+	/** Prepares a thread before a message (its MCP servers), after it exists. */
+	beforeMessage?: (threadId: string, conversation: Conversation) => Promise<void>;
 };
 
 /**
@@ -89,6 +91,7 @@ export function createRuntimeServer(options: RuntimeOptions): { server: Server; 
 			if (text.length === 0 || text.length > 32_000) return fail(response, 400, "invalid_text", "text is required (at most 32,000 characters)");
 			if (requestId !== undefined && !THREAD_ID.test(requestId)) return fail(response, 400, "invalid_request_id", "requestId must be 1-64 letters, digits, dashes or underscores");
 			const conversation = await threads.ensure(threadId, text);
+			await options.beforeMessage?.(threadId, conversation);
 			const submission = await conversation.submit(
 				{ type: "input", content: text, whenBusy: "followUp", ...(requestId === undefined ? {} : { requestId }) },
 				ctx,

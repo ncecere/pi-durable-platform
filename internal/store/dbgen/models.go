@@ -55,6 +55,7 @@ type AgentTemplateVersion struct {
 	CreatedBy    uuid.NullUUID
 	CreatedAt    time.Time
 	ModelID      uuid.NullUUID
+	ClientMcp    bool
 }
 
 type ApiKey struct {
@@ -94,6 +95,43 @@ type LoginState struct {
 	NextPath    string
 	CreatedAt   time.Time
 	ExpiresAt   time.Time
+}
+
+type McpCall struct {
+	ID         int64
+	TeamID     uuid.UUID
+	AgentID    uuid.NullUUID
+	ServerID   uuid.NullUUID
+	ServerName string
+	Client     bool
+	Tool       string
+	Ok         bool
+	DurationMs int32
+	CreatedAt  time.Time
+}
+
+type McpServer struct {
+	ID               uuid.UUID
+	Name             string
+	Slug             string
+	Description      string
+	URL              string
+	HeadersEnc       []byte
+	AccessMode       string
+	Enabled          bool
+	Visibility       string
+	Tools            json.RawMessage
+	ToolsRefreshedAt *time.Time
+	ToolsError       *string
+	Revision         int64
+	CreatedBy        uuid.NullUUID
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+type McpServerTeam struct {
+	ServerID uuid.UUID
+	TeamID   uuid.UUID
 }
 
 type Model struct {
@@ -234,6 +272,25 @@ type TeamMember struct {
 	Revision  int64
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type TemplateVersionMcp struct {
+	TemplateID uuid.UUID
+	Version    int32
+	ServerID   uuid.UUID
+	Tools      []string
+}
+
+type ThreadMcpServer struct {
+	ID         uuid.UUID
+	AgentID    uuid.UUID
+	ThreadID   string
+	Name       string
+	Slug       string
+	URL        string
+	HeadersEnc []byte
+	ExpiresAt  time.Time
+	CreatedAt  time.Time
 }
 
 type User struct {

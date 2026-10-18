@@ -6,7 +6,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/agents"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
-	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
+	"github.com/ncecere/pi-durable-platform/internal/mcp"
 )
 
 // Agent templates (api/openapi.yaml, tag agents): the catalog, team
@@ -49,8 +49,18 @@ func toAPITemplate(v agents.TemplateView) apitypes.AgentTemplate {
 	return out
 }
 
-func toAPITemplateVersion(v dbgen.ListTemplateVersionsRow) apitypes.AgentTemplateVersion {
-	out := apitypes.AgentTemplateVersion{Version: v.Version, Instructions: v.Instructions, Notes: v.Notes, CreatedByName: v.CreatedByName,
+func toAPITemplateVersion(vv agents.VersionView) apitypes.AgentTemplateVersion {
+	v := vv.Version
+	attached := make([]apitypes.McpAttached, len(vv.MCP))
+	for i, m := range vv.MCP {
+		attached[i] = apitypes.McpAttached{ServerId: m.ServerID, Name: m.Name, Slug: m.Slug}
+		if m.Tools != nil {
+			tools := m.Tools
+			attached[i].Tools = &tools
+		}
+	}
+	clientMCP := v.ClientMcp
+	out := apitypes.AgentTemplateVersion{Mcp: &attached, ClientMcp: &clientMCP, Version: v.Version, Instructions: v.Instructions, Notes: v.Notes, CreatedByName: v.CreatedByName,
 		CreatedAt: v.CreatedAt, ModelName: v.ModelName, ModelProviderName: v.ModelProviderName}
 	if v.ModelID.Valid {
 		id := v.ModelID.UUID
@@ -88,7 +98,8 @@ func decodeTemplateCreate(w http.ResponseWriter, r *http.Request) (agents.Templa
 	if !httpx.Decode(w, r, &in) {
 		return agents.TemplateInput{}, false
 	}
-	ti := agents.TemplateInput{Slug: in.Slug, Name: in.Name, Instructions: in.Instructions, ModelID: in.ModelId}
+	ti := agents.TemplateInput{Slug: in.Slug, Name: in.Name, Instructions: in.Instructions, ModelID: in.ModelId, MCP: attachments(in.Mcp)}
+	setIf(&ti.ClientMCP, in.ClientMcp)
 	setIf(&ti.Description, in.Description)
 	setIf(&ti.Notes, in.Notes)
 	return ti, true
@@ -152,7 +163,11 @@ func (a *api) createTemplateVersion(w http.ResponseWriter, r *http.Request) {
 	if !httpx.Decode(w, r, &in) {
 		return
 	}
-	vi := agents.VersionInput{Instructions: in.Instructions, ModelID: in.ModelId}
+	vi := agents.VersionInput{Instructions: in.Instructions, ModelID: in.ModelId, ClientMCP: in.ClientMcp}
+	if in.Mcp != nil {
+		attach := attachments(in.Mcp)
+		vi.MCP = &attach
+	}
 	setIf(&vi.Notes, in.Notes)
 	v, err := a.Agents.AddVersion(r.Context(), a.actor(r), id, vi)
 	a.writeTemplate(w, r, http.StatusCreated, v, err)
@@ -189,4 +204,18 @@ func (a *api) reviewTemplate(w http.ResponseWriter, r *http.Request) {
 	setIf(&note, in.Note)
 	v, err := a.Agents.Review(r.Context(), a.actor(r), id, in.Decision == apitypes.Approve, note)
 	a.writeTemplate(w, r, http.StatusOK, v, err)
+}
+
+func attachments(in *[]apitypes.McpAttach) []mcp.Attach {
+	if in == nil {
+		return nil
+	}
+	out := make([]mcp.Attach, len(*in))
+	for i, at := range *in {
+		out[i] = mcp.Attach{ServerID: at.ServerId}
+		if at.Tools != nil {
+			out[i].Tools = *at.Tools
+		}
+	}
+	return out
 }

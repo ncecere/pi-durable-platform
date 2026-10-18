@@ -56,8 +56,8 @@ WHERE id = $1
 RETURNING *;
 
 -- name: InsertTemplateVersion :one
-INSERT INTO agent_template_versions (template_id, version, instructions, notes, created_by, model_id)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO agent_template_versions (template_id, version, instructions, notes, created_by, model_id, client_mcp)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
 -- name: ListTemplateVersions :many

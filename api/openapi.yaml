@@ -20,6 +20,10 @@ tags:
   description: Personal API keys for scripts and tools
 - name: service-accounts
   description: Team-owned identities for services, agents, CI and scripts
+- name: mcp
+  description: >-
+    The MCP catalog: remote MCP servers platform admins publish to teams, which template versions give their agents
+    (all their tools or some), and the servers an app gives one thread (for example those its user enabled).
 - name: models
   description: >-
     The model catalog: providers (OpenAI, Anthropic, OpenAI- and Anthropic-compatible servers) that platform admins
@@ -1966,6 +1970,295 @@ paths:
           $ref: '#/components/responses/ErrorReply'
         '404':
           $ref: '#/components/responses/ErrorReply'
+  /v1/admin/mcp-servers:
+    get:
+      tags:
+      - mcp
+      operationId: adminListMcpServers
+      summary: Every MCP server, without header values (platform admins and auditors)
+      responses:
+        '200':
+          description: MCP servers
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/McpServer'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - mcp
+      operationId: adminCreateMcpServer
+      summary: Add a remote MCP server and read its tools (platform admins)
+      description: >-
+        Headers (for example Authorization) are stored encrypted and never returned. A server that cannot be reached
+        is still added; toolsError says why.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/McpServerCreate'
+      responses:
+        '201':
+          description: Created server
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/McpServer'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/mcp-servers/{serverId}:
+    parameters:
+    - $ref: '#/components/parameters/McpServerIdParam'
+    get:
+      tags:
+      - mcp
+      operationId: adminGetMcpServer
+      summary: An MCP server and its tools (platform admins and auditors)
+      responses:
+        '200':
+          description: Server
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/McpServer'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    patch:
+      tags:
+      - mcp
+      operationId: adminUpdateMcpServer
+      summary: Change an MCP server, who it is published to, or turn it off (platform admins)
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/McpServerUpdate'
+      responses:
+        '200':
+          description: Updated server
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/McpServer'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
+          $ref: '#/components/responses/ErrorReply'
+    delete:
+      tags:
+      - mcp
+      operationId: adminDeleteMcpServer
+      summary: Remove an MCP server (platform admins); refused while template versions use it
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Ok'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/mcp-servers/{serverId}/refresh:
+    parameters:
+    - $ref: '#/components/parameters/McpServerIdParam'
+    post:
+      tags:
+      - mcp
+      operationId: adminRefreshMcpServer
+      summary: Read the server's tools again (platform admins)
+      responses:
+        '200':
+          description: Server
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/McpServer'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/teams/{team}/mcp-servers:
+    parameters:
+    - $ref: '#/components/parameters/TeamParam'
+    get:
+      tags:
+      - mcp
+      operationId: listTeamMcpServers
+      summary: The MCP servers the team may give its templates (its members and service accounts, platform staff)
+      responses:
+        '200':
+          description: MCP servers published to the team
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/McpServer'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/agents/{agentId}/threads/{threadId}/mcp-servers:
+    parameters:
+    - $ref: '#/components/parameters/AgentIdParam'
+    - $ref: '#/components/parameters/ThreadIdParam'
+    get:
+      tags:
+      - mcp
+      operationId: getThreadMcpServers
+      summary: The MCP servers an app gave this thread (without headers)
+      responses:
+        '200':
+          description: Servers that have not expired
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ThreadMcpServer'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    put:
+      tags:
+      - mcp
+      operationId: setThreadMcpServers
+      summary: Give the thread the MCP servers its user enabled in the app (replaces them; [] removes them)
+      description: >-
+        For template versions with clientMcp, on hosts the platform allows (AGENTS_CLIENT_MCP_HOSTS). Headers, such
+        as the user's token, are stored encrypted until the server expires (default a day). The same list can be sent
+        with a message as mcpServers.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [servers]
+              properties:
+                servers:
+                  type: array
+                  maxItems: 10
+                  items:
+                    $ref: '#/components/schemas/ClientMcpServer'
+      responses:
+        '200':
+          description: Servers of the thread
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ThreadMcpServer'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
   /v1/agents:
     get:
       tags:
@@ -2414,6 +2707,13 @@ components:
       schema:
         type: string
   parameters:
+    McpServerIdParam:
+      name: serverId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     ProviderIdParam:
       name: providerId
       in: path
@@ -2605,6 +2905,199 @@ components:
               data:
                 $ref: '#/components/schemas/Ok'
   schemas:
+    McpTool:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        title:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+    McpServer:
+      type: object
+      required: [id, name, slug, description, url, accessMode, enabled, visibility, hasHeaders, tools, revision, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+          description: Names its tools for the model (mcp__<slug>__<tool>)
+        description:
+          type: string
+        url:
+          type: string
+        accessMode:
+          type: string
+          enum: [proxy, direct]
+          description: 'proxy: agents call the platform, which adds the headers, allows only their tools and logs calls; direct: agents get the URL and headers'
+        enabled:
+          type: boolean
+        visibility:
+          type: string
+          enum: [all, teams]
+        teams:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/ModelTeam'
+        hasHeaders:
+          type: boolean
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/McpTool'
+        toolsRefreshedAt:
+          type: string
+          format: date-time
+          nullable: true
+        toolsError:
+          type: string
+          nullable: true
+          description: Why the tools could not be read the last time
+        revision:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    McpServerCreate:
+      type: object
+      required: [name, url]
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        slug:
+          type: string
+          pattern: '^[a-z0-9](?:[a-z0-9_]{0,30}[a-z0-9])?$'
+          description: Default from the name; cannot change later
+        description:
+          type: string
+          maxLength: 2000
+        url:
+          type: string
+          maxLength: 2048
+          description: The server's Streamable HTTP endpoint
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          writeOnly: true
+        accessMode:
+          type: string
+          enum: [proxy, direct]
+        visibility:
+          type: string
+          enum: [all, teams]
+        teams:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+    McpServerUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 2000
+        url:
+          type: string
+          maxLength: 2048
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          writeOnly: true
+          description: Replaces every header ({} removes them)
+        accessMode:
+          type: string
+          enum: [proxy, direct]
+        visibility:
+          type: string
+          enum: [all, teams]
+        teams:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+    McpAttach:
+      type: object
+      required: [serverId]
+      properties:
+        serverId:
+          type: string
+          format: uuid
+        tools:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: Only these of its tools (absent - all)
+    McpAttached:
+      type: object
+      required: [serverId, name, slug]
+      properties:
+        serverId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        tools:
+          type: array
+          nullable: true
+          items:
+            type: string
+    ClientMcpServer:
+      type: object
+      required: [name, url]
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          description: Shown to the model; names the server's tools (mcpc__<slug>__<tool>)
+        url:
+          type: string
+          maxLength: 2048
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          writeOnly: true
+          description: For example the user's Authorization header
+        expiresInSeconds:
+          type: integer
+          format: int32
+          description: Default a day, at most a week
+    ThreadMcpServer:
+      type: object
+      required: [name, slug, url, expiresAt]
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+        url:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
     UsageRow:
       type: object
       required: [requests, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd, unpricedRequests, managed]
@@ -3056,6 +3549,14 @@ components:
           type: string
           format: uuid
           description: The model version 1 runs on (default the platform's default model)
+        mcp:
+          type: array
+          items:
+            $ref: '#/components/schemas/McpAttach'
+          description: MCP servers its agents get
+        clientMcp:
+          type: boolean
+          description: Let apps give its agents MCP servers for a thread
     AgentTemplateUpdate:
       type: object
       properties:
@@ -3092,6 +3593,12 @@ components:
         modelProviderName:
           type: string
           nullable: true
+        mcp:
+          type: array
+          items:
+            $ref: '#/components/schemas/McpAttached'
+        clientMcp:
+          type: boolean
         createdAt:
           type: string
           format: date-time
@@ -3109,6 +3616,14 @@ components:
         modelId:
           type: string
           description: The model it runs on (a model's ID; "" for the platform's default; omitted keeps the current version's)
+        mcp:
+          type: array
+          items:
+            $ref: '#/components/schemas/McpAttach'
+          description: MCP servers its agents get (omitted keeps the current version's; [] none)
+        clientMcp:
+          type: boolean
+          description: Let apps give its agents MCP servers for a thread (omitted keeps the current version's)
     AgentTemplateReview:
       type: object
       required: [decision]
@@ -3266,6 +3781,14 @@ components:
           type: string
           description: Idempotency key; a repeated one is not submitted again
           pattern: '^[A-Za-z0-9_-]{1,64}$'
+        mcpServers:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/ClientMcpServer'
+          description: >-
+            The MCP servers this thread's user enabled in the app (replaces the thread's; [] removes them). For template
+            versions with clientMcp, on hosts the platform allows. Never forwarded to the agent: the platform keeps them.
     AgentMessageAccepted:
       type: object
       required: [submissionId]

@@ -48,9 +48,17 @@ type AgentAuth func(ctx context.Context, agentID uuid.UUID, token string) (teamI
 // maxRequestBody bounds a relayed request (images are inlined as base64).
 const maxRequestBody = 32 << 20
 
-// Gateway returns the handler agents call.
+// Gateway returns a handler with the model routes only (tests; the platform
+// adds the MCP routes, see RegisterGateway).
 func (s *Service) Gateway(auth AgentAuth, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
+	s.RegisterGateway(mux, auth, log)
+	return mux
+}
+
+// RegisterGateway adds the gateway's health check, the model proxy and usage
+// reports to mux.
+func (s *Service) RegisterGateway(mux *http.ServeMux, auth AgentAuth, log *slog.Logger) {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"data":{"status":"ok"}}`)
@@ -61,8 +69,10 @@ func (s *Service) Gateway(auth AgentAuth, log *slog.Logger) http.Handler {
 	mux.HandleFunc("POST /usage", func(w http.ResponseWriter, r *http.Request) {
 		s.reportUsage(w, r, auth, log)
 	})
-	return mux
 }
+
+// Credential reads an agent's gateway credential from either auth header style.
+func Credential(r *http.Request) (uuid.UUID, string, bool) { return credential(r) }
 
 // reportUsage takes an agent's usage batch (models the proxy does not see).
 func (s *Service) reportUsage(w http.ResponseWriter, r *http.Request, auth AgentAuth, log *slog.Logger) {

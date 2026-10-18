@@ -23,6 +23,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/httpapi"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
+	"github.com/ncecere/pi-durable-platform/internal/mcp"
 	"github.com/ncecere/pi-durable-platform/internal/testutil"
 )
 
@@ -37,6 +38,8 @@ type testApp struct {
 	Agents *agents.Service
 	// Models is the model catalog.
 	Models *llm.Service
+	// MCP is the MCP catalog.
+	MCP *mcp.Service
 }
 
 // Test keys (32 bytes, base64): the encryption key and the API key pepper.
@@ -119,10 +122,10 @@ func newTestAppDeps(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 		hook(&deps)
 	}
 	handler = httpapi.NewAPIHandler(deps)
-	gateway = deps.Models.Gateway(deps.Agents.AuthenticateProxy, log)
+	gateway = httpapi.NewGatewayHandler(deps)
 
 	jar, _ := cookiejar.New(nil)
-	return &testApp{t: t, URL: srv.URL, GatewayURL: gw.URL, Pool: pool, Client: &http.Client{Jar: jar}, Agents: deps.Agents, Models: deps.Models}
+	return &testApp{t: t, URL: srv.URL, GatewayURL: gw.URL, Pool: pool, Client: &http.Client{Jar: jar}, Agents: deps.Agents, Models: deps.Models, MCP: deps.MCP}
 }
 
 func (a *testApp) do(method, path string, body any, headers map[string]string) (int, []byte) {

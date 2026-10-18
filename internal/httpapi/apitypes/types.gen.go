@@ -207,6 +207,114 @@ func (e InstanceInfoTheme) Valid() bool {
 	}
 }
 
+// Defines values for McpServerAccessMode.
+const (
+	McpServerAccessModeDirect McpServerAccessMode = "direct"
+	McpServerAccessModeProxy  McpServerAccessMode = "proxy"
+)
+
+// Valid indicates whether the value is a known member of the McpServerAccessMode enum.
+func (e McpServerAccessMode) Valid() bool {
+	switch e {
+	case McpServerAccessModeDirect:
+		return true
+	case McpServerAccessModeProxy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpServerVisibility.
+const (
+	McpServerVisibilityAll   McpServerVisibility = "all"
+	McpServerVisibilityTeams McpServerVisibility = "teams"
+)
+
+// Valid indicates whether the value is a known member of the McpServerVisibility enum.
+func (e McpServerVisibility) Valid() bool {
+	switch e {
+	case McpServerVisibilityAll:
+		return true
+	case McpServerVisibilityTeams:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpServerCreateAccessMode.
+const (
+	McpServerCreateAccessModeDirect McpServerCreateAccessMode = "direct"
+	McpServerCreateAccessModeProxy  McpServerCreateAccessMode = "proxy"
+)
+
+// Valid indicates whether the value is a known member of the McpServerCreateAccessMode enum.
+func (e McpServerCreateAccessMode) Valid() bool {
+	switch e {
+	case McpServerCreateAccessModeDirect:
+		return true
+	case McpServerCreateAccessModeProxy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpServerCreateVisibility.
+const (
+	McpServerCreateVisibilityAll   McpServerCreateVisibility = "all"
+	McpServerCreateVisibilityTeams McpServerCreateVisibility = "teams"
+)
+
+// Valid indicates whether the value is a known member of the McpServerCreateVisibility enum.
+func (e McpServerCreateVisibility) Valid() bool {
+	switch e {
+	case McpServerCreateVisibilityAll:
+		return true
+	case McpServerCreateVisibilityTeams:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpServerUpdateAccessMode.
+const (
+	McpServerUpdateAccessModeDirect McpServerUpdateAccessMode = "direct"
+	McpServerUpdateAccessModeProxy  McpServerUpdateAccessMode = "proxy"
+)
+
+// Valid indicates whether the value is a known member of the McpServerUpdateAccessMode enum.
+func (e McpServerUpdateAccessMode) Valid() bool {
+	switch e {
+	case McpServerUpdateAccessModeDirect:
+		return true
+	case McpServerUpdateAccessModeProxy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for McpServerUpdateVisibility.
+const (
+	McpServerUpdateVisibilityAll   McpServerUpdateVisibility = "all"
+	McpServerUpdateVisibilityTeams McpServerUpdateVisibility = "teams"
+)
+
+// Valid indicates whether the value is a known member of the McpServerUpdateVisibility enum.
+func (e McpServerUpdateVisibility) Valid() bool {
+	switch e {
+	case McpServerUpdateVisibilityAll:
+		return true
+	case McpServerUpdateVisibilityTeams:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MemberAddResultStatus.
 const (
 	Added   MemberAddResultStatus = "added"
@@ -772,6 +880,9 @@ type AgentMessageAccepted struct {
 
 // AgentMessageCreate defines model for AgentMessageCreate.
 type AgentMessageCreate struct {
+	// McpServers The MCP servers this thread's user enabled in the app (replaces the thread's; [] removes them). For template versions with clientMcp, on hosts the platform allows. Never forwarded to the agent: the platform keeps them.
+	McpServers *[]ClientMcpServer `json:"mcpServers,omitempty"`
+
 	// RequestId Idempotency key; a repeated one is not submitted again
 	RequestId *string `json:"requestId,omitempty"`
 	Text      string  `json:"text"`
@@ -825,10 +936,15 @@ type AgentTemplateStatus string
 
 // AgentTemplateCreate defines model for AgentTemplateCreate.
 type AgentTemplateCreate struct {
+	// ClientMcp Let apps give its agents MCP servers for a thread
+	ClientMcp   *bool   `json:"clientMcp,omitempty"`
 	Description *string `json:"description,omitempty"`
 
 	// Instructions The agent's system prompt (version 1)
 	Instructions string `json:"instructions"`
+
+	// Mcp MCP servers its agents get
+	Mcp *[]McpAttach `json:"mcp,omitempty"`
 
 	// ModelId The model version 1 runs on (default the platform's default model)
 	ModelId *openapi_types.UUID `json:"modelId,omitempty"`
@@ -857,9 +973,11 @@ type AgentTemplateUpdate struct {
 
 // AgentTemplateVersion defines model for AgentTemplateVersion.
 type AgentTemplateVersion struct {
-	CreatedAt     time.Time `json:"createdAt"`
-	CreatedByName *string   `json:"createdByName,omitempty"`
-	Instructions  string    `json:"instructions"`
+	ClientMcp     *bool          `json:"clientMcp,omitempty"`
+	CreatedAt     time.Time      `json:"createdAt"`
+	CreatedByName *string        `json:"createdByName,omitempty"`
+	Instructions  string         `json:"instructions"`
+	Mcp           *[]McpAttached `json:"mcp,omitempty"`
 
 	// ModelId Its model (absent - the platform's default)
 	ModelId           *openapi_types.UUID `json:"modelId,omitempty"`
@@ -871,7 +989,12 @@ type AgentTemplateVersion struct {
 
 // AgentTemplateVersionCreate defines model for AgentTemplateVersionCreate.
 type AgentTemplateVersionCreate struct {
+	// ClientMcp Let apps give its agents MCP servers for a thread (omitted keeps the current version's)
+	ClientMcp    *bool  `json:"clientMcp,omitempty"`
 	Instructions string `json:"instructions"`
+
+	// Mcp MCP servers its agents get (omitted keeps the current version's; [] none)
+	Mcp *[]McpAttach `json:"mcp,omitempty"`
 
 	// ModelId The model it runs on (a model's ID; "" for the platform's default; omitted keeps the current version's)
 	ModelId *string `json:"modelId,omitempty"`
@@ -1081,6 +1204,19 @@ type ChatView struct {
 	Tools []ChatToolSlot `json:"tools"`
 }
 
+// ClientMcpServer defines model for ClientMcpServer.
+type ClientMcpServer struct {
+	// ExpiresInSeconds Default a day, at most a week
+	ExpiresInSeconds *int32 `json:"expiresInSeconds,omitempty"`
+
+	// Headers For example the user's Authorization header
+	Headers *map[string]string `json:"headers,omitempty"`
+
+	// Name Shown to the model; names the server's tools (mcpc__<slug>__<tool>)
+	Name string `json:"name"`
+	Url  string `json:"url"`
+}
+
 // DevAccount defines model for DevAccount.
 type DevAccount struct {
 	Email        string       `json:"email"`
@@ -1163,6 +1299,103 @@ type Invite struct {
 	Id        openapi_types.UUID  `json:"id"`
 	InvitedBy *openapi_types.UUID `json:"invitedBy,omitempty"`
 	Role      TeamRole            `json:"role"`
+}
+
+// McpAttach defines model for McpAttach.
+type McpAttach struct {
+	ServerId openapi_types.UUID `json:"serverId"`
+
+	// Tools Only these of its tools (absent - all)
+	Tools *[]string `json:"tools,omitempty"`
+}
+
+// McpAttached defines model for McpAttached.
+type McpAttached struct {
+	Name     string             `json:"name"`
+	ServerId openapi_types.UUID `json:"serverId"`
+	Slug     string             `json:"slug"`
+	Tools    *[]string          `json:"tools,omitempty"`
+}
+
+// McpServer defines model for McpServer.
+type McpServer struct {
+	// AccessMode proxy: agents call the platform, which adds the headers, allows only their tools and logs calls; direct: agents get the URL and headers
+	AccessMode  McpServerAccessMode `json:"accessMode"`
+	CreatedAt   time.Time           `json:"createdAt"`
+	Description string              `json:"description"`
+	Enabled     bool                `json:"enabled"`
+	HasHeaders  bool                `json:"hasHeaders"`
+	Id          openapi_types.UUID  `json:"id"`
+	Name        string              `json:"name"`
+	Revision    int64               `json:"revision"`
+
+	// Slug Names its tools for the model (mcp__<slug>__<tool>)
+	Slug  string       `json:"slug"`
+	Teams *[]ModelTeam `json:"teams,omitempty"`
+	Tools []McpTool    `json:"tools"`
+
+	// ToolsError Why the tools could not be read the last time
+	ToolsError       *string             `json:"toolsError,omitempty"`
+	ToolsRefreshedAt *time.Time          `json:"toolsRefreshedAt,omitempty"`
+	UpdatedAt        time.Time           `json:"updatedAt"`
+	Url              string              `json:"url"`
+	Visibility       McpServerVisibility `json:"visibility"`
+}
+
+// McpServerAccessMode proxy: agents call the platform, which adds the headers, allows only their tools and logs calls; direct: agents get the URL and headers
+type McpServerAccessMode string
+
+// McpServerVisibility defines model for McpServer.Visibility.
+type McpServerVisibility string
+
+// McpServerCreate defines model for McpServerCreate.
+type McpServerCreate struct {
+	AccessMode  *McpServerCreateAccessMode `json:"accessMode,omitempty"`
+	Description *string                    `json:"description,omitempty"`
+	Enabled     *bool                      `json:"enabled,omitempty"`
+	Headers     *map[string]string         `json:"headers,omitempty"`
+	Name        string                     `json:"name"`
+
+	// Slug Default from the name; cannot change later
+	Slug  *string   `json:"slug,omitempty"`
+	Teams *[]string `json:"teams,omitempty"`
+
+	// Url The server's Streamable HTTP endpoint
+	Url        string                     `json:"url"`
+	Visibility *McpServerCreateVisibility `json:"visibility,omitempty"`
+}
+
+// McpServerCreateAccessMode defines model for McpServerCreate.AccessMode.
+type McpServerCreateAccessMode string
+
+// McpServerCreateVisibility defines model for McpServerCreate.Visibility.
+type McpServerCreateVisibility string
+
+// McpServerUpdate defines model for McpServerUpdate.
+type McpServerUpdate struct {
+	AccessMode  *McpServerUpdateAccessMode `json:"accessMode,omitempty"`
+	Description *string                    `json:"description,omitempty"`
+	Enabled     *bool                      `json:"enabled,omitempty"`
+
+	// Headers Replaces every header ({} removes them)
+	Headers    *map[string]string         `json:"headers,omitempty"`
+	Name       *string                    `json:"name,omitempty"`
+	Teams      *[]string                  `json:"teams,omitempty"`
+	Url        *string                    `json:"url,omitempty"`
+	Visibility *McpServerUpdateVisibility `json:"visibility,omitempty"`
+}
+
+// McpServerUpdateAccessMode defines model for McpServerUpdate.AccessMode.
+type McpServerUpdateAccessMode string
+
+// McpServerUpdateVisibility defines model for McpServerUpdate.Visibility.
+type McpServerUpdateVisibility string
+
+// McpTool defines model for McpTool.
+type McpTool struct {
+	Description *string `json:"description,omitempty"`
+	Name        string  `json:"name"`
+	Title       *string `json:"title,omitempty"`
 }
 
 // Me defines model for Me.
@@ -1567,6 +1800,14 @@ type TeamView struct {
 	Team Team      `json:"team"`
 }
 
+// ThreadMcpServer defines model for ThreadMcpServer.
+type ThreadMcpServer struct {
+	ExpiresAt time.Time `json:"expiresAt"`
+	Name      string    `json:"name"`
+	Slug      string    `json:"slug"`
+	Url       string    `json:"url"`
+}
+
 // UsageReport defines model for UsageReport.
 type UsageReport struct {
 	From    openapi_types.Date `json:"from"`
@@ -1680,6 +1921,9 @@ type IfMatchHeader = string
 // LimitParam defines model for LimitParam.
 type LimitParam = int
 
+// McpServerIdParam defines model for McpServerIdParam.
+type McpServerIdParam = openapi_types.UUID
+
 // ModelIdParam defines model for ModelIdParam.
 type ModelIdParam = openapi_types.UUID
 
@@ -1764,6 +2008,12 @@ type AdminListAuditParams struct {
 
 // AdminListAuditParamsActorKind defines parameters for AdminListAudit.
 type AdminListAuditParamsActorKind string
+
+// AdminUpdateMcpServerParams defines parameters for AdminUpdateMcpServer.
+type AdminUpdateMcpServerParams struct {
+	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
+	IfMatch IfMatchHeader `json:"If-Match"`
+}
 
 // AdminUpdateModelProviderParams defines parameters for AdminUpdateModelProvider.
 type AdminUpdateModelProviderParams struct {
@@ -1867,6 +2117,11 @@ type StreamAgentThreadParams struct {
 	Once *bool `form:"once,omitempty" json:"once,omitempty"`
 }
 
+// SetThreadMcpServersJSONBody defines parameters for SetThreadMcpServers.
+type SetThreadMcpServersJSONBody struct {
+	Servers []ClientMcpServer `json:"servers"`
+}
+
 // GetMeParams defines parameters for GetMe.
 type GetMeParams struct {
 	// Optional With true, a request without a session cookie gets data null (200) instead of a 401, for pages that work signed out. An expired session is still a 401 (and clears the cookie).
@@ -1938,6 +2193,12 @@ type GetTeamUsageParamsGroupBy string
 // DevLoginJSONRequestBody defines body for DevLogin for application/json ContentType.
 type DevLoginJSONRequestBody = DevLoginRequest
 
+// AdminCreateMcpServerJSONRequestBody defines body for AdminCreateMcpServer for application/json ContentType.
+type AdminCreateMcpServerJSONRequestBody = McpServerCreate
+
+// AdminUpdateMcpServerJSONRequestBody defines body for AdminUpdateMcpServer for application/json ContentType.
+type AdminUpdateMcpServerJSONRequestBody = McpServerUpdate
+
 // AdminCreateModelProviderJSONRequestBody defines body for AdminCreateModelProvider for application/json ContentType.
 type AdminCreateModelProviderJSONRequestBody = ModelProviderCreate
 
@@ -1976,6 +2237,9 @@ type CreateTemplateVersionJSONRequestBody = AgentTemplateVersionCreate
 
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = AgentUpdate
+
+// SetThreadMcpServersJSONRequestBody defines body for SetThreadMcpServers for application/json ContentType.
+type SetThreadMcpServersJSONRequestBody SetThreadMcpServersJSONBody
 
 // SendAgentMessageJSONRequestBody defines body for SendAgentMessage for application/json ContentType.
 type SendAgentMessageJSONRequestBody = AgentMessageCreate
