@@ -12,6 +12,7 @@ import { Card, CardBody } from "@/components/ui/card/card";
 import { Stack } from "@/components/ui/layout/layout";
 import { Separator } from "@/components/ui/separator/separator";
 import { Loading, Spinner } from "@/components/ui/spinner/spinner";
+import { TextLink } from "@/components/ui/text-link/text-link";
 import styles from "./session.module.css";
 
 export type Me = Schemas["Me"];
@@ -181,9 +182,9 @@ export function SignInPage() {
         </Card>
         {instance.supportUrl && (
           <p className={styles.help}>
-            <a href={instance.supportUrl} target="_blank" rel="noreferrer">
+            <TextLink href={instance.supportUrl} target="_blank" rel="noreferrer">
               <LifeBuoy aria-hidden /> Help signing in
-            </a>
+            </TextLink>
           </p>
         )}
       </div>
