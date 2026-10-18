@@ -13,6 +13,7 @@ import {
   adminTeamTabs,
   agentTabs,
   mcpServerTabs,
+  modelCatalogTabs,
   providerTabs,
   serviceAccountTabs,
   tabSearch,
@@ -31,7 +32,8 @@ import styles from "./router.module.css";
  * routes.ts groups its pages into one); the shell (router, session, layout
  * and UI library) stays in the main bundle.
  *
- * Areas: Home and Agents at the top level, API keys next to Profile, a
+ * Areas: Home and Agents at the top level, API keys and Connected apps next
+ * to Profile, the OAuth Connect consent page outside the shell, a
  * team's overview, service accounts and settings under teams/$team, and
  * users, teams and the audit log under admin. A new area adds its pages
  * module here, its routes below, and its navigation item in
@@ -41,6 +43,7 @@ const pages = {
   home: () => import("./pages/home"),
   agents: () => import("./pages/agents/routes"),
   account: () => import("./pages/account/routes"),
+  connect: () => import("./pages/connect/routes"),
   people: () => import("./pages/admin/people/routes"),
   adminAudit: () => import("./pages/admin/audit/page"),
   adminModels: () => import("./pages/admin/models/routes"),
@@ -134,6 +137,12 @@ const apiKeysRoute = createRoute({
   path: "settings/api-keys",
   validateSearch: (s: Record<string, unknown>): Record<string, unknown> => s,
   component: lazy(pages.account, "ApiKeysPage"),
+});
+/** The apps the person connected with OAuth Connect. */
+const connectedAppsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "settings/connected-apps",
+  component: lazy(pages.account, "ConnectedAppsPage"),
 });
 /* ---------------- agents (everyone signed in) ---------------- */
 
@@ -263,6 +272,7 @@ const appTree = appRoute.addChildren([
   homeRoute,
   profileRoute,
   apiKeysRoute,
+  connectedAppsRoute,
   agentsRoute,
   catalogRoute,
   templateRoute,
@@ -288,7 +298,11 @@ const appTree = appRoute.addChildren([
     ),
     adminList("audit", lazy(pages.adminAudit, "AdminAuditPage")),
     adminList("templates", lazy(pages.templates, "AdminTemplatesPage")),
-    adminList("models", lazy(pages.adminModels, "AdminModelsPage")),
+    adminTabs(
+      "models",
+      modelCatalogTabs,
+      lazy(pages.adminModels, "AdminModelsPage"),
+    ),
     adminList("usage", lazy(pages.adminUsage, "AdminUsagePage")),
     adminList("settings", lazy(pages.adminSettings, "AdminSettingsPage")),
     adminTabs(
@@ -305,7 +319,24 @@ const appTree = appRoute.addChildren([
   ]),
 ]);
 
-export const routeTree = rootRoute.addChildren([appTree]);
+/*
+ * The OAuth Connect consent page (/connect/consent?<the authorization request>): no app shell (nothing to
+ * wander off to while the app waits), but it needs a session. Signed out, the sign-in page returns here with
+ * the whole query.
+ */
+const ConsentPage = lazy(pages.connect, "OAuthConsentPage");
+const consentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "connect/consent",
+  validateSearch: (s: Record<string, unknown>): Record<string, unknown> => s,
+  component: () => (
+    <SessionGate>
+      <ConsentPage />
+    </SessionGate>
+  ),
+});
+
+export const routeTree = rootRoute.addChildren([appTree, consentRoute]);
 
 export const router = createRouter({
   routeTree,

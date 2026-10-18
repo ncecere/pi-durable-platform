@@ -5,6 +5,7 @@ import {
   Boxes,
   Home,
   KeyRound,
+  Plug,
   Shield,
   Sparkles,
   User,
@@ -151,6 +152,8 @@ function useTrail(
     return [{ label: "Profile", icon: icon(User) }];
   if (routeId === "/app/settings/api-keys")
     return [{ label: terms.apiKeys, icon: icon(KeyRound) }];
+  if (routeId === "/app/settings/connected-apps")
+    return [{ label: terms.connectedApps, icon: icon(Plug) }];
   if (routeId === "/app/agents")
     return [{ label: "All agents", icon: icon(Sparkles) }];
   if (routeId === "/app/catalog")

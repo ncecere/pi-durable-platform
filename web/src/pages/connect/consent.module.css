@@ -1,0 +1,116 @@
+/* The OAuth Connect consent page: a centred card like the sign-in page, no app shell. Semantic tokens only. */
+.page {
+  display: grid;
+  /* One column no wider than the window: a long app name or host can't push the card off a phone's screen. */
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  min-height: 100dvh;
+  padding: var(--space-8) var(--space-4);
+  background:
+    radial-gradient(60rem 30rem at 50% -10%, var(--color-primary-subtle), transparent 70%),
+    var(--color-bg);
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  min-width: 0;
+  max-width: 32rem;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.instanceLogo {
+  display: block;
+  max-width: 10rem;
+  height: 2rem;
+  object-fit: contain;
+}
+
+.instance {
+  margin: 0;
+  text-align: center;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+}
+
+.client {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.clientText {
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-tight);
+  overflow-wrap: anywhere;
+}
+
+.host {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.heading {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+
+  & li {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
+  & svg {
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+    margin-top: 0.2rem;
+    color: var(--color-success);
+  }
+
+  & li[data-tone="limit"] svg {
+    color: var(--color-text-muted);
+  }
+}
+
+.muted {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

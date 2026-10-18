@@ -28,7 +28,7 @@ describe("navigation lists", () => {
 
   it("resolve the record routes the lists link to (API keys, service accounts, users, teams)", () => {
     const paths = routePaths();
-    const records = ["/settings/api-keys", "/settings/profile", "/teams/$team/service-accounts/$serviceAccountId", "/admin/users/$userId", "/admin/teams/$team", "/agents", "/teams/$team/agents", "/teams/$team/agents/$agentId", "/catalog", "/templates/$templateId", "/teams/$team/templates", "/admin/templates", "/admin/models", "/admin/models/providers/$providerId", "/admin/mcp-servers", "/admin/mcp-servers/$serverId", "/teams/$team/usage", "/admin/usage"];
+    const records = ["/settings/api-keys", "/settings/profile", "/settings/connected-apps", "/connect/consent", "/teams/$team/service-accounts/$serviceAccountId", "/admin/users/$userId", "/admin/teams/$team", "/agents", "/teams/$team/agents", "/teams/$team/agents/$agentId", "/catalog", "/templates/$templateId", "/teams/$team/templates", "/admin/templates", "/admin/models", "/admin/models/providers/$providerId", "/admin/mcp-servers", "/admin/mcp-servers/$serverId", "/teams/$team/usage", "/admin/usage"];
     for (const to of records) expect(paths, to).toContain(to);
   });
 

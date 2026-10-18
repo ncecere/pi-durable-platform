@@ -1,7 +1,8 @@
 /*
  * Admin → Users › one person: one page with sections (Profile and access,
- * Teams, Activity). Suspend is a menu action; a platform-role change is
- * confirmed with what the role can do.
+ * Teams, Connected apps, Activity). Suspend is a menu action; a
+ * platform-role change is confirmed with what the role can do. Platform
+ * admins disconnect a person's apps; auditors read them.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
@@ -12,6 +13,7 @@ import { adminUserQuery } from "@/api/queries";
 import { ActionMenu } from "@/components/templates/action-menu";
 import { Time } from "@/components/ui/time/time";
 import { isNotFound, NotFoundState } from "@/components/not-found";
+import { ConnectedApps } from "@/components/oauth/connected-apps";
 import { PageSkeleton } from "@/components/page-skeleton";
 import { roleLabels } from "@/components/roles";
 import { ErrorAlert } from "@/components/ui/alert/alert";
@@ -106,6 +108,9 @@ export function AdminUserPage() {
       <div className={p.sections}>
         <UserAccessCard user={user} isAdmin={isAdmin} update={update} self={self} otherDialogOpen={confirmSuspend} />
         <UserTeamsCard teams={teams} />
+        <Card title="Connected apps" description={`Apps ${name} allowed to act as them with OAuth Connect. They never get admin powers.`}>
+          <ConnectedApps owner={{ self: false, userId: user.id, name }} canDisconnect={isAdmin} />
+        </Card>
         <Card title="Activity" description={`Changes ${name} made, newest first, from the audit log.`}>
           <UserActivity user={user} />
         </Card>

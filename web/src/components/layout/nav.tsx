@@ -312,7 +312,7 @@ export const adminKeywords: Partial<Record<AdminPath, string[]>> = {
   ],
   "/admin/mcp-servers": ["mcp", "tools", "tool servers", "headers", "publish"],
   "/admin/usage": ["usage", "tokens", "cost", "spend", "requests", "billing", "teams", "models"],
-  "/admin/settings": ["settings", "personal workspaces", "personal", "limits", "max agents", "budget", "defaults"],
+  "/admin/settings": ["settings", "personal workspaces", "personal", "limits", "max agents", "budget", "defaults", "trusted apps", "oauth", "connect", "approval"],
   "/admin/audit": [
     "audit log",
     "history",

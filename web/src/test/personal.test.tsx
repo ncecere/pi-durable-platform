@@ -267,7 +267,7 @@ describe("Admin › Models: personal workspaces", () => {
       "GET /v1/admin/model-providers": () => [modelProvider()],
       "GET /v1/admin/models": () => [model({ visibility: "teams", teams: [], personal: true })],
     });
-    renderApp("/admin/models");
+    renderApp("/admin/models?tab=models");
     expect(await screen.findByText("Personal workspaces")).toBeInTheDocument();
   });
 });

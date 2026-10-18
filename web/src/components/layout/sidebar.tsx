@@ -1,5 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { KeyRound, LifeBuoy, LogOut, User } from "lucide-react";
+import { KeyRound, LifeBuoy, LogOut, Plug, User } from "lucide-react";
+import { terms } from "../../lib/terms";
 import { InstanceLogo, useInstance, useSignOut, type Me } from "../../session";
 import {
   Brand,
@@ -92,7 +93,13 @@ export function AppSidebar({
             icon={<KeyRound aria-hidden />}
             render={<Link to="/settings/api-keys" />}
           >
-            API keys
+            {terms.apiKeys}
+          </MenuLinkItem>
+          <MenuLinkItem
+            icon={<Plug aria-hidden />}
+            render={<Link to="/settings/connected-apps" />}
+          >
+            {terms.connectedApps}
           </MenuLinkItem>
           <MenuSeparator />
           <ThemeMenuGroup />

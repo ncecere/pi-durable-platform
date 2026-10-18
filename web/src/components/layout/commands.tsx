@@ -11,6 +11,7 @@ import {
   Boxes,
   FileClock,
   KeyRound,
+  Plug,
   Plus,
   Settings,
   User,
@@ -89,6 +90,14 @@ function pageGroup(
         "revoke",
       ],
       onSelect: () => void navigate({ to: "/settings/api-keys" }),
+    },
+    {
+      id: "connected-apps",
+      label: terms.connectedApps,
+      icon: icon(Plug),
+      hint: "Page",
+      keywords: ["account", "oauth", "connect", "apps", "chat app", "disconnect", "authorized"],
+      onSelect: () => void navigate({ to: "/settings/connected-apps" }),
     },
     {
       id: "create-api-key",

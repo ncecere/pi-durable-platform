@@ -1,6 +1,7 @@
 /* Admin › Models (add a provider, discover its models) and an agent's model (Overview warning, Settings select). */
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { axe } from "vitest-axe";
 import type { Schemas } from "../api/client";
 import { agent, agentId, model, modelProvider, providerId, providerKinds, team } from "./fixtures";
 import { type Call, type Handler, Reply, mockApi, renderApp, shellRoutes } from "./harness";
@@ -85,6 +86,49 @@ describe("Admin › Models › Add provider", () => {
     renderApp("/admin/models");
     expect(await within(await screen.findByRole("table", { name: "Providers" })).findByText("LiteLLM gateway")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add provider" })).toBeNull();
+  });
+});
+
+describe("Admin › Models › tabs", () => {
+  it("shows Providers first with Add provider, and Models in ?tab=models without it", async () => {
+    const u = userEvent.setup();
+    mockApi(adminRoutes());
+    const { router, container } = renderApp("/admin/models");
+    const tabs = await screen.findByRole("tablist", { name: "Model catalog sections" });
+    expect(within(tabs).getByRole("tab", { name: /Providers/ })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("table", { name: "Providers" })).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Every model" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Add provider" })).toBeInTheDocument();
+
+    await u.click(within(tabs).getByRole("tab", { name: /Models/ }));
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ tab: "models" }));
+    expect(await within(await screen.findByRole("table", { name: "Every model" })).findByText(model().name)).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Providers" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add provider" })).toBeNull();
+    expect(await axe(container)).toHaveNoViolations();
+
+    // Back returns to the first tab, and its address stays clean.
+    router.history.back();
+    expect(await screen.findByRole("table", { name: "Providers" })).toBeInTheDocument();
+    expect(router.state.location.search).not.toHaveProperty("tab");
+  });
+
+  it("opens on the Models tab from a link, and keeps its search in the address", async () => {
+    const u = userEvent.setup();
+    mockApi(adminRoutes("platform_auditor"));
+    const { router } = renderApp("/admin/models?tab=models");
+    const table = await screen.findByRole("table", { name: "Every model" });
+    expect(within(screen.getByRole("tablist")).getByRole("tab", { name: /Models/ })).toHaveAttribute("aria-selected", "true");
+    await u.type(screen.getByRole("searchbox", { name: "Search models" }), "nothing-like-this");
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ tab: "models", q: "nothing-like-this" }));
+    expect(within(table).queryByText(model().name)).toBeNull();
+  });
+
+  it("rewrites an unknown ?tab= to the first tab", async () => {
+    mockApi(adminRoutes());
+    const { router } = renderApp("/admin/models?tab=nope");
+    expect(await screen.findByRole("table", { name: "Providers" })).toBeInTheDocument();
+    await waitFor(() => expect(router.state.location.search).not.toHaveProperty("tab"));
   });
 });
 

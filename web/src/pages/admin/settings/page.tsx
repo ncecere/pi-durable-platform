@@ -2,15 +2,17 @@
  * Admin › Settings (/admin/settings): platform-wide settings. Personal
  * workspaces: whether everyone who signs in gets one, and the limits every
  * one starts with (max agents, max running at once, a monthly budget that is
- * recorded but not enforced yet). Saved with If-Match on the settings'
- * revision; platform auditors see them read-only.
+ * recorded but not enforced yet). Trusted apps: the OAuth Connect apps that
+ * skip the approval screen (trusted-apps-section.tsx). Each section saves on
+ * its own with If-Match on its revision; platform auditors see them
+ * read-only.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ifMatch, unwrap } from "@/api/client";
 import { type PersonalSettings, personalSettingsQuery } from "@/api/personal";
 import { useRevisionForm } from "@/components/templates/revision-form";
 import { SettingsPage, SettingsSection } from "@/components/templates/settings-page";
-import { ErrorAlert } from "@/components/ui/alert/alert";
+import { Alert, ErrorAlert } from "@/components/ui/alert/alert";
 import { Field } from "@/components/ui/field/field";
 import { Stack } from "@/components/ui/layout/layout";
 import { NumberInput } from "@/components/ui/number-input/number-input";
@@ -22,6 +24,7 @@ import { adminOnly } from "@/lib/terms";
 import s from "../../shared.module.css";
 import { useIsPlatformAdmin } from "../hooks";
 import { budgetNote, budgetOf, budgetProblem, countProblem, LIMIT_MAX, text } from "./limits";
+import { TrustedAppsSettings } from "./trusted-apps-section";
 
 type Form = { enabled: boolean; maxAgents: string; maxRunning: string; monthlyBudgetUsd: string };
 
@@ -36,9 +39,12 @@ const labels = { enabled: "Personal workspaces", maxAgents: "Max agents", maxRun
 /** /admin/settings */
 export function AdminSettingsPage() {
   const settings = useQuery(personalSettingsQuery());
+  const isAdmin = useIsPlatformAdmin();
   return (
     <Stack gap={6} className={s.page}>
       <PageHeader title="Settings" description="Settings for the whole platform." />
+      {/* Said once for every section. */}
+      {!isAdmin && <Alert tone="info">{adminOnly}</Alert>}
       {settings.isLoading ? (
         <div role="status" aria-label="Loading…">
           <SkeletonText lines={4} />
@@ -48,6 +54,7 @@ export function AdminSettingsPage() {
       ) : (
         <ErrorAlert error={settings.error} title="Couldn't load the settings" onRetry={() => void settings.refetch()} />
       )}
+      <TrustedAppsSettings />
     </Stack>
   );
 }
@@ -90,7 +97,7 @@ function PersonalWorkspaceSettings({ settings }: { settings: PersonalSettings })
       revision={revision}
       dirty={dirty}
       canEdit={isAdmin}
-      readOnlyNote={adminOnly}
+      readOnlyNote={null}
       saving={save.isPending}
       error={save.error}
       onSave={() => save.mutate()}

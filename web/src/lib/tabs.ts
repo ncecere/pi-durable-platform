@@ -7,6 +7,10 @@
 export const adminTeamTabs = ["overview", "members", "limits", "settings"] as const;
 export type AdminTeamTab = (typeof adminTeamTabs)[number];
 
+/** Admin → Models (and, later, a team's models): Providers · Models. */
+export const modelCatalogTabs = ["providers", "models"] as const;
+export type ModelCatalogTab = (typeof modelCatalogTabs)[number];
+
 /** Admin → Models › one provider: Models · Settings. */
 export const providerTabs = ["models", "settings"] as const;
 export type ProviderTab = (typeof providerTabs)[number];

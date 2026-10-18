@@ -1,0 +1,20 @@
+/* OAuth Connect apps in tables: a logo beside the name and host. Semantic tokens only. */
+.app {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.logo {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: var(--radius-2);
+  object-fit: contain;
+
+  &[data-size="lg"] {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+}

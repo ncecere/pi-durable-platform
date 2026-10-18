@@ -19,6 +19,7 @@ export const terms = {
   dangerZone: "Danger zone",
   readOnly: "Read-only",
   apiKeys: "API keys",
+  connectedApps: "Connected apps",
   serviceAccounts: "Service accounts",
 } as const;
 
