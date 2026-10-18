@@ -58,6 +58,20 @@ type AgentTemplateVersion struct {
 	ClientMcp    bool
 }
 
+type AgentThread struct {
+	AgentID          uuid.UUID
+	ThreadID         string
+	Title            string
+	CreatedByUser    uuid.NullUUID
+	CreatedByService uuid.NullUUID
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	Busy             bool
+	LastReplyAt      *time.Time
+	LastError        *string
+	StatusAt         time.Time
+}
+
 type ApiKey struct {
 	ID         uuid.UUID
 	UserID     uuid.UUID

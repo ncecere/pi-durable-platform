@@ -1005,13 +1005,37 @@ type AgentTemplateVersionCreate struct {
 
 // AgentThread defines model for AgentThread.
 type AgentThread struct {
-	// CreatedAt Unix milliseconds
-	CreatedAt int64  `json:"createdAt"`
-	ThreadId  string `json:"threadId"`
-	Title     string `json:"title"`
+	// Busy A reply is in progress
+	Busy bool `json:"busy"`
 
-	// UpdatedAt Unix milliseconds
+	// CreatedAt Unix milliseconds
+	CreatedAt int64 `json:"createdAt"`
+
+	// LastError Why the last reply failed (absent when it succeeded)
+	LastError *string `json:"lastError,omitempty"`
+
+	// LastReplyAt When the last reply finished (Unix milliseconds)
+	LastReplyAt *int64 `json:"lastReplyAt,omitempty"`
+	ThreadId    string `json:"threadId"`
+	Title       string `json:"title"`
+
+	// UpdatedAt Unix milliseconds; moves when a message is sent and when a reply finishes
 	UpdatedAt int64 `json:"updatedAt"`
+}
+
+// AgentThreadEvent defines model for AgentThreadEvent.
+type AgentThreadEvent struct {
+	AgentId openapi_types.UUID `json:"agentId"`
+	Deleted bool               `json:"deleted"`
+
+	// Thread The thread now (absent when deleted)
+	Thread   *AgentThread `json:"thread,omitempty"`
+	ThreadId string       `json:"threadId"`
+}
+
+// AgentThreadUpdate defines model for AgentThreadUpdate.
+type AgentThreadUpdate struct {
+	Title string `json:"title"`
 }
 
 // AgentUpdate defines model for AgentUpdate.
@@ -2105,6 +2129,12 @@ type ListAgentsParams struct {
 	IncludeManaged *bool `form:"includeManaged,omitempty" json:"includeManaged,omitempty"`
 }
 
+// StreamAgentEventsParams defines parameters for StreamAgentEvents.
+type StreamAgentEventsParams struct {
+	AgentId *openapi_types.UUID `form:"agentId,omitempty" json:"agentId,omitempty"`
+	Once    *bool               `form:"once,omitempty" json:"once,omitempty"`
+}
+
 // UpdateAgentParams defines parameters for UpdateAgent.
 type UpdateAgentParams struct {
 	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
@@ -2237,6 +2267,9 @@ type CreateTemplateVersionJSONRequestBody = AgentTemplateVersionCreate
 
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = AgentUpdate
+
+// UpdateAgentThreadJSONRequestBody defines body for UpdateAgentThread for application/json ContentType.
+type UpdateAgentThreadJSONRequestBody = AgentThreadUpdate
 
 // SetThreadMcpServersJSONRequestBody defines body for SetThreadMcpServers for application/json ContentType.
 type SetThreadMcpServersJSONRequestBody SetThreadMcpServersJSONBody

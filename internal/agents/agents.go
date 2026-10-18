@@ -74,6 +74,7 @@ type Service struct {
 	mcp        *mcp.Service
 	cfg        config.Agents
 	agentsURL  string // AGENTS_DATABASE_URL, with RuntimeDatabaseHost applied
+	hub        threadHub
 }
 
 // New returns a Service. pool is the platform database; agentsPool the
@@ -81,7 +82,7 @@ type Service struct {
 // model catalog.
 func New(pool, agentsPool *pgxpool.Pool, box *secrets.Box, host *agenthost.Manager, models *llm.Service, servers *mcp.Service, cfg config.Agents) *Service {
 	s := &Service{pool: pool, agentsPool: agentsPool, q: dbgen.New(pool), box: box, prov: provision.New(agentsPool), host: host,
-		llm: models, mcp: servers, cfg: cfg, agentsURL: cfg.DatabaseURL}
+		llm: models, mcp: servers, cfg: cfg, agentsURL: cfg.DatabaseURL, hub: threadHub{subs: map[chan ThreadEvent]struct{}{}}}
 	host.Resolve = s.resolve
 	return s
 }
@@ -679,6 +680,9 @@ func (s *Service) spec(ctx context.Context, ag dbgen.Agent) (launcher.Spec, erro
 	if err := s.mcpEnv(ctx, ag, tv, string(token), env); err != nil {
 		return launcher.Spec{}, err
 	}
+	// Where the runtime reports its threads' status (the gateway).
+	env["PLATFORM_GATEWAY_URL"] = strings.TrimRight(s.cfg.GatewayURL, "/")
+	env["PLATFORM_KEY"] = llm.ProxyCredential(ag.ID.String(), string(token))
 	return launcher.Spec{
 		AgentID: ag.ID.String(), Name: ag.Name, Instructions: tv.Instructions,
 		Schema: schema, DatabaseURL: dsn, Token: string(token), Env: env,

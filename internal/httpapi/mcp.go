@@ -204,30 +204,34 @@ func (a *api) setThreadMCPServers(w http.ResponseWriter, r *http.Request) {
 }
 
 // takeMCPServers handles a message's mcpServers: stores them for the thread
-// and removes them from the body relayed to the agent. It reports false when
-// it has written an error.
-func (a *api) takeMCPServers(w http.ResponseWriter, r *http.Request, threadID string) bool {
+// and removes them from the body relayed to the agent. It returns the
+// message's text, and false when it has written an error.
+func (a *api) takeMCPServers(w http.ResponseWriter, r *http.Request, threadID string) (string, bool) {
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
 		httpx.Error(w, http.StatusRequestEntityTooLarge, "too_large", "The request is too large")
-		return false
+		return "", false
 	}
 	var body map[string]json.RawMessage
-	if json.Unmarshal(raw, &body) != nil || body["mcpServers"] == nil {
+	var text string
+	if json.Unmarshal(raw, &body) == nil {
+		_ = json.Unmarshal(body["text"], &text)
+	}
+	if body == nil || body["mcpServers"] == nil {
 		r.Body = io.NopCloser(bytes.NewReader(raw)) // the runtime validates the message
-		return true
+		return text, true
 	}
 	var servers []apitypes.ClientMcpServer
 	if err := json.Unmarshal(body["mcpServers"], &servers); err != nil {
 		httpx.Error(w, http.StatusBadRequest, "invalid_mcp_servers", "mcpServers must be a list of {name, url, headers?, expiresInSeconds?}")
-		return false
+		return "", false
 	}
 	id, _ := pathUUID(w, r, "agentId")
 	if failed(w, r, a.Agents.SetThreadMCP(r.Context(), a.actor(r), id, threadID, clientServers(servers))) {
-		return false
+		return "", false
 	}
 	delete(body, "mcpServers")
 	rest, _ := json.Marshal(body)
 	r.Body, r.ContentLength = io.NopCloser(bytes.NewReader(rest)), int64(len(rest))
-	return true
+	return text, true
 }

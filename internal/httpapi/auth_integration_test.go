@@ -123,6 +123,9 @@ func newTestAppDeps(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 	}
 	handler = httpapi.NewAPIHandler(deps)
 	gateway = httpapi.NewGatewayHandler(deps)
+	eventsCtx, stopEvents := context.WithCancel(context.Background())
+	t.Cleanup(stopEvents)
+	go deps.Agents.RunThreadEvents(eventsCtx, log)
 
 	jar, _ := cookiejar.New(nil)
 	return &testApp{t: t, URL: srv.URL, GatewayURL: gw.URL, Pool: pool, Client: &http.Client{Jar: jar}, Agents: deps.Agents, Models: deps.Models, MCP: deps.MCP}

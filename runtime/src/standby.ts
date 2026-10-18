@@ -83,7 +83,7 @@ export function createStandbyServer(options: {
 
 const SCHEMA = /^agent_[a-z0-9_]{1,56}$/;
 const ID = /^[A-Za-z0-9-]{1,64}$/;
-const MODEL_ENV = /^(MODEL_[A-Z_]+|MCP_SERVERS|MCP_THREADS_URL|MCP_KEY|DEMO_TOKENS_PER_SECOND)$/;
+const MODEL_ENV = /^(MODEL_[A-Z_]+|MCP_SERVERS|MCP_THREADS_URL|MCP_KEY|PLATFORM_GATEWAY_URL|PLATFORM_KEY|DEMO_TOKENS_PER_SECOND)$/;
 
 /** Validates the activation body; returns the problem as a string. */
 export function parseConfig(body: unknown): AgentConfig | string {

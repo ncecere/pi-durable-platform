@@ -5,6 +5,7 @@ import { AgentMcp } from "./mcp.ts";
 import { createAgentModels } from "./models.ts";
 import { createRuntimeServer } from "./server.ts";
 import { AgentOwnedElsewhereError, openPostgresAgentStorage } from "./storage/postgres.ts";
+import { gatewayPost, ThreadStatusReporter } from "./thread-status.ts";
 import { ThreadStore } from "./threads.ts";
 import { assistantExtension } from "./tools.ts";
 
@@ -80,6 +81,13 @@ export async function startAgent(config: AgentConfig): Promise<RunningAgent> {
 
 	const threads = new ThreadStore(harness, () => ({ model, extensions: [extension, ...mcp.extensions] }));
 	const mcpActive = mcp.extensions.length > 0 || mcp.clientServers;
+	// The platform keeps a record of every thread and its status (so listing doesn't wake the agent).
+	const env = config.modelEnv;
+	const status =
+		env.PLATFORM_GATEWAY_URL && env.PLATFORM_KEY
+			? new ThreadStatusReporter(harness, threads, gatewayPost(env.PLATFORM_GATEWAY_URL, env.PLATFORM_KEY))
+			: undefined;
+	void status?.sync().catch((error: unknown) => console.error(`[agent ${config.agentId}] thread sync:`, (error as Error).message));
 	const { handler } = createRuntimeServer({
 		harness,
 		threads,
@@ -94,6 +102,7 @@ export async function startAgent(config: AgentConfig): Promise<RunningAgent> {
 					await conversation.configure({ extensions }, ctx);
 				}
 			: undefined,
+		afterMessage: status ? (threadId) => status.watch(threadId) : undefined,
 	});
 	return {
 		handler,
@@ -102,6 +111,7 @@ export async function startAgent(config: AgentConfig): Promise<RunningAgent> {
 			await harness.close(ctx).catch(() => {});
 			await usage?.flush();
 			await mcp.close();
+			await status?.stop();
 		},
 	};
 }

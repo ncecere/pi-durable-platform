@@ -119,6 +119,7 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	go cleanupLoop(loopCtx, deps.Auth, log)
 	go rateCounterLoop(loopCtx, deps.RateStore, log)
 	go deps.Agents.Host().ReapLoop(loopCtx, 30*time.Second)
+	go deps.Agents.RunThreadEvents(loopCtx, log.With("component", "thread-events"))
 	if err := serve(ctx, log, srv, gw); err != nil {
 		return err
 	}

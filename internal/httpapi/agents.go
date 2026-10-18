@@ -1,8 +1,14 @@
 package httpapi
 
 import (
+	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"regexp"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/ncecere/pi-durable-platform/internal/agents"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
@@ -27,8 +33,10 @@ func (a *api) agentRoutes() []route {
 		{"PATCH", one, k(a.updateAgent)},
 		{"DELETE", one, k(a.deleteAgent)},
 		{"POST", one + "/hibernate", k(a.hibernateAgent)},
-		{"GET", one + "/threads", k(a.agentProxy("/threads"))},
+		{"GET", "/v1/agents/events", k(a.streamAgentEvents)},
+		{"GET", one + "/threads", k(a.listAgentThreads)},
 		{"GET", thread, k(a.agentProxy(""))},
+		{"PATCH", thread, k(a.updateAgentThread)},
 		{"DELETE", thread, k(a.agentProxy(""))},
 		{"POST", thread + "/messages", k(a.agentProxy("/messages"))},
 		{"POST", thread + "/stop", k(a.agentProxy("/stop"))},
@@ -171,9 +179,126 @@ func (a *api) agentProxy(suffix string) http.HandlerFunc {
 		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, 256<<10)
 		}
-		if suffix == "/messages" && !a.takeMCPServers(w, r, r.PathValue("threadId")) {
+		received := time.Now()
+		var text string
+		if suffix == "/messages" {
+			if text, ok = a.takeMCPServers(w, r, r.PathValue("threadId")); !ok {
+				return
+			}
+		}
+		rec := &statusRecorder{ResponseWriter: w}
+		a.Agents.Host().Proxy(rec, r, spec, path)
+		// Keep the platform's record of the thread (agent_threads) in step.
+		if rec.status >= 200 && rec.status < 300 {
+			switch {
+			case suffix == "/messages":
+				a.Agents.ThreadSent(r.Context(), a.actor(r), id, r.PathValue("threadId"), text, received)
+			case suffix == "" && r.Method == http.MethodDelete:
+				a.Agents.ThreadRemoved(r.Context(), id, r.PathValue("threadId"))
+			}
+		}
+	}
+}
+
+func toAPIThread(t agents.Thread) apitypes.AgentThread {
+	out := apitypes.AgentThread{ThreadId: t.ThreadID, Title: t.Title, CreatedAt: t.CreatedAt.UnixMilli(), UpdatedAt: t.UpdatedAt.UnixMilli(),
+		Busy: t.Busy, LastError: t.LastError}
+	if t.LastReplyAt != nil {
+		ms := t.LastReplyAt.UnixMilli()
+		out.LastReplyAt = &ms
+	}
+	return out
+}
+
+// listAgentThreads reads the platform's record: it doesn't wake the agent.
+func (a *api) listAgentThreads(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "agentId")
+	if !ok {
+		return
+	}
+	rows, err := a.Agents.Threads(r.Context(), a.actor(r), id)
+	writeList(w, r, rows, err, toAPIThread)
+}
+
+func (a *api) updateAgentThread(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "agentId")
+	if !ok {
+		return
+	}
+	thread := r.PathValue("threadId")
+	if !threadIDRE.MatchString(thread) {
+		httpx.Error(w, http.StatusBadRequest, "invalid_thread_id", "Thread IDs are 1-64 letters, digits, dashes or underscores")
+		return
+	}
+	var in apitypes.AgentThreadUpdate
+	if !httpx.Decode(w, r, &in) {
+		return
+	}
+	t, err := a.Agents.RenameThread(r.Context(), a.actor(r), id, thread, in.Title)
+	if failed(w, r, err) {
+		return
+	}
+	httpx.JSON(w, http.StatusOK, toAPIThread(t))
+}
+
+// streamAgentEvents sends a "thread" event whenever a thread of an agent the
+// caller may use is created, renamed, starts or finishes a reply, or is
+// deleted (?agentId= limits it to one agent; ?once=true answers "ready" and
+// ends, for checks).
+func (a *api) streamAgentEvents(w http.ResponseWriter, r *http.Request) {
+	var only *uuid.UUID
+	if v := r.URL.Query().Get("agentId"); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			httpx.Error(w, http.StatusBadRequest, "invalid_agent_id", "agentId must be an agent's ID")
 			return
 		}
-		a.Agents.Host().Proxy(w, r, spec, path)
+		if _, err := a.Agents.Threads(r.Context(), a.actor(r), id); failed(w, r, err) {
+			return
+		}
+		only = &id
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		httpx.Error(w, http.StatusInternalServerError, "internal", "Streaming is not supported")
+		return
+	}
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	events := a.Agents.SubscribeThreads(ctx, a.actor(r), only)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, "event: ready\ndata: {}\n\n")
+	flusher.Flush()
+	if r.URL.Query().Get("once") == "true" {
+		return
+	}
+	keepAlive := time.NewTicker(15 * time.Second)
+	defer keepAlive.Stop()
+	closing := a.Agents.Host().Closing()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-closing:
+			return
+		case <-keepAlive.C:
+			_, _ = io.WriteString(w, ": keep-alive\n\n")
+			flusher.Flush()
+		case ev, open := <-events:
+			if !open {
+				return
+			}
+			body := apitypes.AgentThreadEvent{AgentId: ev.AgentID, ThreadId: ev.Thread.ThreadID, Deleted: ev.Deleted}
+			if !ev.Deleted {
+				t := toAPIThread(ev.Thread)
+				body.Thread = &t
+			}
+			b, _ := json.Marshal(body)
+			_, _ = io.WriteString(w, "event: thread\ndata: "+string(b)+"\n\n")
+			flusher.Flush()
+		}
 	}
 }

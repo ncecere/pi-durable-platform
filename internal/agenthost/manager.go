@@ -45,6 +45,9 @@ type Manager struct {
 // CloseStreams ends every open event stream now (http.Server.RegisterOnShutdown).
 func (m *Manager) CloseStreams() { m.closingOnce.Do(func() { close(m.closing) }) }
 
+// Closing is closed when the platform shuts down (other event streams end then too).
+func (m *Manager) Closing() <-chan struct{} { return m.closing }
+
 // New returns a manager. idle is how long an agent may sit with no work, no
 // requests and no open streams before it hibernates.
 func New(l launcher.Launcher, idle time.Duration, log *slog.Logger) *Manager {

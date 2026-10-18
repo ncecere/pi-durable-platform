@@ -6,9 +6,13 @@
 package httpapi
 
 import (
+	"encoding/json"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
+
+	"github.com/google/uuid"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -16,6 +20,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/apikeys"
 	"github.com/ncecere/pi-durable-platform/internal/auth"
 	"github.com/ncecere/pi-durable-platform/internal/config"
+	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
 	"github.com/ncecere/pi-durable-platform/internal/mcp"
@@ -184,5 +189,58 @@ func NewGatewayHandler(d Deps) http.Handler {
 	log := d.Log.With("component", "gateway")
 	d.Models.RegisterGateway(mux, d.Agents.AuthenticateProxy, log)
 	d.MCP.RegisterGateway(mux, d.Agents.AuthenticateMCP, d.Config.Agents.GatewayURL, llm.Credential, log)
+	registerThreadReports(mux, d.Agents, log)
 	return mux
+}
+
+// registerThreadReports takes the runtime's reports of its threads' status:
+// one thread (/threads/report), or all of them when it starts (/threads/sync).
+func registerThreadReports(mux *http.ServeMux, ag *agents.Service, log *slog.Logger) {
+	authed := func(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+		id, token, ok := llm.Credential(r)
+		if !ok {
+			httpx.Error(w, http.StatusUnauthorized, "unauthorized", "A gateway credential is required")
+			return uuid.Nil, false
+		}
+		if _, _, err := ag.AuthenticateProxy(r.Context(), id, token); err != nil {
+			httpx.Error(w, http.StatusUnauthorized, "unauthorized", "Invalid gateway credential")
+			return uuid.Nil, false
+		}
+		return id, true
+	}
+	mux.HandleFunc("POST /threads/report", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := authed(w, r)
+		if !ok {
+			return
+		}
+		var in agents.ThreadReport
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in); err != nil {
+			httpx.Error(w, http.StatusBadRequest, "invalid_request", "The body must be a thread report")
+			return
+		}
+		if failed(w, r, ag.ReportThread(r.Context(), id, in)) {
+			return
+		}
+		httpx.JSON(w, http.StatusOK, apitypes.Ok{Ok: true})
+	})
+	mux.HandleFunc("POST /threads/sync", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := authed(w, r)
+		if !ok {
+			return
+		}
+		var in struct {
+			Threads []agents.ThreadReport `json:"threads"`
+			At      int64                 `json:"at"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&in); err != nil || len(in.Threads) > 100_000 {
+			httpx.Error(w, http.StatusBadRequest, "invalid_request", "The body must be the runtime's threads")
+			return
+		}
+		if err := ag.SyncThreads(r.Context(), id, in.Threads, in.At); err != nil {
+			log.Warn("sync threads", "agent", id, "err", err)
+			failed(w, r, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, apitypes.Ok{Ok: true})
+	})
 }

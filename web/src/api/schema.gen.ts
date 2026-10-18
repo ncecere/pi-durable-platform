@@ -1063,6 +1063,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Server-sent events for the threads of every agent the caller may use
+         * @description `event: ready` first, then `event: thread` (an AgentThreadEvent) whenever a thread is created, renamed, starts or finishes a reply, or is deleted. One stream follows every conversation, so a client need not open one per thread. `agentId` limits it to one agent; `once=true` sends `ready` and ends. A keep-alive comment comes every 15 seconds; reconnect when the stream ends (it does when the platform restarts).
+         */
+        get: operations["streamAgentEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents": {
         parameters: {
             query?: never;
@@ -1187,7 +1207,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** The agent's conversations, most recently used first (wakes the agent) */
+        /**
+         * The agent's conversations, most recently used first, with their status (does not wake the agent)
+         * @description From the platform's record of each thread, kept as messages are relayed and as the agent reports replies ending. A thread whose agent has not run since this record began appears after the agent's next start.
+         */
         get: operations["listAgentThreads"];
         put?: never;
         post?: never;
@@ -1216,7 +1239,8 @@ export interface paths {
         delete: operations["deleteAgentThread"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Rename a conversation */
+        patch: operations["updateAgentThread"];
         trace?: never;
     };
     "/v1/agents/{agentId}/threads/{threadId}/messages": {
@@ -1817,9 +1841,29 @@ export interface components {
             createdAt: number;
             /**
              * Format: int64
-             * @description Unix milliseconds
+             * @description Unix milliseconds; moves when a message is sent and when a reply finishes
              */
             updatedAt: number;
+            /** @description A reply is in progress */
+            busy: boolean;
+            /**
+             * Format: int64
+             * @description When the last reply finished (Unix milliseconds)
+             */
+            lastReplyAt?: number | null;
+            /** @description Why the last reply failed (absent when it succeeded) */
+            lastError?: string | null;
+        };
+        AgentThreadUpdate: {
+            title: string;
+        };
+        AgentThreadEvent: {
+            /** Format: uuid */
+            agentId: string;
+            threadId: string;
+            deleted: boolean;
+            /** @description The thread now (absent when deleted) */
+            thread?: components["schemas"]["AgentThread"] | null;
         };
         AgentMessageCreate: {
             text: string;
@@ -4507,6 +4551,32 @@ export interface operations {
             409: components["responses"]["ErrorReply"];
         };
     };
+    streamAgentEvents: {
+        parameters: {
+            query?: {
+                agentId?: string;
+                once?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
     listAgents: {
         parameters: {
             query?: {
@@ -4842,6 +4912,38 @@ export interface operations {
             404: components["responses"]["ErrorReply"];
             409: components["responses"]["ErrorReply"];
             503: components["responses"]["ErrorReply"];
+        };
+    };
+    updateAgentThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                threadId: components["parameters"]["ThreadIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentThreadUpdate"];
+            };
+        };
+        responses: {
+            /** @description The thread */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentThread"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
         };
     };
     sendAgentMessage: {

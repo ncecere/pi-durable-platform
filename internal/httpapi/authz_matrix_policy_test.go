@@ -231,10 +231,14 @@ var matrixPolicies = map[string]policy{
 	"updateAgent": {scope: scopeTeam, own: editors, build: func(c *mctx) request {
 		return patch(c.agent("", true), map[string]any{"description": "updated by the matrix"}).h(rev1)
 	}},
-	"deleteAgent":       {scope: scopeTeam, own: admins | padmin, foreign: padmin, build: func(c *mctx) request { return del(c.agent("", true)) }},
-	"hibernateAgent":    {scope: scopeTeam, own: members, build: func(c *mctx) request { return post(c.agent("/hibernate", true), nil) }},
-	"listAgentThreads":  {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.agent("/threads", false)) }},
-	"getAgentThread":    {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.thread("", false)) }},
+	"deleteAgent":      {scope: scopeTeam, own: admins | padmin, foreign: padmin, build: func(c *mctx) request { return del(c.agent("", true)) }},
+	"hibernateAgent":   {scope: scopeTeam, own: members, build: func(c *mctx) request { return post(c.agent("/hibernate", true), nil) }},
+	"listAgentThreads": {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.agent("/threads", false)) }},
+	"getAgentThread":   {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.thread("", false)) }},
+	"updateAgentThread": {scope: scopeTeam, own: members, build: func(c *mctx) request {
+		return patch(c.thread("", false), map[string]any{"title": "Renamed by the matrix"})
+	}},
+	"streamAgentEvents": {own: signedIn, build: func(*mctx) request { return get("/v1/agents/events?once=true") }},
 	"deleteAgentThread": {scope: scopeTeam, own: members, build: func(c *mctx) request { return del(c.thread("", true)) }},
 	"sendAgentMessage": {scope: scopeTeam, own: members, build: func(c *mctx) request {
 		return post(c.thread("/messages", false), map[string]any{"text": "hello from the matrix"})

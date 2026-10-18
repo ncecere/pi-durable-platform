@@ -2259,6 +2259,40 @@ paths:
           $ref: '#/components/responses/ErrorReply'
         '409':
           $ref: '#/components/responses/ErrorReply'
+  /v1/agents/events:
+    get:
+      tags:
+      - agents
+      operationId: streamAgentEvents
+      summary: Server-sent events for the threads of every agent the caller may use
+      description: >-
+        `event: ready` first, then `event: thread` (an AgentThreadEvent) whenever a thread is created, renamed, starts
+        or finishes a reply, or is deleted. One stream follows every conversation, so a client need not open one per
+        thread. `agentId` limits it to one agent; `once=true` sends `ready` and ends. A keep-alive comment comes every
+        15 seconds; reconnect when the stream ends (it does when the platform restarts).
+      parameters:
+      - name: agentId
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: once
+        in: query
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: The stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
   /v1/agents:
     get:
       tags:
@@ -2537,7 +2571,10 @@ paths:
       tags:
       - agents
       operationId: listAgentThreads
-      summary: The agent's conversations, most recently used first (wakes the agent)
+      summary: The agent's conversations, most recently used first, with their status (does not wake the agent)
+      description: >-
+        From the platform's record of each thread, kept as messages are relayed and as the agent reports replies
+        ending. A thread whose agent has not run since this record began appears after the agent's next start.
       responses:
         '200':
           description: Threads
@@ -2562,6 +2599,33 @@ paths:
     parameters:
     - $ref: '#/components/parameters/AgentIdParam'
     - $ref: '#/components/parameters/ThreadIdParam'
+    patch:
+      tags:
+      - agents
+      operationId: updateAgentThread
+      summary: Rename a conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentThreadUpdate'
+      responses:
+        '200':
+          description: The thread
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgentThread'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
     get:
       tags:
       - agents
@@ -3756,7 +3820,7 @@ components:
           description: A model published to the team, or "" for its template's; applies when the agent next starts
     AgentThread:
       type: object
-      required: [threadId, title, createdAt, updatedAt]
+      required: [threadId, title, createdAt, updatedAt, busy]
       properties:
         threadId:
           type: string
@@ -3769,7 +3833,42 @@ components:
         updatedAt:
           type: integer
           format: int64
-          description: Unix milliseconds
+          description: Unix milliseconds; moves when a message is sent and when a reply finishes
+        busy:
+          type: boolean
+          description: A reply is in progress
+        lastReplyAt:
+          type: integer
+          format: int64
+          nullable: true
+          description: When the last reply finished (Unix milliseconds)
+        lastError:
+          type: string
+          nullable: true
+          description: Why the last reply failed (absent when it succeeded)
+    AgentThreadUpdate:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          maxLength: 200
+    AgentThreadEvent:
+      type: object
+      required: [agentId, threadId, deleted]
+      properties:
+        agentId:
+          type: string
+          format: uuid
+        threadId:
+          type: string
+        deleted:
+          type: boolean
+        thread:
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/AgentThread'
+          description: The thread now (absent when deleted)
     AgentMessageCreate:
       type: object
       required: [text]
