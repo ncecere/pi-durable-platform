@@ -8,6 +8,30 @@ the entry says how to adapt. The design is in [DESIGN.md](DESIGN.md), and each r
 
 ## [Unreleased]
 
+### Added
+
+- **Doctor checks the agents database.** `pi-durable-platform doctor` connects to `AGENTS_DATABASE_URL` and checks
+  that its role can provision agents (CREATEROLE and CREATE on the database, on PostgreSQL 16 or later). Skipped
+  without an agents database; reported as info when `AGENTS_CREATE_DATABASE` will create it.
+- **Staff read any team's agents.** Platform admins and auditors see every team's agents read-only (`GET
+  /v1/teams/{team}/agents`, `GET /v1/agents/{id}`), not only personal workspaces'. Admin › Teams › a team has an
+  Agents tab linking to each agent's page (Overview and Settings; Conversations for platform admins; no Test).
+
+### Fixed
+
+- Platform staff could hibernate a personal workspace's agent (`POST /v1/agents/{id}/hibernate`); now only the
+  agent's team can (403 for staff).
+- Sign-in: the "Help signing in" link uses the app's link colour.
+- Home: the Agents card no longer shows an empty body strip (it links to All agents and the Catalog).
+- Admin › Models and MCP servers: the Owner filter's chevron no longer overlaps its text (every small select).
+- Admin › Templates: the review queue and the full list each have a heading, and the queue's table a name.
+- Admin › Settings › Private networks: the example placeholder shows only while no network is listed.
+- Audit log: every action the platform records has a label (agents, templates, model providers, models, MCP
+  servers, OAuth apps, team provider settings), with areas in the filter and target type names.
+- Platform admins' conversation list says "Title hidden" for a withheld title instead of "Private conversation":
+  shared threads in personal workspaces and of service-managed agents are withheld too; Visibility says who sees it.
+- Agent Test chat: the header's Shared icon stays on the line with its word.
+
 ## [0.1.0] - 2026-10-18
 
 The first release ([release notes](docs/releases/v0.1.0.md)). Migrations `00001` to `00016`. Two images, for
