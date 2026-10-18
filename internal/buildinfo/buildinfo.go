@@ -5,7 +5,7 @@ import "fmt"
 
 // Set with -ldflags "-X github.com/ncecere/pi-durable-platform/internal/buildinfo.Version=..."
 var (
-	Version = "0.1.0"
+	Version = "0.1.1"
 	Commit  = "unknown"
 )
 
