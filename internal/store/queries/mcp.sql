@@ -1,5 +1,11 @@
 -- name: ListMCPServers :many
-SELECT * FROM mcp_servers ORDER BY lower(name), id;
+-- Servers with their owning team (NULL columns: a platform server): every
+-- one, the platform's only (platform_only), or one team's (team_id).
+SELECT sqlc.embed(s), t.slug AS team_slug, t.name AS team_name, t.kind AS team_kind
+FROM mcp_servers s LEFT JOIN teams t ON t.id = s.team_id
+WHERE (NOT sqlc.arg(platform_only)::boolean OR s.team_id IS NULL)
+  AND (sqlc.narg(team_id)::uuid IS NULL OR s.team_id = sqlc.narg(team_id)::uuid)
+ORDER BY (s.team_id IS NOT NULL), lower(s.name), s.id;
 
 -- name: GetMCPServer :one
 SELECT * FROM mcp_servers WHERE id = $1;
@@ -8,8 +14,8 @@ SELECT * FROM mcp_servers WHERE id = $1;
 SELECT * FROM mcp_servers WHERE id = $1 FOR UPDATE;
 
 -- name: InsertMCPServer :one
-INSERT INTO mcp_servers (id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, created_by, personal)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+INSERT INTO mcp_servers (id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, created_by, personal, team_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING *;
 
 -- name: UpdateMCPServer :one
@@ -39,18 +45,32 @@ DELETE FROM mcp_server_teams WHERE server_id = $1;
 INSERT INTO mcp_server_teams (server_id, team_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;
 
 -- name: ListAvailableMCPServers :many
--- The MCP servers a team may use now: enabled, published to every team or to it.
+-- The MCP servers a team may use now: enabled, and either the team's own, or
+-- a platform server published to every team or to it (personal workspaces:
+-- published to personal workspaces). A team's server is never available to
+-- another team, whatever its visibility.
 SELECT * FROM mcp_servers s
-WHERE s.enabled AND (CASE WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = sqlc.arg(team_id)) = 'personal' THEN s.personal
+WHERE s.enabled
+  AND (CASE WHEN s.team_id IS NOT NULL THEN s.team_id = sqlc.arg(team_id)::uuid
+            WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = sqlc.arg(team_id)) = 'personal' THEN s.personal
             ELSE s.visibility = 'all' OR EXISTS (SELECT 1 FROM mcp_server_teams st WHERE st.server_id = s.id AND st.team_id = sqlc.arg(team_id)) END)
-ORDER BY lower(s.name), s.id;
+ORDER BY (s.team_id IS NULL), lower(s.name), s.id;
 
 -- name: MCPServerAvailable :one
+-- Whether the team may use the server now (the rule of ListAvailableMCPServers).
 SELECT EXISTS (
     SELECT 1 FROM mcp_servers s
     WHERE s.id = sqlc.arg(server_id) AND s.enabled
-      AND (CASE WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = sqlc.arg(team_id)) = 'personal' THEN s.personal
-            ELSE s.visibility = 'all' OR EXISTS (SELECT 1 FROM mcp_server_teams st WHERE st.server_id = s.id AND st.team_id = sqlc.arg(team_id)) END)
+      AND (CASE WHEN s.team_id IS NOT NULL THEN s.team_id = sqlc.arg(team_id)::uuid
+                WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = sqlc.arg(team_id)) = 'personal' THEN s.personal
+                ELSE s.visibility = 'all' OR EXISTS (SELECT 1 FROM mcp_server_teams st WHERE st.server_id = s.id AND st.team_id = sqlc.arg(team_id)) END)
+)::boolean;
+
+-- name: TemplateVersionUsesTeamMCP :one
+-- Whether a template version gives its agents a team's own MCP server.
+SELECT EXISTS (
+    SELECT 1 FROM template_version_mcp vm JOIN mcp_servers s ON s.id = vm.server_id
+    WHERE vm.template_id = $1 AND vm.version = $2 AND s.team_id IS NOT NULL
 )::boolean;
 
 -- name: InsertTemplateVersionMCP :exec

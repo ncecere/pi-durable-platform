@@ -166,7 +166,7 @@ func (q *Queries) GetModelProvider(ctx context.Context, id uuid.UUID) (ModelProv
 }
 
 const getModelSettings = `-- name: GetModelSettings :one
-SELECT id, teams_may_add_providers, private_networks, revision, updated_by, updated_at FROM model_settings WHERE id = 1
+SELECT id, teams_may_add_providers, private_networks, revision, updated_by, updated_at, teams_may_add_mcp_servers FROM model_settings WHERE id = 1
 `
 
 func (q *Queries) GetModelSettings(ctx context.Context) (ModelSetting, error) {
@@ -179,6 +179,7 @@ func (q *Queries) GetModelSettings(ctx context.Context) (ModelSetting, error) {
 		&i.Revision,
 		&i.UpdatedBy,
 		&i.UpdatedAt,
+		&i.TeamsMayAddMcpServers,
 	)
 	return i, err
 }
@@ -684,7 +685,7 @@ func (q *Queries) LockModelProvider(ctx context.Context, id uuid.UUID) (ModelPro
 }
 
 const lockModelSettings = `-- name: LockModelSettings :one
-SELECT id, teams_may_add_providers, private_networks, revision, updated_by, updated_at FROM model_settings WHERE id = 1 FOR UPDATE
+SELECT id, teams_may_add_providers, private_networks, revision, updated_by, updated_at, teams_may_add_mcp_servers FROM model_settings WHERE id = 1 FOR UPDATE
 `
 
 func (q *Queries) LockModelSettings(ctx context.Context) (ModelSetting, error) {
@@ -697,6 +698,7 @@ func (q *Queries) LockModelSettings(ctx context.Context) (ModelSetting, error) {
 		&i.Revision,
 		&i.UpdatedBy,
 		&i.UpdatedAt,
+		&i.TeamsMayAddMcpServers,
 	)
 	return i, err
 }
@@ -805,20 +807,26 @@ func (q *Queries) UpdateModelProvider(ctx context.Context, arg UpdateModelProvid
 }
 
 const updateModelSettings = `-- name: UpdateModelSettings :one
-UPDATE model_settings SET teams_may_add_providers = $1, private_networks = $2, updated_by = $3,
+UPDATE model_settings SET teams_may_add_providers = $1, private_networks = $2, updated_by = $3, teams_may_add_mcp_servers = $4,
        revision = revision + 1, updated_at = now()
 WHERE id = 1
-RETURNING id, teams_may_add_providers, private_networks, revision, updated_by, updated_at
+RETURNING id, teams_may_add_providers, private_networks, revision, updated_by, updated_at, teams_may_add_mcp_servers
 `
 
 type UpdateModelSettingsParams struct {
-	TeamsMayAddProviders bool
-	PrivateNetworks      []string
-	UpdatedBy            uuid.NullUUID
+	TeamsMayAddProviders  bool
+	PrivateNetworks       []string
+	UpdatedBy             uuid.NullUUID
+	TeamsMayAddMcpServers bool
 }
 
 func (q *Queries) UpdateModelSettings(ctx context.Context, arg UpdateModelSettingsParams) (ModelSetting, error) {
-	row := q.db.QueryRow(ctx, updateModelSettings, arg.TeamsMayAddProviders, arg.PrivateNetworks, arg.UpdatedBy)
+	row := q.db.QueryRow(ctx, updateModelSettings,
+		arg.TeamsMayAddProviders,
+		arg.PrivateNetworks,
+		arg.UpdatedBy,
+		arg.TeamsMayAddMcpServers,
+	)
 	var i ModelSetting
 	err := row.Scan(
 		&i.ID,
@@ -827,6 +835,7 @@ func (q *Queries) UpdateModelSettings(ctx context.Context, arg UpdateModelSettin
 		&i.Revision,
 		&i.UpdatedBy,
 		&i.UpdatedAt,
+		&i.TeamsMayAddMcpServers,
 	)
 	return i, err
 }

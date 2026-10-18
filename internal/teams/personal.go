@@ -150,6 +150,9 @@ type PersonalSettingsInput struct {
 	// OwnProviders lets personal workspaces add their own model providers
 	// (nil keeps the current setting).
 	OwnProviders *bool
+	// OwnMCPServers lets personal workspaces add their own MCP servers (nil
+	// keeps the current setting).
+	OwnMCPServers *bool
 }
 
 // UpdatePersonalSettings changes the defaults (platform admins, If-Match).
@@ -175,12 +178,15 @@ func (s *Service) UpdatePersonalSettings(ctx context.Context, a authz.Actor, in 
 		if cur.Revision != expectedRevision {
 			return apperr.Stale()
 		}
-		own := cur.OwnProviders
+		own, ownMCP := cur.OwnProviders, cur.OwnMcpServers
 		if in.OwnProviders != nil {
 			own = *in.OwnProviders
 		}
+		if in.OwnMCPServers != nil {
+			ownMCP = *in.OwnMCPServers
+		}
 		if out, err = q.UpdatePersonalSettings(ctx, dbgen.UpdatePersonalSettingsParams{Enabled: in.Enabled, MaxAgents: in.MaxAgents,
-			MaxRunning: in.MaxRunning, MonthlyBudgetUsd: budget, OwnProviders: own}); err != nil {
+			MaxRunning: in.MaxRunning, MonthlyBudgetUsd: budget, OwnProviders: own, OwnMcpServers: ownMCP}); err != nil {
 			return err
 		}
 		e := a.Audit("platform.personal_settings", "platform", "personal-workspaces")
@@ -192,7 +198,7 @@ func (s *Service) UpdatePersonalSettings(ctx context.Context, a authz.Actor, in 
 
 func settingsSnapshot(p PersonalSettings) map[string]any {
 	return map[string]any{"enabled": p.Enabled, "maxAgents": p.MaxAgents, "maxRunning": p.MaxRunning, "monthlyBudgetUsd": numeric(p.MonthlyBudgetUsd),
-		"ownProviders": p.OwnProviders}
+		"ownProviders": p.OwnProviders, "ownMcpServers": p.OwnMcpServers}
 }
 
 // LimitsInput overrides a personal workspace's limits (nil: the default).

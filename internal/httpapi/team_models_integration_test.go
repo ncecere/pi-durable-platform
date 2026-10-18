@@ -53,19 +53,22 @@ func (h *hostTable) lookup(_ context.Context, host string) ([]netip.Addr, error)
 	return []netip.Addr{netip.MustParseAddr(a)}, nil
 }
 
-// useTeamNetwork sends team providers' approved connections to srv (an
-// httptest TLS server) with hosts resolved from table, through the real
-// address guard without the development allowance.
+// useTeamNetwork sends teams' services' (providers' and MCP servers')
+// approved connections to srv (an httptest TLS server) with hosts resolved
+// from table, through the real address guard without the development
+// allowance.
 func useTeamNetwork(t *testing.T, app *testApp, srv *httptest.Server, table map[string]string) *hostTable {
 	t.Helper()
 	hosts := &hostTable{m: table}
-	app.Models.SetTeamNetwork(llm.TeamNetwork{
+	cfg := llm.TeamNetwork{
 		Lookup: hosts.lookup,
 		Connect: func(ctx context.Context, network, _ string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, network, srv.Listener.Addr().String())
 		},
 		TLS: &tls.Config{RootCAs: srv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs, ServerName: "example.com"},
-	})
+	}
+	app.Models.SetTeamNetwork(cfg)
+	app.MCP.SetTeamNetwork(cfg)
 	return hosts
 }
 

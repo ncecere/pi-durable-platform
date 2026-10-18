@@ -1506,8 +1506,11 @@ type McpServer struct {
 	Personal bool  `json:"personal"`
 	Revision int64 `json:"revision"`
 
-	// Slug Names its tools for the model (mcp__<slug>__<tool>)
-	Slug  string       `json:"slug"`
+	// Slug Names its tools for the model (mcp__<slug>__<tool>); unique across the platform and every team
+	Slug string `json:"slug"`
+
+	// Team The team that owns the server (null for a platform server); a team's server is for that team only
+	Team  *ModelOwner  `json:"team"`
 	Teams *[]ModelTeam `json:"teams,omitempty"`
 	Tools []McpTool    `json:"tools"`
 
@@ -1784,9 +1787,12 @@ type ModelProviderUpdateAccessMode string
 
 // ModelSettings defines model for ModelSettings.
 type ModelSettings struct {
-	// PrivateNetworks Private CIDRs team providers may be on (public addresses are always allowed)
+	// PrivateNetworks Private CIDRs teams' own model providers and MCP servers may be on (public addresses are always allowed)
 	PrivateNetworks []string `json:"privateNetworks"`
 	Revision        int64    `json:"revision"`
+
+	// TeamsMayAddMcpServers Team owners and admins may add MCP servers for their teams (always present)
+	TeamsMayAddMcpServers *bool `json:"teamsMayAddMcpServers"`
 
 	// TeamsMayAddProviders Team owners and admins may add model providers for their teams
 	TeamsMayAddProviders bool      `json:"teamsMayAddProviders"`
@@ -1796,8 +1802,11 @@ type ModelSettings struct {
 // ModelSettingsUpdate defines model for ModelSettingsUpdate.
 type ModelSettingsUpdate struct {
 	// PrivateNetworks Private CIDRs such as 10.20.0.0/16 (not loopback, link-local or public ranges)
-	PrivateNetworks      []string `json:"privateNetworks"`
-	TeamsMayAddProviders bool     `json:"teamsMayAddProviders"`
+	PrivateNetworks []string `json:"privateNetworks"`
+
+	// TeamsMayAddMcpServers Omitted keeps the current setting
+	TeamsMayAddMcpServers *bool `json:"teamsMayAddMcpServers,omitempty"`
+	TeamsMayAddProviders  bool  `json:"teamsMayAddProviders"`
 }
 
 // ModelTeam defines model for ModelTeam.
@@ -1941,6 +1950,9 @@ type PersonalWorkspaceSettings struct {
 	// MonthlyBudgetUsd Recorded; not enforced yet
 	MonthlyBudgetUsd *float64 `json:"monthlyBudgetUsd,omitempty"`
 
+	// OwnMcpServers Personal workspaces may add their own MCP servers (while teams may)
+	OwnMcpServers *bool `json:"ownMcpServers"`
+
 	// OwnProviders Personal workspaces may add their own model providers (while teams may)
 	OwnProviders *bool     `json:"ownProviders"`
 	Revision     int64     `json:"revision"`
@@ -1953,6 +1965,9 @@ type PersonalWorkspaceSettingsUpdate struct {
 	MaxAgents        int32    `json:"maxAgents"`
 	MaxRunning       int32    `json:"maxRunning"`
 	MonthlyBudgetUsd *float64 `json:"monthlyBudgetUsd,omitempty"`
+
+	// OwnMcpServers Omitted keeps the current setting
+	OwnMcpServers *bool `json:"ownMcpServers,omitempty"`
 
 	// OwnProviders Omitted keeps the current setting
 	OwnProviders *bool `json:"ownProviders,omitempty"`
@@ -2253,6 +2268,9 @@ type UserUpdate struct {
 type WorkspaceLimits struct {
 	AgentCount int64 `json:"agentCount"`
 
+	// CanAddMcpServers Whether the caller may add an MCP server for this workspace now (an owner or admin in a browser session, while platform admins let teams, and personal workspaces, add them)
+	CanAddMcpServers *bool `json:"canAddMcpServers"`
+
 	// CanAddProviders Whether the caller may add a model provider for this workspace now (an owner or admin in a browser session, while platform admins let teams, and personal workspaces, add them)
 	CanAddProviders  *bool               `json:"canAddProviders"`
 	Kind             WorkspaceLimitsKind `json:"kind"`
@@ -2398,6 +2416,12 @@ type AdminListAuditParams struct {
 
 // AdminListAuditParamsActorKind defines parameters for AdminListAudit.
 type AdminListAuditParamsActorKind string
+
+// AdminListMcpServersParams defines parameters for AdminListMcpServers.
+type AdminListMcpServersParams struct {
+	// Owner all (default), platform, or a team's slug or ID: whose servers
+	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+}
 
 // AdminUpdateMcpServerParams defines parameters for AdminUpdateMcpServer.
 type AdminUpdateMcpServerParams struct {
@@ -2610,6 +2634,12 @@ type ListTeamAuditParams struct {
 // ListTeamAuditParamsActorKind defines parameters for ListTeamAudit.
 type ListTeamAuditParamsActorKind string
 
+// UpdateTeamOwnMcpServerParams defines parameters for UpdateTeamOwnMcpServer.
+type UpdateTeamOwnMcpServerParams struct {
+	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
+	IfMatch IfMatchHeader `json:"If-Match"`
+}
+
 // UpdateMemberParams defines parameters for UpdateMember.
 type UpdateMemberParams struct {
 	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
@@ -2733,6 +2763,12 @@ type CreateTeamAgentJSONRequestBody = AgentCreate
 
 // EnsureTeamAgentByKeyJSONRequestBody defines body for EnsureTeamAgentByKey for application/json ContentType.
 type EnsureTeamAgentByKeyJSONRequestBody = AgentEnsure
+
+// CreateTeamMcpServerJSONRequestBody defines body for CreateTeamMcpServer for application/json ContentType.
+type CreateTeamMcpServerJSONRequestBody = McpServerCreate
+
+// UpdateTeamOwnMcpServerJSONRequestBody defines body for UpdateTeamOwnMcpServer for application/json ContentType.
+type UpdateTeamOwnMcpServerJSONRequestBody = McpServerUpdate
 
 // AddMemberJSONRequestBody defines body for AddMember for application/json ContentType.
 type AddMemberJSONRequestBody = MemberAdd

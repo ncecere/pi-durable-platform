@@ -110,7 +110,7 @@ SELECT * FROM model_settings WHERE id = 1;
 SELECT * FROM model_settings WHERE id = 1 FOR UPDATE;
 
 -- name: UpdateModelSettings :one
-UPDATE model_settings SET teams_may_add_providers = $1, private_networks = $2, updated_by = $3,
+UPDATE model_settings SET teams_may_add_providers = $1, private_networks = $2, updated_by = $3, teams_may_add_mcp_servers = $4,
        revision = revision + 1, updated_at = now()
 WHERE id = 1
 RETURNING *;

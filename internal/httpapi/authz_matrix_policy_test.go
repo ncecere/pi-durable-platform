@@ -348,6 +348,28 @@ var matrixPolicies = map[string]policy{
 	"listTeamMcpServers": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request {
 		return get(c.team("/mcp-servers"))
 	}},
+
+	// A team's own MCP servers: its owners and admins manage them (browser
+	// sessions only), its members and platform staff read them; platform
+	// admins manage them through the admin routes.
+	"listTeamOwnMcpServers": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request {
+		return get(c.team("/mcp-servers/own"))
+	}},
+	"createTeamMcpServer": {scope: scopeTeam, own: admins, build: func(c *mctx) request {
+		return post(c.team("/mcp-servers/own"), map[string]any{"name": fmt.Sprintf("tmcp-%d", c.e.next()), "url": matrixTeamMCPURL})
+	}},
+	"getTeamOwnMcpServer": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request {
+		return get(c.team("/mcp-servers/own/" + c.tf.mcpServer))
+	}},
+	"updateTeamOwnMcpServer": {scope: scopeTeam, own: admins, build: func(c *mctx) request {
+		return patch(c.team("/mcp-servers/own/"+c.teamMCPServer(true)), map[string]any{"enabled": false}).h(rev1)
+	}},
+	"deleteTeamOwnMcpServer": {scope: scopeTeam, own: admins, build: func(c *mctx) request {
+		return del(c.team("/mcp-servers/own/" + c.teamMCPServer(true)))
+	}},
+	"refreshTeamOwnMcpServer": {scope: scopeTeam, own: admins, build: func(c *mctx) request {
+		return post(c.team("/mcp-servers/own/"+c.tf.mcpServer+"/refresh"), nil)
+	}},
 	"getThreadMcpServers": {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.thread("/mcp-servers", false)) }},
 	"setThreadMcpServers": {scope: scopeTeam, own: members, build: func(c *mctx) request {
 		return request{method: "PUT", path: c.thread("/mcp-servers", false), body: map[string]any{"servers": []any{}}}

@@ -1129,11 +1129,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Every MCP server, without header values (platform admins and auditors) */
+        /**
+         * Every MCP server, without header values (platform admins and auditors)
+         * @description Platform servers and teams' own (team names the owner; null for a platform server), or one owner's.
+         */
         get: operations["adminListMcpServers"];
         put?: never;
         /**
-         * Add a remote MCP server and read its tools (platform admins)
+         * Add a platform MCP server and read its tools (platform admins)
          * @description Headers (for example Authorization) are stored encrypted and never returned. A server that cannot be reached is still added; toolsError says why.
          */
         post: operations["adminCreateMcpServer"];
@@ -1160,7 +1163,10 @@ export interface paths {
         delete: operations["adminDeleteMcpServer"];
         options?: never;
         head?: never;
-        /** Change an MCP server, who it is published to, or turn it off (platform admins) */
+        /**
+         * Change any MCP server, who it is published to, or turn it off (platform admins)
+         * @description A team's own server stays proxy-only and its team's only (400 team_mcp_visibility for visibility all, teams, or personal true), and a new URL is checked by the address guard (422 address_not_allowed).
+         */
         patch: operations["adminUpdateMcpServer"];
         trace?: never;
     };
@@ -1175,7 +1181,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Read the server's tools again (platform admins) */
+        /**
+         * Read the server's tools again (platform admins)
+         * @description A team's own server is reached through the address guard (422 address_not_allowed).
+         */
         post: operations["adminRefreshMcpServer"];
         delete?: never;
         options?: never;
@@ -1193,10 +1202,84 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** The MCP servers the team may give its templates (its members and service accounts, platform staff) */
+        /**
+         * The MCP servers the team may give its templates (its members and service accounts, platform staff)
+         * @description The team's own servers (team names it) first, then the platform's published to it.
+         */
         get: operations["listTeamMcpServers"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/teams/{team}/mcp-servers/own": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        /** The team's own MCP servers, without header values (its members in a browser session, platform staff) */
+        get: operations["listTeamOwnMcpServers"];
+        put?: never;
+        /**
+         * Add an MCP server for the team and read its tools (its owners and admins, in a browser session)
+         * @description For the team only (400 team_mcp_visibility for visibility all, teams, or personal true). Proxy mode only. The URL must be https and on an address teams may use: public, or private inside the networks platform admins allow (422 address_not_allowed, address_unresolved); it is checked again at every connection. The slug must not be taken by any server, the platform's or another team's (it names the server's tools). Refused with 409 team_mcp_servers_off while platform admins have turned team MCP servers off, and 409 personal_workspace in a personal workspace unless they let personal workspaces add MCP servers. Headers are stored encrypted and never returned. A server whose tools can't be read is still added; toolsError says why.
+         */
+        post: operations["createTeamMcpServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/teams/{team}/mcp-servers/own/{serverId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                serverId: components["parameters"]["McpServerIdParam"];
+            };
+            cookie?: never;
+        };
+        /** One of the team's own MCP servers and its tools (its members in a browser session, platform staff) */
+        get: operations["getTeamOwnMcpServer"];
+        put?: never;
+        post?: never;
+        /** Remove one of the team's MCP servers (its owners and admins); refused while template versions use it */
+        delete: operations["deleteTeamOwnMcpServer"];
+        options?: never;
+        head?: never;
+        /**
+         * Change one of the team's MCP servers, replace its headers, or turn it off (its owners and admins)
+         * @description Allowed even while adding team MCP servers is turned off. Proxy mode only; a new URL is checked as on create.
+         */
+        patch: operations["updateTeamOwnMcpServer"];
+        trace?: never;
+    };
+    "/v1/teams/{team}/mcp-servers/own/{serverId}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                serverId: components["parameters"]["McpServerIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read one of the team's MCP servers' tools again, through the address guard (its owners and admins) */
+        post: operations["refreshTeamOwnMcpServer"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1280,7 +1363,7 @@ export interface paths {
         get: operations["adminGetModelSettings"];
         /**
          * Change the model settings (platform admins)
-         * @description Turning team providers off stops teams adding new ones; existing ones keep working and can still be changed or deleted. privateNetworks are the private CIDRs team providers may be on (public addresses are always allowed; loopback, link-local and cloud metadata addresses never).
+         * @description Turning team providers (or team MCP servers) off stops teams adding new ones; existing ones keep working and can still be changed or deleted. privateNetworks are the private CIDRs teams' own services, model providers and MCP servers alike, may be on (public addresses are always allowed; loopback, link-local and cloud metadata addresses never).
          */
         put: operations["adminUpdateModelSettings"];
         post?: never;
@@ -1688,6 +1771,8 @@ export interface components {
             enabled: boolean;
             /** @description Personal workspaces may add their own model providers (while teams may) */
             ownProviders?: boolean;
+            /** @description Personal workspaces may add their own MCP servers (while teams may) */
+            ownMcpServers?: boolean;
             /** Format: int32 */
             maxAgents: number;
             /**
@@ -1709,6 +1794,8 @@ export interface components {
             enabled: boolean;
             /** @description Omitted keeps the current setting */
             ownProviders?: boolean;
+            /** @description Omitted keeps the current setting */
+            ownMcpServers?: boolean;
             /** Format: int32 */
             maxAgents: number;
             /** Format: int32 */
@@ -1733,6 +1820,8 @@ export interface components {
             runningCount: number;
             /** @description Whether the caller may add a model provider for this workspace now (an owner or admin in a browser session, while platform admins let teams, and personal workspaces, add them) */
             canAddProviders?: boolean;
+            /** @description Whether the caller may add an MCP server for this workspace now (an owner or admin in a browser session, while platform admins let teams, and personal workspaces, add them) */
+            canAddMcpServers?: boolean;
         };
         WorkspaceLimitsUpdate: {
             /** Format: int32 */
@@ -1751,7 +1840,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             name: string;
-            /** @description Names its tools for the model (mcp__<slug>__<tool>) */
+            /** @description Names its tools for the model (mcp__<slug>__<tool>); unique across the platform and every team */
             slug: string;
             description: string;
             url: string;
@@ -1772,6 +1861,8 @@ export interface components {
             toolsRefreshedAt?: string | null;
             /** @description Why the tools could not be read the last time */
             toolsError?: string | null;
+            /** @description The team that owns the server (null for a platform server); a team's server is for that team only */
+            team?: components["schemas"]["ModelOwner"] | null;
             /** Format: int64 */
             revision: number;
             /** Format: date-time */
@@ -1949,7 +2040,9 @@ export interface components {
         ModelSettings: {
             /** @description Team owners and admins may add model providers for their teams */
             teamsMayAddProviders: boolean;
-            /** @description Private CIDRs team providers may be on (public addresses are always allowed) */
+            /** @description Team owners and admins may add MCP servers for their teams (always present) */
+            teamsMayAddMcpServers?: boolean;
+            /** @description Private CIDRs teams' own model providers and MCP servers may be on (public addresses are always allowed) */
             privateNetworks: string[];
             /** Format: int64 */
             revision: number;
@@ -1958,6 +2051,8 @@ export interface components {
         };
         ModelSettingsUpdate: {
             teamsMayAddProviders: boolean;
+            /** @description Omitted keeps the current setting */
+            teamsMayAddMcpServers?: boolean;
             /** @description Private CIDRs such as 10.20.0.0/16 (not loopback, link-local or public ranges) */
             privateNetworks: string[];
         };
@@ -5214,7 +5309,10 @@ export interface operations {
     };
     adminListMcpServers: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description all (default), platform, or a team's slug or ID: whose servers */
+                owner?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -5232,8 +5330,10 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["ErrorReply"];
             401: components["responses"]["ErrorReply"];
             403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
         };
     };
     adminCreateMcpServer: {
@@ -5359,6 +5459,7 @@ export interface operations {
             404: components["responses"]["ErrorReply"];
             409: components["responses"]["ErrorReply"];
             412: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
             428: components["responses"]["ErrorReply"];
         };
     };
@@ -5388,6 +5489,7 @@ export interface operations {
             401: components["responses"]["ErrorReply"];
             403: components["responses"]["ErrorReply"];
             404: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
         };
     };
     listTeamMcpServers: {
@@ -5402,7 +5504,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description MCP servers published to the team */
+            /** @description The team's own MCP servers and those published to it */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5416,6 +5518,204 @@ export interface operations {
             401: components["responses"]["ErrorReply"];
             403: components["responses"]["ErrorReply"];
             404: components["responses"]["ErrorReply"];
+        };
+    };
+    listTeamOwnMcpServers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description MCP servers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["McpServer"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    createTeamMcpServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["McpServerCreate"];
+            };
+        };
+        responses: {
+            /** @description Created server */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["McpServer"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
+        };
+    };
+    getTeamOwnMcpServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                serverId: components["parameters"]["McpServerIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["McpServer"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    deleteTeamOwnMcpServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                serverId: components["parameters"]["McpServerIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Ok"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    updateTeamOwnMcpServer: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+                "If-Match": components["parameters"]["IfMatchHeader"];
+            };
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                serverId: components["parameters"]["McpServerIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["McpServerUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated server */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["McpServer"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            412: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
+            428: components["responses"]["ErrorReply"];
+        };
+    };
+    refreshTeamOwnMcpServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+                serverId: components["parameters"]["McpServerIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["McpServer"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
         };
     };
     getThreadMcpServers: {

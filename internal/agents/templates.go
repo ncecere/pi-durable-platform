@@ -43,6 +43,12 @@ var (
 		"This template runs on one of the team's own models, which other teams can't use: add a version on a platform model before it goes to the catalog")
 )
 
+// A team's own MCP servers are the team's only too: platform templates
+// can't attach them (mcp.ErrTeamServer), nor can a template in, or on its
+// way to, the catalog.
+var errCatalogTeamMCP = apperr.Conflict("team_mcp_server",
+	"This template gives its agents one of the team's own MCP servers, which other teams can't use: add a version without it before it goes to the catalog")
+
 // TemplateView is a template with its owning team and how many agents use it.
 type TemplateView struct {
 	Template dbgen.AgentTemplate
@@ -243,13 +249,37 @@ func checkCatalogModel(ctx context.Context, q *dbgen.Queries, modelID uuid.NullU
 	return nil
 }
 
-// checkCatalogVersion is checkCatalogModel for a template's current version.
+// checkCatalogAttach refuses a team's own MCP server in a template that is,
+// or is asked to be, in the catalog.
+func checkCatalogAttach(ctx context.Context, q *dbgen.Queries, attach []mcp.Attach) error {
+	team, err := mcp.AttachesTeamServer(ctx, q, attach)
+	if err != nil {
+		return err
+	}
+	if team {
+		return errCatalogTeamMCP
+	}
+	return nil
+}
+
+// checkCatalogVersion is checkCatalogModel and checkCatalogAttach for a
+// template's current version.
 func checkCatalogVersion(ctx context.Context, q *dbgen.Queries, t dbgen.AgentTemplate) error {
 	cur, err := version(ctx, q, t.ID, t.CurrentVersion)
 	if err != nil {
 		return err
 	}
-	return checkCatalogModel(ctx, q, cur.ModelID)
+	if err := checkCatalogModel(ctx, q, cur.ModelID); err != nil {
+		return err
+	}
+	team, err := mcp.UsesTeamServer(ctx, q, t.ID, t.CurrentVersion)
+	if err != nil {
+		return err
+	}
+	if team {
+		return errCatalogTeamMCP
+	}
+	return nil
 }
 
 func nullID(id *uuid.UUID) uuid.NullUUID {
@@ -447,6 +477,11 @@ func (s *Service) AddVersion(ctx context.Context, a authz.Actor, id uuid.UUID, i
 					return t, err
 				}
 			}
+			if t.TeamID.Valid && t.Status != authz.TemplatePrivate {
+				if err := checkCatalogAttach(ctx, q, attach); err != nil {
+					return t, err
+				}
+			}
 			bumped, err := q.BumpTemplateVersion(ctx, id)
 			if err != nil {
 				return t, err
@@ -462,7 +497,8 @@ func (s *Service) AddVersion(ctx context.Context, a authz.Actor, id uuid.UUID, i
 
 // RequestPublish asks a platform admin to put a private team template in the
 // catalog (the team's owners and admins); refused while its current
-// version runs on one of the team's own models (team_model).
+// version runs on one of the team's own models (team_model) or gives its
+// agents one of the team's own MCP servers (team_mcp_server).
 func (s *Service) RequestPublish(ctx context.Context, a authz.Actor, id uuid.UUID) (TemplateView, error) {
 	return s.changeTemplate(ctx, a, id, -1, "agent_template.publish_request", authz.CheckTemplatePublish,
 		func(q *dbgen.Queries, t dbgen.AgentTemplate) (dbgen.AgentTemplate, error) {

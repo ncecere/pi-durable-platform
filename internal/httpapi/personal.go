@@ -23,9 +23,10 @@ func (a *api) personalRoutes() []route {
 }
 
 func toAPIPersonalSettings(p teams.PersonalSettings) apitypes.PersonalWorkspaceSettings {
-	own := p.OwnProviders
+	own, ownMCP := p.OwnProviders, p.OwnMcpServers
 	return apitypes.PersonalWorkspaceSettings{Enabled: p.Enabled, MaxAgents: p.MaxAgents, MaxRunning: p.MaxRunning,
-		MonthlyBudgetUsd: teams.Dollars(p.MonthlyBudgetUsd), OwnProviders: &own, Revision: p.Revision, UpdatedAt: p.UpdatedAt}
+		MonthlyBudgetUsd: teams.Dollars(p.MonthlyBudgetUsd), OwnProviders: &own, OwnMcpServers: &ownMCP, Revision: p.Revision,
+		UpdatedAt: p.UpdatedAt}
 }
 
 func (a *api) getPersonalSettings(w http.ResponseWriter, r *http.Request) {
@@ -42,7 +43,8 @@ func (a *api) updatePersonalSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, err := a.Teams.UpdatePersonalSettings(r.Context(), a.actor(r), teams.PersonalSettingsInput{Enabled: in.Enabled,
-		MaxAgents: in.MaxAgents, MaxRunning: in.MaxRunning, MonthlyBudgetUSD: in.MonthlyBudgetUsd, OwnProviders: in.OwnProviders}, rev)
+		MaxAgents: in.MaxAgents, MaxRunning: in.MaxRunning, MonthlyBudgetUSD: in.MonthlyBudgetUsd, OwnProviders: in.OwnProviders,
+		OwnMCPServers: in.OwnMcpServers}, rev)
 	if failed(w, r, err) {
 		return
 	}
@@ -59,8 +61,14 @@ func (a *api) writeLimits(w http.ResponseWriter, r *http.Request, t dbgen.Team, 
 	if failed(w, r, err) {
 		return
 	}
+	// And an MCP server.
+	canAddMCP, err := a.MCP.CanAddServers(r.Context(), a.actor(r), t)
+	if failed(w, r, err) {
+		return
+	}
 	out := apitypes.WorkspaceLimits{Kind: apitypes.WorkspaceLimitsKind(t.Kind), MaxAgents: l.MaxAgents, MaxRunning: l.MaxRunning,
-		MonthlyBudgetUsd: l.MonthlyBudgetUSD, Overridden: []string{}, AgentCount: agents, RunningCount: running, CanAddProviders: &canAdd}
+		MonthlyBudgetUsd: l.MonthlyBudgetUSD, Overridden: []string{}, AgentCount: agents, RunningCount: running, CanAddProviders: &canAdd,
+		CanAddMcpServers: &canAddMCP}
 	for _, k := range []string{"maxAgents", "maxRunning", "monthlyBudgetUsd"} {
 		if l.Overridden[k] {
 			out.Overridden = append(out.Overridden, k)

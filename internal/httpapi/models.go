@@ -11,6 +11,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
+	"github.com/ncecere/pi-durable-platform/internal/teams"
 )
 
 // The model catalog (api/openapi.yaml, tag models): providers and models,
@@ -61,7 +62,7 @@ func (a *api) teamModelRoutes() []route {
 	}
 }
 
-func toAPIOwner(o *llm.Owner) *apitypes.ModelOwner {
+func toAPIOwner(o *teams.Owner) *apitypes.ModelOwner {
 	if o == nil {
 		return nil
 	}
@@ -390,8 +391,9 @@ func toAPIModelSettings(m llm.Settings) apitypes.ModelSettings {
 	if nets == nil {
 		nets = []string{}
 	}
-	return apitypes.ModelSettings{TeamsMayAddProviders: m.TeamsMayAddProviders, PrivateNetworks: nets, Revision: m.Revision,
-		UpdatedAt: m.UpdatedAt}
+	mcpServers := m.TeamsMayAddMcpServers
+	return apitypes.ModelSettings{TeamsMayAddProviders: m.TeamsMayAddProviders, TeamsMayAddMcpServers: &mcpServers,
+		PrivateNetworks: nets, Revision: m.Revision, UpdatedAt: m.UpdatedAt}
 }
 
 func (a *api) getModelSettings(w http.ResponseWriter, r *http.Request) {
@@ -408,7 +410,7 @@ func (a *api) updateModelSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m, err := a.Models.UpdateSettings(r.Context(), a.actor(r), llm.SettingsInput{TeamsMayAddProviders: in.TeamsMayAddProviders,
-		PrivateNetworks: in.PrivateNetworks}, rev)
+		TeamsMayAddMCPServers: in.TeamsMayAddMcpServers, PrivateNetworks: in.PrivateNetworks}, rev)
 	if failed(w, r, err) {
 		return
 	}

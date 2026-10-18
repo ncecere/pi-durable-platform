@@ -1,5 +1,5 @@
 // Package netguard dials URLs that someone else chose (an OAuth client's
-// metadata document, a team-owned model provider) without letting them
+// metadata document, a team-owned model provider or MCP server) without letting them
 // reach the platform's own network. It is adapted from Open MCP Portal's
 // internal/upstream and internal/netpolicy address guard.
 //
@@ -9,7 +9,7 @@
 // 169.254.169.254), unspecified, multicast and broadcast addresses, and the
 // cloud metadata endpoints outside link-local, are never allowed, whatever
 // Allow says. (Allow may come from settings read at dial time: the caller
-// builds a Dialer per connection, as internal/llm does for team providers.) The host is resolved once per connection and the connection is
+// builds a Dialer per connection, as internal/teamnet does for teams' services.) The host is resolved once per connection and the connection is
 // pinned to the addresses that were checked, so a DNS answer can't change
 // between the check and the dial (DNS rebinding). AllowPrivate (the
 // development allowance) accepts every address.

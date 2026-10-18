@@ -42,8 +42,8 @@ type teamFix struct {
 	// template a private team template.
 	owner, agent, thread, template string
 	// provider is a model provider of the team's own, and model one of its
-	// models.
-	provider, model string
+	// models; mcpServer an MCP server of the team's own.
+	provider, model, mcpServer string
 }
 
 type matrixEnv struct {
@@ -172,10 +172,11 @@ func newMatrixEnv(t *testing.T) *matrixEnv {
 	// the address guard sees it, served by a local https server.
 	teamUpstream := httptest.NewTLSServer(upstream.Config.Handler)
 	t.Cleanup(teamUpstream.Close)
-	useTeamNetwork(t, e.app, teamUpstream, map[string]string{"models.matrix.test": "93.184.216.34"})
+	useTeamNetwork(t, e.app, teamUpstream, map[string]string{"models.matrix.test": "93.184.216.34", "mcp.matrix.test": "93.184.216.34"})
 	for _, tf := range []*teamFix{&e.a, &e.b} {
 		tf.provider = e.newTeamProvider(*tf)
 		tf.model = e.newTeamModel(*tf)
+		tf.mcpServer = e.newTeamMCPServer(*tf)
 	}
 	e.provider = e.newProvider()
 	e.model = e.newModel(e.provider)
@@ -257,6 +258,22 @@ func (e *matrixEnv) newTeamProvider(tf teamFix) string {
 		e.t.Fatal(err)
 	}
 	return v.Provider.ID.String()
+}
+
+// matrixTeamMCPURL is where teams' MCP servers are (see useTeamNetwork; not
+// an MCP server, so their tools can't be read).
+const matrixTeamMCPURL = "https://mcp.matrix.test/mcp"
+
+// newTeamMCPServer adds an MCP server of the team's own, as its owner.
+func (e *matrixEnv) newTeamMCPServer(tf teamFix) string {
+	e.t.Helper()
+	actor := authz.Actor{UserID: uuid.MustParse(tf.owner), PlatformRole: authz.PlatformNone}
+	v, err := e.app.MCP.CreateTeamServer(context.Background(), actor, tf.slug, mcp.ServerInput{
+		Name: fmt.Sprintf("team-mcp-%d", e.next()), URL: matrixTeamMCPURL})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return v.Server.ID.String()
 }
 
 // newTeamModel adds a model to the team's fixture provider, as its owner.
@@ -374,6 +391,15 @@ func (c *mctx) teamProvider(fresh bool) string {
 		return c.e.newTeamProvider(*c.tf)
 	}
 	return c.tf.provider
+}
+
+// teamMCPServer is the team's fixture MCP server, or a fresh one for a
+// destructive call expected to succeed.
+func (c *mctx) teamMCPServer(fresh bool) string {
+	if fresh && c.allowed {
+		return c.e.newTeamMCPServer(*c.tf)
+	}
+	return c.tf.mcpServer
 }
 
 // teamModel is the team's fixture model, or a fresh one for a destructive

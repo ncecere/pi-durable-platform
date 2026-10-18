@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
-	"sync/atomic"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -22,6 +22,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
+	"github.com/ncecere/pi-durable-platform/internal/teamnet"
 	"github.com/ncecere/pi-durable-platform/internal/teams"
 )
 
@@ -42,7 +43,6 @@ var (
 	errBadLimits        = apperr.Invalid("invalid_limits", "Context window must be 1024-100000000 tokens and max output 1-10000000")
 	errBadPrice         = apperr.Invalid("invalid_price", "Prices are zero or more (USD per million tokens)")
 	errBadVisibility    = apperr.Invalid("invalid_visibility", "Visibility is all or teams")
-	errBadOwner         = apperr.Invalid("invalid_owner", "owner is all, platform, or a team's slug or ID")
 	// ErrUnavailable means a model is disabled, its provider is, or it is
 	// not published to the team.
 	ErrUnavailable = apperr.Conflict("model_unavailable", "That model is not available to this team (disabled, or not published to it)")
@@ -61,44 +61,28 @@ type Service struct {
 	box    *secrets.Box
 	client *http.Client // discovery and the proxy, for platform providers
 	// team reaches team providers, through the address guard.
-	team atomic.Pointer[teamNet]
+	team *teamnet.Guard
+	// settingsChanged run after the model settings change.
+	settingsChanged []func()
 }
 
 // New returns a Service. Team providers are reached through the address
 // guard without the development allowance (see SetTeamNetwork).
 func New(pool *pgxpool.Pool, box *secrets.Box) *Service {
-	s := &Service{pool: pool, q: dbgen.New(pool), box: box, client: newUpstreamClient()}
-	s.SetTeamNetwork(TeamNetwork{})
-	return s
+	q := dbgen.New(pool)
+	return &Service{pool: pool, q: q, box: box, client: newUpstreamClient(), team: teamnet.New(teamnet.SettingsNetworks(q), 10*time.Minute)}
 }
 
 func providerAD(id uuid.UUID) []byte { return []byte("model_provider:" + id.String()) }
 
 // Owner is the team that owns a team provider.
-type Owner struct {
-	ID               uuid.UUID
-	Slug, Name, Kind string
-}
+type Owner = teams.Owner
 
 func ownerOf(id uuid.NullUUID, slug, name, kind *string) *Owner {
-	if !id.Valid {
-		return nil
-	}
-	o := &Owner{ID: id.UUID}
-	for _, f := range []struct {
-		dst *string
-		src *string
-	}{{&o.Slug, slug}, {&o.Name, name}, {&o.Kind, kind}} {
-		if f.src != nil {
-			*f.dst = *f.src
-		}
-	}
-	return o
+	return teams.OwnerOf(id, slug, name, kind)
 }
 
-func teamOwner(t dbgen.Team) *Owner {
-	return &Owner{ID: t.ID, Slug: t.Slug, Name: t.Name, Kind: t.Kind}
-}
+func teamOwner(t dbgen.Team) *Owner { return teams.OwnerFromTeam(t) }
 
 // ProviderView is a provider without its secrets.
 type ProviderView struct {
@@ -157,20 +141,7 @@ func (sc scope) reaches(p dbgen.ModelProvider) error {
 // ownerFilter turns ?owner= (all, platform, or a team's slug or ID) into
 // list filters.
 func (s *Service) ownerFilter(ctx context.Context, owner string) (platformOnly bool, team uuid.NullUUID, err error) {
-	switch owner {
-	case "", "all":
-		return false, uuid.NullUUID{}, nil
-	case "platform":
-		return true, uuid.NullUUID{}, nil
-	}
-	if len(owner) > 100 {
-		return false, team, errBadOwner
-	}
-	t, err := teams.Resolve(ctx, s.q, owner)
-	if err != nil {
-		return false, team, err
-	}
-	return false, uuid.NullUUID{UUID: t.ID, Valid: true}, nil
+	return teams.OwnerFilter(ctx, s.q, owner)
 }
 
 // Providers lists providers (platform staff): every one (owner "" or all),

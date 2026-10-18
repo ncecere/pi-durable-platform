@@ -159,14 +159,15 @@ as the platform's, in the team's audit log.
   `GET /v1/teams/{team}/models`, a template, an agent's model or the model proxy.
 - **Proxy only.** Direct mode would hand agents a URL their egress rules would have to allow, which a team can't grant.
 - **Address guard.** The URL is the team's choice, so it must be https, and every request (discovery, the proxy) goes
-  through `internal/netguard`: public addresses; private ones only inside the networks platform admins list
-  (`model_settings.private_networks`); loopback, link-local and cloud metadata never. The host is checked when the URL
+  through `internal/teamnet` (on `internal/netguard`; shared with team MCP servers): public addresses; private ones
+  only inside the networks platform admins list (`model_settings.private_networks`, the one list for every kind of
+  team service: model providers and MCP servers); loopback, link-local and cloud metadata never. The host is checked when the URL
   is saved (422 `address_not_allowed`) and resolved and pinned again at every connection (DNS rebinding); no redirects,
   no proxy from the environment. With the development allowance (`DEV_AUTH` on a loopback `APP_URL`) any address and
   plain http on a loopback host are accepted. Platform providers keep an unguarded client (admins may point them at
   internal gateways).
 - **Settings.** Platform admins set `GET/PUT /v1/admin/settings/models` (`teamsMayAddProviders`, default on;
-  `privateNetworks`). Turned off, teams can't add providers (409 `team_providers_off`) but existing ones keep working
+  `teamsMayAddMcpServers`, see below; `privateNetworks`, for team providers and team MCP servers alike). Turned off, teams can't add providers (409 `team_providers_off`) but existing ones keep working
   and can be changed or deleted. Personal workspaces add their own only when the personal workspace settings'
   `ownProviders` is also on (default off; else 409 `personal_workspace`). `GET /v1/teams/{team}/limits` says whether
   the caller may add one now (`canAddProviders`).
@@ -193,6 +194,41 @@ or some, and can let apps give its agents their own servers for one thread (`cli
   at start it reinstalls every thread's, so resumed runs keep their tools. Hosts must match
   `AGENTS_CLIENT_MCP_HOSTS` (none by default), and `AGENTS_CLIENT_MCP_MODE` says whether agents reach them through the
   gateway (proxy, default) or directly.
+
+### Team MCP servers
+
+Mirrors team model providers. A team's **owners and admins** add MCP servers of the team's own
+(`/v1/teams/{team}/mcp-servers/own`, `/own/{serverId}`, `/own/{serverId}/refresh`: the shapes of Admin › MCP servers),
+in a browser session only; its editors and members read them (header values are never returned), platform auditors
+read them, and platform admins list every owner's (`GET /v1/admin/mcp-servers?owner=all|platform|<team>`, each with
+its `team`) and may disable, change, refresh or delete a team's through the admin routes. `GET
+/v1/teams/{team}/mcp-servers` (sessions and keys) keeps meaning "the servers the team may use": now the team's own
+(first, with `team`) and the platform's published to it. Changes are audited under the same action names, in the
+team's audit log.
+
+- **The team's only.** A team server is available to its team alone, whatever its visibility (the API refuses
+  `visibility: all`, `teams` or `personal: true` with 400 `team_mcp_visibility`): listing, template versions,
+  agents' `MCP_SERVERS` and the gateway's per-request check all use the same rule (`MCPServerAvailable`).
+- **Slugs stay unique across every owner.** A slug names the server's tools in an agent's tool namespace
+  (`mcp__<slug>__<tool>`), where a team's agents meet the platform's servers and the team's own; per-owner slugs could
+  collide there. So a team can't take a slug the platform or another team uses (409 `mcp_server_name_taken`); names are
+  unique per owner.
+- **Proxy only, through the address guard.** Agents reach a team server only through `/mcp-proxy/server/<id>`; every
+  request to it (reading its tools on create, URL change and refresh, the proxy) goes through `internal/teamnet` with
+  `model_settings.private_networks`: https (http only on loopback with the development allowance), checked when the
+  URL is saved (422 `address_not_allowed` / `address_unresolved`) and at every connection (refresh: 422; proxy: 502
+  `address_not_allowed`). Its tools error never repeats the network error's text. Platform servers keep their
+  unguarded client.
+- **Settings.** `teamsMayAddMcpServers` in the model settings (default on; omitted on update keeps it): off, teams
+  can't add servers (409 `team_mcp_servers_off`) but existing ones keep working and can be changed or deleted.
+  Personal workspaces add their own only when the personal workspace settings' `ownMcpServers` is also on (default
+  off; else 409 `personal_workspace`). `GET /v1/teams/{team}/limits` says `canAddMcpServers`.
+- **Templates.** A team template may attach its team's servers (another team's: 409 `mcp_server_unavailable`); a
+  platform template may not (409 `team_mcp_server`), and a team template whose current version attaches one can't be
+  submitted to, approved for, or get such a version while in, the catalog (409 `team_mcp_server`).
+- Calls through the proxy are logged in `mcp_calls` for the calling agent's team, under the server's name.
+- Deleting a team deletes its servers along with its templates (`template_version_mcp` also cascades from its
+  template, so the attachments go before the servers' `ON DELETE RESTRICT` check).
 
 ## Launchers
 

@@ -74,7 +74,7 @@ func (q *Queries) DeleteThreadMCPServersExcept(ctx context.Context, arg DeleteTh
 }
 
 const getMCPServer = `-- name: GetMCPServer :one
-SELECT id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal FROM mcp_servers WHERE id = $1
+SELECT id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal, team_id FROM mcp_servers WHERE id = $1
 `
 
 func (q *Queries) GetMCPServer(ctx context.Context, id uuid.UUID) (McpServer, error) {
@@ -98,6 +98,7 @@ func (q *Queries) GetMCPServer(ctx context.Context, id uuid.UUID) (McpServer, er
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Personal,
+		&i.TeamID,
 	)
 	return i, err
 }
@@ -176,9 +177,9 @@ func (q *Queries) InsertMCPCall(ctx context.Context, arg InsertMCPCallParams) er
 }
 
 const insertMCPServer = `-- name: InsertMCPServer :one
-INSERT INTO mcp_servers (id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, created_by, personal)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal
+INSERT INTO mcp_servers (id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, created_by, personal, team_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal, team_id
 `
 
 type InsertMCPServerParams struct {
@@ -193,6 +194,7 @@ type InsertMCPServerParams struct {
 	Visibility  string
 	CreatedBy   uuid.NullUUID
 	Personal    bool
+	TeamID      uuid.NullUUID
 }
 
 func (q *Queries) InsertMCPServer(ctx context.Context, arg InsertMCPServerParams) (McpServer, error) {
@@ -208,6 +210,7 @@ func (q *Queries) InsertMCPServer(ctx context.Context, arg InsertMCPServerParams
 		arg.Visibility,
 		arg.CreatedBy,
 		arg.Personal,
+		arg.TeamID,
 	)
 	var i McpServer
 	err := row.Scan(
@@ -228,6 +231,7 @@ func (q *Queries) InsertMCPServer(ctx context.Context, arg InsertMCPServerParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Personal,
+		&i.TeamID,
 	)
 	return i, err
 }
@@ -254,13 +258,18 @@ func (q *Queries) InsertTemplateVersionMCP(ctx context.Context, arg InsertTempla
 }
 
 const listAvailableMCPServers = `-- name: ListAvailableMCPServers :many
-SELECT id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal FROM mcp_servers s
-WHERE s.enabled AND (CASE WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = $1) = 'personal' THEN s.personal
+SELECT id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal, team_id FROM mcp_servers s
+WHERE s.enabled
+  AND (CASE WHEN s.team_id IS NOT NULL THEN s.team_id = $1::uuid
+            WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = $1) = 'personal' THEN s.personal
             ELSE s.visibility = 'all' OR EXISTS (SELECT 1 FROM mcp_server_teams st WHERE st.server_id = s.id AND st.team_id = $1) END)
-ORDER BY lower(s.name), s.id
+ORDER BY (s.team_id IS NULL), lower(s.name), s.id
 `
 
-// The MCP servers a team may use now: enabled, published to every team or to it.
+// The MCP servers a team may use now: enabled, and either the team's own, or
+// a platform server published to every team or to it (personal workspaces:
+// published to personal workspaces). A team's server is never available to
+// another team, whatever its visibility.
 func (q *Queries) ListAvailableMCPServers(ctx context.Context, teamID uuid.UUID) ([]McpServer, error) {
 	rows, err := q.db.Query(ctx, listAvailableMCPServers, teamID)
 	if err != nil {
@@ -288,6 +297,7 @@ func (q *Queries) ListAvailableMCPServers(ctx context.Context, teamID uuid.UUID)
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Personal,
+			&i.TeamID,
 		); err != nil {
 			return nil, err
 		}
@@ -333,36 +343,58 @@ func (q *Queries) ListMCPServerTeams(ctx context.Context, serverID uuid.UUID) ([
 }
 
 const listMCPServers = `-- name: ListMCPServers :many
-SELECT id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal FROM mcp_servers ORDER BY lower(name), id
+SELECT s.id, s.name, s.slug, s.description, s.url, s.headers_enc, s.access_mode, s.enabled, s.visibility, s.tools, s.tools_refreshed_at, s.tools_error, s.revision, s.created_by, s.created_at, s.updated_at, s.personal, s.team_id, t.slug AS team_slug, t.name AS team_name, t.kind AS team_kind
+FROM mcp_servers s LEFT JOIN teams t ON t.id = s.team_id
+WHERE (NOT $1::boolean OR s.team_id IS NULL)
+  AND ($2::uuid IS NULL OR s.team_id = $2::uuid)
+ORDER BY (s.team_id IS NOT NULL), lower(s.name), s.id
 `
 
-func (q *Queries) ListMCPServers(ctx context.Context) ([]McpServer, error) {
-	rows, err := q.db.Query(ctx, listMCPServers)
+type ListMCPServersParams struct {
+	PlatformOnly bool
+	TeamID       uuid.NullUUID
+}
+
+type ListMCPServersRow struct {
+	McpServer McpServer
+	TeamSlug  *string
+	TeamName  *string
+	TeamKind  *string
+}
+
+// Servers with their owning team (NULL columns: a platform server): every
+// one, the platform's only (platform_only), or one team's (team_id).
+func (q *Queries) ListMCPServers(ctx context.Context, arg ListMCPServersParams) ([]ListMCPServersRow, error) {
+	rows, err := q.db.Query(ctx, listMCPServers, arg.PlatformOnly, arg.TeamID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []McpServer{}
+	items := []ListMCPServersRow{}
 	for rows.Next() {
-		var i McpServer
+		var i ListMCPServersRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Slug,
-			&i.Description,
-			&i.URL,
-			&i.HeadersEnc,
-			&i.AccessMode,
-			&i.Enabled,
-			&i.Visibility,
-			&i.Tools,
-			&i.ToolsRefreshedAt,
-			&i.ToolsError,
-			&i.Revision,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Personal,
+			&i.McpServer.ID,
+			&i.McpServer.Name,
+			&i.McpServer.Slug,
+			&i.McpServer.Description,
+			&i.McpServer.URL,
+			&i.McpServer.HeadersEnc,
+			&i.McpServer.AccessMode,
+			&i.McpServer.Enabled,
+			&i.McpServer.Visibility,
+			&i.McpServer.Tools,
+			&i.McpServer.ToolsRefreshedAt,
+			&i.McpServer.ToolsError,
+			&i.McpServer.Revision,
+			&i.McpServer.CreatedBy,
+			&i.McpServer.CreatedAt,
+			&i.McpServer.UpdatedAt,
+			&i.McpServer.Personal,
+			&i.McpServer.TeamID,
+			&i.TeamSlug,
+			&i.TeamName,
+			&i.TeamKind,
 		); err != nil {
 			return nil, err
 		}
@@ -461,7 +493,7 @@ func (q *Queries) ListThreadMCPServers(ctx context.Context, arg ListThreadMCPSer
 }
 
 const lockMCPServer = `-- name: LockMCPServer :one
-SELECT id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal FROM mcp_servers WHERE id = $1 FOR UPDATE
+SELECT id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal, team_id FROM mcp_servers WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) LockMCPServer(ctx context.Context, id uuid.UUID) (McpServer, error) {
@@ -485,6 +517,7 @@ func (q *Queries) LockMCPServer(ctx context.Context, id uuid.UUID) (McpServer, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Personal,
+		&i.TeamID,
 	)
 	return i, err
 }
@@ -493,8 +526,9 @@ const mCPServerAvailable = `-- name: MCPServerAvailable :one
 SELECT EXISTS (
     SELECT 1 FROM mcp_servers s
     WHERE s.id = $1 AND s.enabled
-      AND (CASE WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = $2) = 'personal' THEN s.personal
-            ELSE s.visibility = 'all' OR EXISTS (SELECT 1 FROM mcp_server_teams st WHERE st.server_id = s.id AND st.team_id = $2) END)
+      AND (CASE WHEN s.team_id IS NOT NULL THEN s.team_id = $2::uuid
+                WHEN (SELECT tk.kind FROM teams tk WHERE tk.id = $2) = 'personal' THEN s.personal
+                ELSE s.visibility = 'all' OR EXISTS (SELECT 1 FROM mcp_server_teams st WHERE st.server_id = s.id AND st.team_id = $2) END)
 )::boolean
 `
 
@@ -503,6 +537,7 @@ type MCPServerAvailableParams struct {
 	TeamID   uuid.UUID
 }
 
+// Whether the team may use the server now (the rule of ListAvailableMCPServers).
 func (q *Queries) MCPServerAvailable(ctx context.Context, arg MCPServerAvailableParams) (bool, error) {
 	row := q.db.QueryRow(ctx, mCPServerAvailable, arg.ServerID, arg.TeamID)
 	var column_1 bool
@@ -513,7 +548,7 @@ func (q *Queries) MCPServerAvailable(ctx context.Context, arg MCPServerAvailable
 const setMCPServerTools = `-- name: SetMCPServerTools :one
 UPDATE mcp_servers SET tools = $2, tools_refreshed_at = now(), tools_error = $3, updated_at = now()
 WHERE id = $1
-RETURNING id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal
+RETURNING id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal, team_id
 `
 
 type SetMCPServerToolsParams struct {
@@ -543,15 +578,36 @@ func (q *Queries) SetMCPServerTools(ctx context.Context, arg SetMCPServerToolsPa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Personal,
+		&i.TeamID,
 	)
 	return i, err
+}
+
+const templateVersionUsesTeamMCP = `-- name: TemplateVersionUsesTeamMCP :one
+SELECT EXISTS (
+    SELECT 1 FROM template_version_mcp vm JOIN mcp_servers s ON s.id = vm.server_id
+    WHERE vm.template_id = $1 AND vm.version = $2 AND s.team_id IS NOT NULL
+)::boolean
+`
+
+type TemplateVersionUsesTeamMCPParams struct {
+	TemplateID uuid.UUID
+	Version    int32
+}
+
+// Whether a template version gives its agents a team's own MCP server.
+func (q *Queries) TemplateVersionUsesTeamMCP(ctx context.Context, arg TemplateVersionUsesTeamMCPParams) (bool, error) {
+	row := q.db.QueryRow(ctx, templateVersionUsesTeamMCP, arg.TemplateID, arg.Version)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const updateMCPServer = `-- name: UpdateMCPServer :one
 UPDATE mcp_servers SET name = $2, description = $3, url = $4, headers_enc = $5, access_mode = $6, enabled = $7, visibility = $8,
        personal = $9, revision = revision + 1, updated_at = now()
 WHERE id = $1
-RETURNING id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal
+RETURNING id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal, team_id
 `
 
 type UpdateMCPServerParams struct {
@@ -597,6 +653,7 @@ func (q *Queries) UpdateMCPServer(ctx context.Context, arg UpdateMCPServerParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Personal,
+		&i.TeamID,
 	)
 	return i, err
 }

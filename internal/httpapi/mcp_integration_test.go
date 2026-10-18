@@ -28,7 +28,23 @@ type fakeMCP struct {
 
 func newFakeMCP(t *testing.T, label, wantAuth string) *fakeMCP {
 	f := &fakeMCP{label: label}
-	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	f.srv = httptest.NewServer(f.handler(wantAuth))
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+// newFakeTLSMCP is newFakeMCP over https (its certificate is for
+// example.com).
+func newFakeTLSMCP(t *testing.T, label, wantAuth string) *fakeMCP {
+	f := &fakeMCP{label: label}
+	f.srv = httptest.NewTLSServer(f.handler(wantAuth))
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+func (f *fakeMCP) handler(wantAuth string) http.Handler {
+	label := f.label
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != wantAuth {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -72,9 +88,7 @@ func newFakeMCP(t *testing.T, label, wantAuth string) *fakeMCP {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": result})
-	}))
-	t.Cleanup(f.srv.Close)
-	return f
+	})
 }
 
 func (f *fakeMCP) seen() ([]string, []string) {

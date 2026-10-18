@@ -24,7 +24,7 @@ func (q *Queries) CountAgentsInTeam(ctx context.Context, teamID uuid.UUID) (int6
 }
 
 const getPersonalSettings = `-- name: GetPersonalSettings :one
-SELECT id, enabled, max_agents, max_running, monthly_budget_usd, revision, updated_at, own_providers FROM personal_workspace_settings WHERE id
+SELECT id, enabled, max_agents, max_running, monthly_budget_usd, revision, updated_at, own_providers, own_mcp_servers FROM personal_workspace_settings WHERE id
 `
 
 func (q *Queries) GetPersonalSettings(ctx context.Context) (PersonalWorkspaceSetting, error) {
@@ -39,6 +39,7 @@ func (q *Queries) GetPersonalSettings(ctx context.Context) (PersonalWorkspaceSet
 		&i.Revision,
 		&i.UpdatedAt,
 		&i.OwnProviders,
+		&i.OwnMcpServers,
 	)
 	return i, err
 }
@@ -173,9 +174,9 @@ func (q *Queries) TeamAgentIDs(ctx context.Context, teamID uuid.UUID) ([]uuid.UU
 
 const updatePersonalSettings = `-- name: UpdatePersonalSettings :one
 UPDATE personal_workspace_settings SET enabled = $1, max_agents = $2, max_running = $3, monthly_budget_usd = $4,
-       own_providers = $5, revision = revision + 1, updated_at = now()
+       own_providers = $5, own_mcp_servers = $6, revision = revision + 1, updated_at = now()
 WHERE id
-RETURNING id, enabled, max_agents, max_running, monthly_budget_usd, revision, updated_at, own_providers
+RETURNING id, enabled, max_agents, max_running, monthly_budget_usd, revision, updated_at, own_providers, own_mcp_servers
 `
 
 type UpdatePersonalSettingsParams struct {
@@ -184,6 +185,7 @@ type UpdatePersonalSettingsParams struct {
 	MaxRunning       int32
 	MonthlyBudgetUsd pgtype.Numeric
 	OwnProviders     bool
+	OwnMcpServers    bool
 }
 
 func (q *Queries) UpdatePersonalSettings(ctx context.Context, arg UpdatePersonalSettingsParams) (PersonalWorkspaceSetting, error) {
@@ -193,6 +195,7 @@ func (q *Queries) UpdatePersonalSettings(ctx context.Context, arg UpdatePersonal
 		arg.MaxRunning,
 		arg.MonthlyBudgetUsd,
 		arg.OwnProviders,
+		arg.OwnMcpServers,
 	)
 	var i PersonalWorkspaceSetting
 	err := row.Scan(
@@ -204,6 +207,7 @@ func (q *Queries) UpdatePersonalSettings(ctx context.Context, arg UpdatePersonal
 		&i.Revision,
 		&i.UpdatedAt,
 		&i.OwnProviders,
+		&i.OwnMcpServers,
 	)
 	return i, err
 }

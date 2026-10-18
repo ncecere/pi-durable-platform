@@ -96,7 +96,7 @@ func (s *session) call(ctx context.Context, method string, params any, notify bo
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("could not reach the server: %w", errors.Unwrap(err))
+		return nil, &reachError{err: err}
 	}
 	defer resp.Body.Close()
 	if v := resp.Header.Get("Mcp-Session-Id"); v != "" {
@@ -121,6 +121,17 @@ func (s *session) call(ctx context.Context, method string, params any, notify bo
 	}
 	return reply.Result, nil
 }
+
+// reachError: the server could not be reached (connection, TLS, timeout).
+// Its text names the URL's error; it unwraps to the client's error (for
+// netguard.ErrBlockedAddress).
+type reachError struct{ err error }
+
+func (e *reachError) Error() string {
+	return fmt.Sprintf("could not reach the server: %v", errors.Unwrap(e.err))
+}
+
+func (e *reachError) Unwrap() error { return e.err }
 
 // readReply reads the response to request id: a JSON body, or the matching
 // message of a server-sent event stream.

@@ -2,15 +2,8 @@ package llm
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
-	"fmt"
-	"net"
 	"net/http"
-	"net/netip"
-	"net/url"
-	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -18,9 +11,9 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/apperr"
 	"github.com/ncecere/pi-durable-platform/internal/audit"
 	"github.com/ncecere/pi-durable-platform/internal/authz"
-	"github.com/ncecere/pi-durable-platform/internal/netguard"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
+	"github.com/ncecere/pi-durable-platform/internal/teamnet"
 	"github.com/ncecere/pi-durable-platform/internal/teams"
 )
 
@@ -33,7 +26,7 @@ import (
 // A team provider's URL is the team's choice, so it is proxy-only (direct
 // mode would need egress rules a team can't grant) and every request to it
 // (discovery, the model proxy) goes through the address guard
-// (internal/netguard): public addresses, private ones only inside
+// (internal/teamnet, internal/netguard): public addresses, private ones only inside
 // model_settings.private_networks, loopback, link-local and metadata
 // addresses never; resolved and pinned at each connection; no redirects; no
 // proxy from the environment. Its URL must be https (plain http only on a
@@ -50,128 +43,43 @@ var (
 	errAddressNotAllowed = apperr.New(http.StatusUnprocessableEntity, "address_not_allowed",
 		"The provider's address is on a network teams can't use. Ask a platform admin to allow it.")
 	errAddressUnresolved = apperr.New(http.StatusUnprocessableEntity, "address_unresolved", "The provider's host name could not be resolved")
-	errBadNetworks       = apperr.Invalid("invalid_private_networks",
-		"Private networks are at most 50 private CIDRs (such as 10.20.0.0/16); loopback, link-local and public ranges can't be listed")
 
 	// ErrTeamModel refuses a team provider's model where only platform
 	// models may go (platform templates, the catalog).
 	ErrTeamModel = apperr.Conflict("team_model", "That model is of a team's own provider, which only that team can use")
 )
 
-// maxPrivateNetworks bounds model_settings.private_networks.
-const maxPrivateNetworks = 50
-
-// TeamNetwork is how the platform reaches team providers.
-type TeamNetwork struct {
-	// DevAllowance accepts every address, and plain http on a loopback host
-	// (DEV_AUTH on a loopback APP_URL). Never in production.
-	DevAllowance bool
-	// Lookup resolves a host and Connect dials an approved address (nil: the
-	// system's). Tests replace them; the guard's rule stays.
-	Lookup  func(ctx context.Context, host string) ([]netip.Addr, error)
-	Connect func(ctx context.Context, network, address string) (net.Conn, error)
-	// TLS is the TLS configuration (nil: the system's; tests trust a test
-	// server).
-	TLS *tls.Config
-}
-
-type teamNet struct {
-	cfg    TeamNetwork
-	client *http.Client
-}
+// TeamNetwork is how the platform reaches teams' services (team providers
+// here, and teams' MCP servers in internal/mcp).
+type TeamNetwork = teamnet.Config
 
 // SetTeamNetwork sets how team providers are reached (at start-up; tests
 // replace the resolver, dialer and TLS configuration).
-func (s *Service) SetTeamNetwork(n TeamNetwork) {
-	tn := &teamNet{cfg: n}
-	t := &http.Transport{
-		Proxy: nil, // the guard must see the real destination
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			d, err := s.teamDialer(ctx, n)
-			if err != nil {
-				return nil, err
-			}
-			return d.DialContext(ctx, network, addr)
-		},
-		TLSClientConfig:       n.TLS,
-		ForceAttemptHTTP2:     true,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 10 * time.Minute,
-		MaxIdleConns:          64,
-		MaxIdleConnsPerHost:   8,
-		// Short, so a network removed from private_networks stops being
-		// reached soon on every replica (this one closes them at once).
-		IdleConnTimeout: 30 * time.Second,
-	}
-	tn.client = &http.Client{Transport: t, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	if old := s.team.Swap(tn); old != nil {
-		old.client.CloseIdleConnections()
-	}
-}
-
-// teamDialer is the address guard with the private networks platform admins
-// allow now.
-func (s *Service) teamDialer(ctx context.Context, n TeamNetwork) (*netguard.Dialer, error) {
-	settings, err := s.q.GetModelSettings(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("model settings: %w", err)
-	}
-	return &netguard.Dialer{AllowPrivate: n.DevAllowance, Allow: parseNetworks(settings.PrivateNetworks),
-		Timeout: 10 * time.Second, Lookup: n.Lookup, Connect: n.Connect}, nil
-}
-
-func parseNetworks(raw []string) []netip.Prefix {
-	out := make([]netip.Prefix, 0, len(raw))
-	for _, r := range raw {
-		if p, err := netip.ParsePrefix(r); err == nil {
-			out = append(out, p)
-		}
-	}
-	return out
-}
+func (s *Service) SetTeamNetwork(n TeamNetwork) { s.team.Set(n) }
 
 // clientFor is the client that calls a provider: through the address guard
 // for a team's.
 func (s *Service) clientFor(p dbgen.ModelProvider) *http.Client {
 	if p.TeamID.Valid {
-		return s.team.Load().client
+		return s.team.Client()
 	}
 	return s.client
-}
-
-func loopbackHost(host string) bool {
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	ip, err := netip.ParseAddr(host)
-	return err == nil && ip.IsLoopback()
 }
 
 // checkTeamAddress checks a team provider's (normalised) base URL: https
 // (http only on a loopback host with the development allowance), on an
 // address the guard allows now.
 func (s *Service) checkTeamAddress(ctx context.Context, base string) error {
-	n := s.team.Load().cfg
-	u, err := url.Parse(base)
-	if err != nil || u.Hostname() == "" {
+	switch err := s.team.CheckURL(ctx, base); {
+	case errors.Is(err, teamnet.ErrScheme):
 		return errTeamURL
-	}
-	if u.Scheme != "https" && !(u.Scheme == "http" && n.DevAllowance && loopbackHost(u.Hostname())) {
-		return errTeamURL
-	}
-	d, err := s.teamDialer(ctx, n)
-	if err != nil {
+	case errors.Is(err, teamnet.ErrNotAllowed):
+		return errAddressNotAllowed
+	case errors.Is(err, teamnet.ErrUnresolved):
+		return errAddressUnresolved
+	default:
 		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	switch err := d.Check(ctx, u.Hostname()); {
-	case errors.Is(err, netguard.ErrBlockedAddress):
-		return errAddressNotAllowed
-	case err != nil:
-		return errAddressUnresolved
-	}
-	return nil
 }
 
 // checkTeamModelScope refuses publishing settings on a team provider's
@@ -188,22 +96,9 @@ func checkTeamModelScope(visibility *string, teamRefs *[]string, personal *bool)
 // providerSubject is a team's providers as the actor sees them; with
 // settings, the platform settings that decide whether it may add one.
 func providerSubject(ctx context.Context, q *dbgen.Queries, a authz.Actor, t dbgen.Team, settings bool) (authz.TeamProviderSubject, error) {
-	sub := authz.TeamProviderSubject{
-		Session:  a.Service == nil && a.APIKeyID == uuid.Nil && a.OAuthGrantID == uuid.Nil,
-		Staff:    a.CanReadPlatform(),
-		Personal: t.Kind == teams.KindPersonal,
-		Archived: t.Status != teams.StatusActive,
-	}
-	if a.Service != nil {
-		if a.Service.TeamID == t.ID {
-			sub.Role = a.Service.Role
-		}
-	} else {
-		role, err := teams.MemberRole(ctx, q, t.ID, a.UserID)
-		if err != nil {
-			return sub, err
-		}
-		sub.Role = role
+	sub, err := teams.ServiceSubject(ctx, q, a, t)
+	if err != nil {
+		return sub, err
 	}
 	if settings {
 		ms, err := q.GetModelSettings(ctx)
@@ -358,7 +253,9 @@ func (s *Service) CheckTeamKinds(ctx context.Context, a authz.Actor, teamRef str
 	return err
 }
 
-// Settings are the platform's model settings.
+// Settings are the platform's settings for teams' own services: whether
+// teams may add model providers and MCP servers, and the private networks
+// (one list, for both) they may be on.
 type Settings = dbgen.ModelSetting
 
 // Settings returns the model settings (platform staff).
@@ -372,45 +269,25 @@ func (s *Service) Settings(ctx context.Context, a authz.Actor) (Settings, error)
 // SettingsInput replaces the model settings.
 type SettingsInput struct {
 	TeamsMayAddProviders bool
-	PrivateNetworks      []string
+	// TeamsMayAddMCPServers: nil keeps the current setting.
+	TeamsMayAddMCPServers *bool
+	PrivateNetworks       []string
 }
 
-// checkNetworks normalises private networks: CIDRs of private addresses
-// (RFC 1918, CGNAT, unique-local), masked, each once. Ranges of blocked
-// addresses (loopback, link-local …) or public ones are refused: the guard
-// never allows the first and always allows the second.
-func checkNetworks(in []string) ([]string, error) {
-	if len(in) > maxPrivateNetworks {
-		return nil, errBadNetworks
-	}
-	out := make([]string, 0, len(in))
-	seen := map[string]bool{}
-	for i, raw := range in {
-		p, err := netip.ParsePrefix(strings.TrimSpace(raw))
-		if err != nil || netguard.Classify(p.Masked().Addr()) != netguard.Private {
-			e := *errBadNetworks
-			e.Details = map[string]any{"index": i}
-			return nil, &e
-		}
-		p = p.Masked()
-		if !seen[p.String()] {
-			seen[p.String()] = true
-			out = append(out, p.String())
-		}
-	}
-	return out, nil
-}
+// OnSettingsChanged registers f, called after the settings change (other
+// services close the connections they keep to teams' services).
+func (s *Service) OnSettingsChanged(f func()) { s.settingsChanged = append(s.settingsChanged, f) }
 
 // UpdateSettings replaces the model settings (platform admins, If-Match).
-// Turning team providers off stops new ones; existing ones keep working.
-// Connections this replica keeps to team providers are closed, so a network
-// taken out of private_networks is not reached again (other replicas' close
-// within 30 seconds).
+// Turning team providers (or MCP servers) off stops new ones; existing ones
+// keep working. Connections this replica keeps to teams' services are
+// closed, so a network taken out of private_networks is not reached again
+// (other replicas' close within 30 seconds).
 func (s *Service) UpdateSettings(ctx context.Context, a authz.Actor, in SettingsInput, expectedRevision int64) (Settings, error) {
 	if !a.IsPlatformAdmin() {
 		return Settings{}, apperr.Forbidden("Only platform admins can change platform settings")
 	}
-	nets, err := checkNetworks(in.PrivateNetworks)
+	nets, err := teamnet.CheckNetworks(in.PrivateNetworks)
 	if err != nil {
 		return Settings{}, err
 	}
@@ -423,8 +300,13 @@ func (s *Service) UpdateSettings(ctx context.Context, a authz.Actor, in Settings
 		if cur.Revision != expectedRevision {
 			return apperr.Stale()
 		}
+		mcpServers := cur.TeamsMayAddMcpServers
+		if in.TeamsMayAddMCPServers != nil {
+			mcpServers = *in.TeamsMayAddMCPServers
+		}
 		if out, err = q.UpdateModelSettings(ctx, dbgen.UpdateModelSettingsParams{TeamsMayAddProviders: in.TeamsMayAddProviders,
-			PrivateNetworks: nets, UpdatedBy: uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil}}); err != nil {
+			TeamsMayAddMcpServers: mcpServers, PrivateNetworks: nets,
+			UpdatedBy: uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil}}); err != nil {
 			return err
 		}
 		e := a.Audit("platform.model_settings", "platform", "models")
@@ -432,11 +314,15 @@ func (s *Service) UpdateSettings(ctx context.Context, a authz.Actor, in Settings
 		return audit.Record(ctx, q, e)
 	})
 	if err == nil {
-		s.team.Load().client.CloseIdleConnections()
+		s.team.CloseIdle()
+		for _, f := range s.settingsChanged {
+			f()
+		}
 	}
 	return out, err
 }
 
 func settingsSnapshot(m Settings) map[string]any {
-	return map[string]any{"teamsMayAddProviders": m.TeamsMayAddProviders, "privateNetworks": m.PrivateNetworks}
+	return map[string]any{"teamsMayAddProviders": m.TeamsMayAddProviders, "teamsMayAddMcpServers": m.TeamsMayAddMcpServers,
+		"privateNetworks": m.PrivateNetworks}
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ncecere/pi-durable-platform/internal/netguard"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 )
@@ -189,6 +190,8 @@ type target struct {
 	serverID   uuid.NullUUID
 	serverName string
 	client     bool
+	// team: a team's own server, reached through the address guard.
+	team bool
 }
 
 func (s *Service) resolveTarget(ctx context.Context, ag Agent, kind string, id uuid.UUID) (target, bool, error) {
@@ -221,7 +224,7 @@ func (s *Service) resolveTarget(ctx context.Context, ag Agent, kind string, id u
 		return target{}, false, err
 	}
 	headers, err := s.open(m.HeadersEnc, serverAD(m.ID))
-	t := target{url: m.URL, headers: headers, serverID: uuid.NullUUID{UUID: m.ID, Valid: true}, serverName: m.Name}
+	t := target{url: m.URL, headers: headers, serverID: uuid.NullUUID{UUID: m.ID, Valid: true}, serverName: m.Name, team: m.TeamID.Valid}
 	if vm.Tools != nil {
 		t.allowed = map[string]bool{}
 		for _, name := range vm.Tools {
@@ -308,8 +311,19 @@ func (s *Service) proxy(w http.ResponseWriter, r *http.Request, ag Agent, kind s
 		}
 	}
 	started := time.Now()
-	resp, err := s.client.Do(up)
+	client := s.client
+	if t.team {
+		client = s.team.Client()
+	}
+	resp, err := client.Do(up)
 	if err != nil {
+		if errors.Is(err, netguard.ErrBlockedAddress) {
+			// A team server's host now resolves outside what teams may reach.
+			log.Warn("mcp proxy: team server address not allowed", "server", t.serverName, "err", errors.Unwrap(err))
+			gatewayError(w, http.StatusBadGateway, "address_not_allowed", "The MCP server's address is on a network teams can't use")
+			s.logCalls(ag, t, calls, false, started, log)
+			return
+		}
 		if ctx.Err() == nil {
 			log.Warn("mcp proxy: upstream unreachable", "server", t.serverName, "err", errors.Unwrap(err))
 		}

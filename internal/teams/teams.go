@@ -105,6 +105,27 @@ func MemberRole(ctx context.Context, q *dbgen.Queries, teamID, userID uuid.UUID)
 	return memberRole(ctx, q, teamID, userID)
 }
 
+// ServiceSubject is a team's own services (model providers, MCP servers) as
+// the actor sees them, without the platform settings (the caller adds the
+// ones of its kind of service).
+func ServiceSubject(ctx context.Context, q *dbgen.Queries, a authz.Actor, t dbgen.Team) (authz.TeamServiceSubject, error) {
+	sub := authz.TeamServiceSubject{
+		Session:  a.Service == nil && a.APIKeyID == uuid.Nil && a.OAuthGrantID == uuid.Nil,
+		Staff:    a.CanReadPlatform(),
+		Personal: t.Kind == KindPersonal,
+		Archived: t.Status != StatusActive,
+	}
+	if a.Service != nil {
+		if a.Service.TeamID == t.ID {
+			sub.Role = a.Service.Role
+		}
+		return sub, nil
+	}
+	role, err := memberRole(ctx, q, t.ID, a.UserID)
+	sub.Role = role
+	return sub, err
+}
+
 func memberRole(ctx context.Context, q *dbgen.Queries, teamID, userID uuid.UUID) (string, error) {
 	m, err := q.GetMembership(ctx, dbgen.GetMembershipParams{TeamID: teamID, UserID: userID})
 	if errors.Is(store.NotFound(err), store.ErrNotFound) {

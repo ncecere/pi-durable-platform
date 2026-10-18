@@ -142,6 +142,7 @@ type McpServer struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	Personal         bool
+	TeamID           uuid.NullUUID
 }
 
 type McpServerTeam struct {
@@ -185,12 +186,13 @@ type ModelProvider struct {
 }
 
 type ModelSetting struct {
-	ID                   int16
-	TeamsMayAddProviders bool
-	PrivateNetworks      []string
-	Revision             int64
-	UpdatedBy            uuid.NullUUID
-	UpdatedAt            time.Time
+	ID                    int16
+	TeamsMayAddProviders  bool
+	PrivateNetworks       []string
+	Revision              int64
+	UpdatedBy             uuid.NullUUID
+	UpdatedAt             time.Time
+	TeamsMayAddMcpServers bool
 }
 
 type ModelTeam struct {
@@ -279,6 +281,7 @@ type PersonalWorkspaceSetting struct {
 	Revision         int64
 	UpdatedAt        time.Time
 	OwnProviders     bool
+	OwnMcpServers    bool
 }
 
 type PlatformBootstrap struct {

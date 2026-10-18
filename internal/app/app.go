@@ -30,6 +30,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
 	"github.com/ncecere/pi-durable-platform/internal/serviceaccounts"
 	"github.com/ncecere/pi-durable-platform/internal/store"
+	"github.com/ncecere/pi-durable-platform/internal/teamnet"
 	"github.com/ncecere/pi-durable-platform/internal/teams"
 	"github.com/ncecere/pi-durable-platform/web"
 )
@@ -210,6 +211,11 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (httpapi.D
 		return httpapi.Deps{}, fmt.Errorf("AGENTS_CLIENT_MCP_HOSTS: %w", err)
 	}
 	servers := mcp.New(pool, box, mcp.ClientPolicy{Hosts: hosts, Mode: cfg.Agents.ClientMCPMode})
+	// Teams' own MCP servers are reached through the address guard too, with
+	// the same development allowance; changing the private networks closes
+	// the connections kept to them.
+	servers.SetTeamNetwork(teamnet.Config{DevAllowance: cfg.DevAuth && cfg.LoopbackAppURL()})
+	models.OnSettingsChanged(servers.CloseTeamConnections)
 	agentSvc, err := newAgents(cfg, pool, box, models, servers, log)
 	if err != nil {
 		return httpapi.Deps{}, err
