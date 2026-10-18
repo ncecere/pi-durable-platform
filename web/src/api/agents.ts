@@ -5,12 +5,15 @@
  */
 import { queryOptions } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, type Schemas, unwrap } from "./client";
+import { ApiError, api, type Schemas, unwrap } from "./client";
 
 export type Agent = Schemas["Agent"];
 export type ChatView = Schemas["ChatView"];
 export type ChatMessage = Schemas["ChatMessage"];
+export type ChatAuthor = Schemas["ChatAuthor"];
 export type AgentThread = Schemas["AgentThread"];
+export type AdminAgentThread = Schemas["AdminAgentThread"];
+export type ThreadVisibility = Schemas["ThreadVisibility"];
 
 export const agentsKey = ["agents"];
 
@@ -43,11 +46,44 @@ export const threadsQuery = (agentId: string) =>
     queryFn: async () => unwrap(await api.GET("/v1/agents/{agentId}/threads", { params: { path: { agentId } } })),
   });
 
-export async function sendMessage(agentId: string, threadId: string, text: string): Promise<void> {
+/**
+ * Sends a message. `visibility` goes with a thread's first message only (it
+ * never changes afterwards; the platform refuses a different one).
+ */
+export async function sendMessage(agentId: string, threadId: string, text: string, visibility?: ThreadVisibility): Promise<void> {
   unwrap(
     await api.POST("/v1/agents/{agentId}/threads/{threadId}/messages", {
       params: { path: { agentId, threadId } },
-      body: { text, requestId: newId() },
+      body: { text, requestId: newId(), ...(visibility ? { visibility } : {}) },
+    }),
+  );
+}
+
+/**
+ * A send that failed because of the thread itself: its visibility was set by
+ * its first message (409 visibility_fixed), or it's gone or someone else's
+ * private thread (404 thread_not_found).
+ */
+export function threadProblem(err: unknown): "visibility_fixed" | "thread_not_found" | undefined {
+  if (!(err instanceof ApiError)) return undefined;
+  if (err.status === 409 && err.code === "visibility_fixed") return "visibility_fixed";
+  if (err.status === 404 && err.code === "thread_not_found") return "thread_not_found";
+  return undefined;
+}
+
+/** Every thread of an agent, private ones too, for platform admins (titles of private and personal ones withheld). */
+export const adminThreadsQuery = (agentId: string) =>
+  queryOptions({
+    queryKey: ["admin", "agents", agentId, "threads"],
+    queryFn: async () => unwrap(await api.GET("/v1/admin/agents/{agentId}/threads", { params: { path: { agentId } } })),
+  });
+
+/** A platform admin's reasoned read of one conversation: recorded in the agent's team's audit log, returned once. */
+export async function adminReadThread(agentId: string, threadId: string, reason: string): Promise<ChatView> {
+  return unwrap(
+    await api.POST("/v1/admin/agents/{agentId}/threads/{threadId}/read", {
+      params: { path: { agentId, threadId } },
+      body: { reason },
     }),
   );
 }

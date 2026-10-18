@@ -10,7 +10,7 @@ import { FileClock } from "lucide-react";
 import { api, unwrap, type Schemas } from "@/api/client";
 import { changeSummary } from "@/components/audit/changes";
 import { AuditTeam } from "@/components/audit/record";
-import { actedVia, actionLabel, actorName, areaOptions, personFilter, systemPersonOption, targetTypeLabel, targetTypeLabels } from "@/components/audit/labels";
+import { actedVia, actionLabel, actorName, areaOptions, personFilter, reasonLine, systemPersonOption, targetTypeLabel, targetTypeLabels } from "@/components/audit/labels";
 import { AuditTarget } from "@/components/audit/target";
 import { ListPage, timeColumn, useListFilters } from "@/components/templates/list-page";
 import { useRecordParam } from "@/components/templates/record-page";
@@ -49,7 +49,7 @@ function useFacets(): Facet<Entry>[] {
 
 /** The action, and a simple change in one line under it ("Role Member → Editor"), else its code. */
 export function ActionCell({ entry }: { entry: Entry }) {
-  const summary = changeSummary(entry);
+  const summary = changeSummary(entry) ?? reasonLine(entry);
   return <CellText primary={actionLabel(entry.action, entry)} secondary={summary ?? <span className={s.mono}>{entry.action}</span>} />;
 }
 

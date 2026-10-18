@@ -1,6 +1,6 @@
 /* Audit words: the initial platform role, humanized roles, and "Not set" in both the list and the record. */
 import { auditChange, changedRows, changeSummary, valueText } from "../components/audit/changes";
-import { actionLabel, areaOf, targetTypeLabel } from "../components/audit/labels";
+import { actionLabel, areaOf, entryTitle, reasonLine, targetTypeLabel } from "../components/audit/labels";
 
 describe("audit labels", () => {
   it("names the bootstrap grant neutrally and shows its role in words", () => {
@@ -14,6 +14,19 @@ describe("audit labels", () => {
     const e = { action: "team.update", before: { description: "" }, after: { description: "Tools" } };
     expect(changeSummary(e)).toBe("Description Not set → Tools");
     expect(valueText(undefined)).toBe("Not set");
+  });
+
+  it("says a platform admin read a private conversation, with the reason", () => {
+    const e = { action: "thread.admin_read", after: null, targetLabel: null, metadata: { reason: "  Support ticket 4521 ", visibility: "private", personal: false } };
+    expect(actionLabel(e.action, e)).toBe("Read a private conversation");
+    expect(entryTitle(e)).toBe("Read a private conversation");
+    expect(reasonLine(e)).toBe("Reason: “Support ticket 4521”");
+    expect(areaOf(e.action)).toBe("Conversations");
+    expect(targetTypeLabel("agent_thread")).toBe("Conversation");
+    // A personal workspace's conversations are its owner's, shared or not; a shared team's shared one isn't private.
+    expect(actionLabel(e.action, { metadata: { visibility: "shared", personal: true } })).toBe("Read a private conversation");
+    expect(actionLabel(e.action, { metadata: { visibility: "shared", personal: false } })).toBe("Read a team conversation");
+    expect(reasonLine({ metadata: {} })).toBeUndefined();
   });
 
   it("knows the target types and areas of the kept domains", () => {

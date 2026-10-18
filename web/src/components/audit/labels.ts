@@ -43,10 +43,19 @@ const actionLabels: Record<string, string> = {
   "service_account_key.revoke": "Revoked service account key",
   "api_key.pepper_rehash": "Re-secured API key after key rotation",
   "service_account_key.pepper_rehash": "Re-secured service account key after key rotation",
+  "thread.admin_read": "Read a private conversation",
+};
+
+/** A recorded metadata field, when it's a string. */
+const meta = (e: Partial<Pick<AuditEntry, "metadata">> | undefined, key: string) => {
+  const v = e?.metadata?.[key];
+  return typeof v === "string" ? v : undefined;
 };
 
 /** "Added member" for team.member_add; unknown actions are spelled out ("foo.bar_baz" → "Foo: bar baz"). */
-export function actionLabel(action: string, _entry?: Partial<Pick<AuditEntry, "after" | "metadata">>) {
+export function actionLabel(action: string, entry?: Partial<Pick<AuditEntry, "after" | "metadata">>) {
+  // A platform admin's read of a shared team conversation isn't a private one's.
+  if (action === "thread.admin_read" && meta(entry, "visibility") === "shared" && entry?.metadata?.personal === false) return "Read a team conversation";
   const known = actionLabels[action];
   if (known) return known;
   const [group = "", rest = ""] = action.split(".");
@@ -61,6 +70,7 @@ export const actionGroups: { prefix: string; label: string; platform?: boolean }
   { prefix: "team.", label: "Team and members" },
   { prefix: "service_account.", label: "Service accounts" },
   { prefix: "service_account_key.", label: "Service account keys" },
+  { prefix: "thread.", label: "Conversations" },
   { prefix: "api_key.", label: "API keys", platform: true },
   { prefix: "platform.", label: "Platform and users", platform: true },
   { prefix: "auth.", label: "Sign-in", platform: true },
@@ -130,10 +140,20 @@ export const targetTypeLabels: Record<string, string> = {
   api_key: "API key",
   service_account: "Service account",
   service_account_key: "Service account key",
+  agent_thread: "Conversation",
+};
+
+/** Why it was done, for entries that record a reason (a platform admin's read of a conversation). */
+export const auditReason = (e: Partial<Pick<AuditEntry, "metadata">>) => meta(e, "reason")?.trim() || undefined;
+
+/** An entry's one-line note for lists: its reason, quoted ("Reason: “Ticket 4521”"). */
+export const reasonLine = (e: Partial<Pick<AuditEntry, "metadata">>) => {
+  const reason = auditReason(e);
+  return reason ? `Reason: “${reason}”` : undefined;
 };
 
 /** An entry's action and target in one line for a short list ("Added member: Una User"). */
-export function entryTitle(e: Pick<AuditEntry, "action" | "after" | "targetLabel">) {
+export function entryTitle(e: Pick<AuditEntry, "action" | "after" | "targetLabel"> & Partial<Pick<AuditEntry, "metadata">>) {
   const action = actionLabel(e.action, e);
   return e.targetLabel && !action.toLowerCase().includes(e.targetLabel.toLowerCase()) ? `${action}: ${e.targetLabel}` : action;
 }

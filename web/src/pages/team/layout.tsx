@@ -22,7 +22,10 @@ import { TeamContext, teamCtx, useTeam } from "./common";
  * when platform staff may read it; otherwise it is members only.
  */
 const staffPage = (path: string) => /^\/teams\/[^/]+(\/settings|\/usage|\/models(\/providers\/[^/]+)?|\/mcp-servers(\/[^/]+)?|\/(service-accounts)(\/[^/]+)?)?\/?$/.test(path);
-/** In a personal workspace platform staff also audit its agents (their settings and status, not their conversations). */
+/**
+ * In a personal workspace platform staff also audit its agents (their settings and status; a platform admin reads a
+ * conversation only with a reason, recorded in its audit log).
+ */
 const staffAuditPage = (path: string) => /^\/teams\/[^/]+\/agents(\/[^/]+)?\/?$/.test(path);
 
 /** The team area: loads the team and provides it to the current team page. */

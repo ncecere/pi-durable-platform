@@ -1,4 +1,9 @@
-/* A conversation's messages: user bubbles, assistant replies (Markdown), reasoning and tool calls. */
+/*
+ * A conversation's messages: user bubbles (with who sent them and when, on
+ * threads with several people), assistant replies (Markdown) with a quiet
+ * meta line, reasoning and tool calls (with how long each took). Read-only:
+ * the test chat and an admin's snapshot both use it.
+ */
 import { type ChatMessage, type ChatView } from "../../../api/agents";
 import { Message, MessageContent } from "@/components/ui/message/message";
 import {
@@ -7,6 +12,7 @@ import {
   ReasoningTrigger,
 } from "@/components/ui/reasoning/reasoning";
 import { LazyResponse } from "@/components/ui/response/response-lazy";
+import { Time } from "@/components/ui/time/time";
 import {
   Tool,
   ToolContent,
@@ -16,6 +22,14 @@ import {
   type ToolState,
 } from "@/components/ui/tool/tool";
 import s from "./agents.module.css";
+import {
+  authorName,
+  manyPeople,
+  metaText,
+  type ReplyMeta,
+  replyMetas,
+  toolDuration,
+} from "./message-meta";
 
 /** Tool results by call ID, so a call shows with its result. */
 function resultsById(messages: ChatMessage[]): Map<string, ChatMessage> {
@@ -25,22 +39,37 @@ function resultsById(messages: ChatMessage[]): Map<string, ChatMessage> {
   return out;
 }
 
-export function ChatMessages({ view }: { view: ChatView }) {
+export type ChatMessagesProps = {
+  view: ChatView;
+  /** The person reading (their messages say "You"). */
+  viewerId?: string;
+  /** How many people have sent to the thread (its record's participants). */
+  participants?: number;
+  /** When the thread's last reply finished: the latest reply's duration. */
+  lastReplyAt?: number | null;
+};
+
+export function ChatMessages({ view, viewerId, participants, lastReplyAt }: ChatMessagesProps) {
   const results = resultsById(view.messages);
   const running = new Map(view.tools.map((t) => [t.callId, t]));
+  const metas = replyMetas(view, lastReplyAt);
+  const many = manyPeople(view.messages, participants);
   return (
     <>
       {view.messages.map((m) => {
         if (m.role === "tool") return null;
         if (m.role === "user") {
+          const name = authorName(m.author, viewerId, many);
           return (
-            <Message key={m.id} from="user">
+            <Message key={m.id} from="user" label={name && name !== "You" ? `${name} said` : undefined}>
+              <UserHeader name={name} via={m.author?.via} at={m.at} />
               <MessageContent>
                 <p className={s.userText}>{m.text}</p>
               </MessageContent>
             </Message>
           );
         }
+        const meta = metas.get(m.id);
         return (
           <Message key={m.id} from="assistant">
             <MessageContent>
@@ -62,7 +91,7 @@ export function ChatMessages({ view }: { view: ChatView }) {
                     : "pending";
                 return (
                   <Tool key={call.id}>
-                    <ToolHeader name={call.name} state={state} />
+                    <ToolHeader name={call.name} state={state} summary={toolDuration(call)} />
                     <ToolContent>
                       <ToolInput input={call.arguments} />
                       {result ? (
@@ -81,7 +110,9 @@ export function ChatMessages({ view }: { view: ChatView }) {
                 );
               })}
               {m.text ? <LazyResponse>{m.text}</LazyResponse> : null}
-              {m.error ? <p className={s.replyError}>{m.error}</p> : null}
+              {/* A stop the person asked for says "Stopped" in the meta line instead. */}
+              {m.error && m.stopReason !== "aborted" ? <p className={s.replyError}>{m.error}</p> : null}
+              {meta ? <ReplyMetaLine meta={meta} /> : null}
             </MessageContent>
           </Message>
         );
@@ -103,4 +134,22 @@ export function ChatMessages({ view }: { view: ChatView }) {
       ) : null}
     </>
   );
+}
+
+/** Above a user message: who sent it (when shown), the app they used, and when. */
+function UserHeader({ name, via, at }: { name?: string; via?: string; at?: number }) {
+  if (!name && !via && at === undefined) return null;
+  return (
+    <p className={s.messageHeader}>
+      {name ? <span className={s.author}>{name}</span> : null}
+      {via ? <span>via {via}</span> : null}
+      {at !== undefined ? <Time value={at} format="relative" /> : null}
+    </p>
+  );
+}
+
+function ReplyMetaLine({ meta }: { meta: ReplyMeta }) {
+  const text = metaText(meta);
+  if (!text) return null;
+  return <p className={s.replyMeta}>{text}</p>;
 }

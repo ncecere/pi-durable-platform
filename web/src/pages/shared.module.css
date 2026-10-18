@@ -173,6 +173,13 @@
   }
 }
 
+/* Text someone wrote, as written (an audit entry's reason). */
+.written {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .pre {
   max-width: 36rem;
   max-height: 20rem;

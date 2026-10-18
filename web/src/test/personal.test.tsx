@@ -235,7 +235,7 @@ describe("platform staff auditing a personal workspace", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Helper" })).toBeInTheDocument();
     expect(screen.getByText("You're viewing this agent as platform staff")).toBeInTheDocument();
     const tabs = screen.getByRole("tablist", { name: "Agent sections" });
-    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Overview", "Settings"]);
+    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Overview", "Conversations", "Settings"]);
     expect(screen.queryByRole("button", { name: /Hibernate/ })).toBeNull();
   });
 });

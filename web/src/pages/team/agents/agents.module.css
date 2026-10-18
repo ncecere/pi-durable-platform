@@ -50,7 +50,10 @@
 }
 
 .threadButton {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: 0.125rem;
   min-width: 0;
   padding: var(--space-2);
   overflow: hidden;
@@ -60,13 +63,59 @@
   font: inherit;
   font-size: var(--font-size-sm);
   text-align: start;
-  text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
   border-radius: var(--radius-control);
 
   &:focus-visible {
     outline: 2px solid var(--color-focus-ring);
+  }
+}
+
+.threadTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.threadIcon {
+  flex: none;
+  width: 0.875em;
+  height: 0.875em;
+  vertical-align: -0.125em;
+}
+
+/* Under a thread's title: Private, or who started it and the people in it. */
+.threadSub {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.people {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* Up to three small avatars, overlapping. */
+.avatars {
+  display: inline-flex;
+
+  & > * + * {
+    margin-inline-start: calc(var(--space-1) * -1);
   }
 }
 
@@ -103,6 +152,51 @@
 
 .composer {
   padding: var(--space-3);
+}
+
+/* Shared or Private, before a new conversation's first message. */
+.visibility {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* Above a user message: who sent it, through which app, and when. Quiet. */
+.messageHeader {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+
+  & > * + *::before {
+    content: "·";
+    margin-inline-end: var(--space-1);
+  }
+}
+
+.author {
+  color: var(--color-text);
+  font-weight: var(--font-weight-medium);
+}
+
+/* Under a reply: model · tokens · duration · how it stopped. */
+.replyMeta {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* An admin's read-only snapshot of a conversation, inside its dialog. */
+.snapshot {
+  height: min(60dvh, 40rem);
+  border: 1px solid var(--color-border-muted);
+  border-radius: var(--radius-2);
 }
 
 .userText {

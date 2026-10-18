@@ -1,7 +1,8 @@
 /*
  * Admin team › Overview of a personal workspace: its owner, its agents
  * against its limits, and links to what platform staff audit there (its
- * agents, usage and audit log; never its conversations).
+ * agents, usage and audit log; a platform admin reads a conversation only
+ * with a reason, recorded in its audit log for its owner to see).
  */
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -39,7 +40,7 @@ export function PersonalStats({ slug }: { slug: string }) {
 /** Where platform staff audit the workspace. */
 export function AuditLinks({ slug }: { slug: string }) {
   return (
-    <Card title="Audit this workspace" description="Platform staff see its agents' settings and status, its usage and its audit log, not its conversations.">
+    <Card title="Audit this workspace" description="Platform staff see its agents' settings and status, its usage and its audit log. A platform admin can read a conversation (an agent's Conversations tab) with a reason, recorded in its audit log for its owner to see.">
       <div className={s.badges}>
         <Button size="sm" variant="secondary" render={<Link to="/teams/$team/agents" params={{ team: slug }} />}>
           <Sparkles aria-hidden /> {terms.agents}

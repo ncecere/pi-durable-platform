@@ -27,8 +27,8 @@ export type McpServerTab = (typeof mcpServerTabs)[number];
 export const serviceAccountTabs = ["overview", "keys", "settings"] as const;
 export type ServiceAccountTab = (typeof serviceAccountTabs)[number];
 
-/** A team's agent: Overview (status, how to call it) · Test (chat with it) · Settings. */
-export const agentTabs = ["overview", "test", "settings"] as const;
+/** A team's agent: Overview (status, how to call it) · Test (chat with it) · Conversations (platform staff) · Settings. */
+export const agentTabs = ["overview", "test", "conversations", "settings"] as const;
 export type AgentTab = (typeof agentTabs)[number];
 
 /** A template: Overview (current instructions) · Versions · Settings. */

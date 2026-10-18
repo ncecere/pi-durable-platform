@@ -12,7 +12,7 @@ import { Eye, FileClock } from "lucide-react";
 import { api, unwrap, type Schemas } from "../../../api/client";
 import { membersQuery } from "../../../api/queries";
 import { changeSummary } from "../../../components/audit/changes";
-import { actionLabel, actorName, areaOptions, auditKey, personFilter, systemPersonOption, viaLabel } from "../../../components/audit/labels";
+import { actionLabel, actorName, areaOptions, auditKey, personFilter, reasonLine, systemPersonOption, viaLabel } from "../../../components/audit/labels";
 import { auditSections } from "../../../components/audit/record";
 import { AuditTarget } from "../../../components/audit/target";
 import { ListPage, RelativeTime, useListFilters } from "../../../components/templates/list-page";
@@ -83,7 +83,7 @@ export function TeamAuditLog() {
       header: "Action",
       accessor: (e) => actionLabel(e.action, e),
       rowHeader: true,
-      cell: (e) => <CellText primary={actionLabel(e.action, e)} secondary={changeSummary(e) ?? undefined} />,
+      cell: (e) => <CellText primary={actionLabel(e.action, e)} secondary={changeSummary(e) ?? reasonLine(e)} />,
     },
     { id: "target", header: "Target", accessor: (e) => e.targetLabel ?? e.targetType, cell: (e) => <AuditTarget entry={e} scope={{ ...scope, member: Boolean(role) }} /> },
   ];

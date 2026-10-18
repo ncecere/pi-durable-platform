@@ -7,7 +7,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowRight, Crown, MailPlus, UsersRound } from "lucide-react";
 import { api, unwrap, type Schemas } from "@/api/client";
 import { changeSummary } from "@/components/audit/changes";
-import { actionLabel, actorName, entryTitle } from "@/components/audit/labels";
+import { actionLabel, actorName, entryTitle, reasonLine } from "@/components/audit/labels";
 import { RelativeTime } from "@/components/templates/list-page";
 import { Button } from "@/components/ui/button/button";
 import { Card } from "@/components/ui/card/card";
@@ -32,7 +32,7 @@ export function TeamOverviewTab({ summary, owner }: { summary: Summary; owner?: 
     queryFn: async () => unwrap(await api.GET("/v1/teams/{team}/audit", { params: { path: { team: slug }, query: { limit: 5 } } })),
   });
   const changeTitle = (e: Schemas["AuditEntry"]) => {
-    const change = changeSummary(e);
+    const change = changeSummary(e) ?? reasonLine(e);
     const title = e.targetId === summary.team.id ? actionLabel(e.action, e) : entryTitle(e);
     return change ? `${title}: ${change}` : title;
   };

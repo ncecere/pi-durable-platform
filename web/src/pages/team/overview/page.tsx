@@ -62,7 +62,7 @@ export function TeamOverviewPage() {
       <ArchivedNotice />
       {!role && personal && (
         <Alert tone="info" title="You're viewing a personal workspace as platform staff">
-          You can see its agents, usage and audit log, but not its conversations.{" "}
+          You can see its agents, usage and audit log. Its conversations are its owner&apos;s: a platform admin reads one only with a reason, recorded in its audit log.{" "}
           <TextLink render={<Link to="/admin/teams/$team" params={{ team: slug }} />}>Its limits are in Admin</TextLink>.
         </Alert>
       )}

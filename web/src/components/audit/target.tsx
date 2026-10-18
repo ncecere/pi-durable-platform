@@ -64,7 +64,35 @@ function platformLink(e: AuditEntry): ReactElement | null {
   }
 }
 
+/**
+ * A conversation ("<agentId>/<threadId>"): linked to its agent where the viewer can open it (a member of its team,
+ * or platform staff for a personal workspace's agent, on its Conversations tab).
+ */
+function ThreadTarget({ entry, scope }: { entry: AuditEntry; scope: AuditScope }) {
+  const [agentId = "", threadId = ""] = entry.targetId.split("/");
+  const personal = entry.metadata?.personal === true;
+  const team = scope.kind === "team" ? scope.team : (entry.teamSlug ?? undefined);
+  const member = scope.kind === "team" && scope.member !== false;
+  const link =
+    agentId && team && (member || personal) ? (
+      <Link to="/teams/$team/agents/$agentId" params={{ team, agentId }} search={member ? {} : { tab: "conversations" }} />
+    ) : null;
+  return (
+    <>
+      {link ? (
+        <TextLink render={link} className={s.primary}>
+          Conversation
+        </TextLink>
+      ) : (
+        <span className={s.primary}>Conversation</span>
+      )}
+      {threadId && <span className={`${s.secondary} ${s.mono}`}>{threadId}</span>}
+    </>
+  );
+}
+
 export function AuditTarget({ entry, scope }: { entry: AuditEntry; scope: AuditScope }) {
+  if (entry.targetType === "agent_thread" && !entry.targetLabel) return <ThreadTarget entry={entry} scope={scope} />;
   const type = targetTypeLabel(entry.targetType);
   const name = entry.targetLabel;
   const link = entry.targetExists ? (scope.kind === "team" ? teamLink(scope.team, entry) : platformLink(entry)) : null;

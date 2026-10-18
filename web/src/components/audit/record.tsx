@@ -7,7 +7,7 @@ import { TextLink } from "@/components/ui/text-link/text-link";
 import s from "../../pages/shared.module.css";
 import { auditChange } from "./changes";
 import { AuditChangesTable } from "./changes-table";
-import { actionLabel } from "./labels";
+import { actionLabel, auditReason } from "./labels";
 
 type Entry = Schemas["AuditEntry"];
 
@@ -20,6 +20,8 @@ export function AuditTeam({ entry }: { entry: Pick<Entry, "teamId" | "teamName" 
 /** The before and after (in words: auditChange) and the raw metadata. */
 export function auditSections(e: Entry): RecordSection[] {
   const out: RecordSection[] = [];
+  const reason = auditReason(e);
+  if (reason) out.push({ title: "Reason", content: <p className={s.written}>{reason}</p> });
   if (e.before != null || e.after != null) {
     const change = auditChange(e);
     out.push({

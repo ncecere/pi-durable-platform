@@ -4,11 +4,13 @@
  * members) and Settings. Service-managed agents show to the team's owners
  * and admins without Test: their conversations belong to the app's users.
  * Platform staff auditing a personal workspace see Overview and Settings,
- * read-only, without Test (the API keeps conversations from them).
+ * read-only, without Test. Platform staff also see Conversations: every
+ * thread, private ones too, which a platform admin may read with a reason
+ * (recorded in the team's audit log).
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { LayoutDashboard, MessageSquare, Moon, Settings2 } from "lucide-react";
+import { LayoutDashboard, MessageSquare, MessagesSquare, Moon, Settings2 } from "lucide-react";
 import { agentQuery } from "../../../api/agents";
 import { api, errorMessage, unwrap } from "../../../api/client";
 import { isNotFound, NotFoundState } from "../../../components/not-found";
@@ -16,6 +18,7 @@ import { PageSkeleton } from "../../../components/page-skeleton";
 import { RelativeTime } from "../../../components/templates/list-page";
 import { DetailPage } from "../../../components/templates/detail-page";
 import { agentTabs } from "../../../lib/tabs";
+import { useCurrentUser } from "../../../session";
 import { Alert, ErrorAlert } from "@/components/ui/alert/alert";
 import { Badge } from "@/components/ui/badge/badge";
 import { Button } from "@/components/ui/button/button";
@@ -29,6 +32,7 @@ import {
   whatIsServiceManaged,
 } from "./labels";
 import { ModelUnavailableNotice } from "./agent-model";
+import { ConversationsTab } from "./conversations-tab";
 import { OverviewTab } from "./overview-tab";
 import { SettingsTab } from "./settings-tab";
 import { TestChat } from "./test-chat";
@@ -51,6 +55,8 @@ export function TeamAgentPage() {
 
 function Record({ agent }: { agent: Agent }) {
   const ctx = useTeam();
+  const { capabilities } = useCurrentUser();
+  const staff = capabilities.platformAdmin || capabilities.platformAuditor;
   const qc = useQueryClient();
   const abilities = agentAbilities(ctx, agent);
   const status = agentStatus(agent);
@@ -118,7 +124,10 @@ function Record({ agent }: { agent: Agent }) {
         <>
           {!ctx.role ? (
             <Alert tone="info" title="You're viewing this agent as platform staff">
-              You can see its settings, status and usage, not its conversations.
+              You can see its settings, status and usage.{" "}
+              {capabilities.platformAdmin
+                ? "You can read a conversation under Conversations, with a reason recorded in the workspace's audit log."
+                : "Not its conversations."}
             </Alert>
           ) : null}
           {agent.externalKey ? (
@@ -150,7 +159,17 @@ function Record({ agent }: { agent: Agent }) {
                 value: "test" as const,
                 label: "Test",
                 icon: <MessageSquare aria-hidden />,
-                content: <TestChat agent={agent} />,
+                content: <TestChat agent={agent} personal={ctx.personal} />,
+              },
+            ]
+          : []),
+        ...(staff
+          ? [
+              {
+                value: "conversations" as const,
+                label: "Conversations",
+                icon: <MessagesSquare aria-hidden />,
+                content: <ConversationsTab agent={agent} personal={ctx.personal} canRead={capabilities.platformAdmin} />,
               },
             ]
           : []),
