@@ -86,6 +86,21 @@ render_deploy --set replicaCount=3 --set 'topologySpreadConstraints[0].maxSkew=2
 "$HELM" template x "$chart" -n n -f "$chart/ci/replicas.yaml" -s templates/pdb.yaml | yq -e '.spec.minAvailable == 1' >/dev/null || fail "the replicas example has no PodDisruptionBudget"
 echo "ok: replicas"
 
+step "chart: shutdown and group re-checks"
+# The pod must live as long as the platform's own shutdown (SHUTDOWN_DELAY 5s + SHUTDOWN_TIMEOUT 60s).
+render_deploy | yq -e '.spec.template.spec.terminationGracePeriodSeconds >= 65' >/dev/null || fail "terminationGracePeriodSeconds is shorter than the platform's shutdown"
+# With allowedGroups the re-check needs offline_access; without them, or with the re-check off, it is not asked for.
+oidc=(--set oidc.issuer=https://idp.example.com --set oidc.clientId=pdp)
+scopes() { "$HELM" template x "$chart" -n n "${ok_values[@]}" "${oidc[@]}" -s templates/configmap.yaml "$@" | yq '.data.OIDC_SCOPES'; }
+[ "$(scopes)" = "openid,profile,email" ] || fail "scopes without allowedGroups: $(scopes)"
+[ "$(scopes --set 'oidc.allowedGroups={pdp-users}')" = "openid,profile,email,offline_access" ] || fail "no offline_access with allowedGroups"
+[ "$(scopes --set 'oidc.allowedGroups={pdp-users}' --set 'oidc.scopes={openid,offline_access}')" = "openid,offline_access" ] || fail "offline_access added twice"
+[ "$(scopes --set 'oidc.allowedGroups={pdp-users}' --set-string oidc.groupRecheckInterval=0)" = "openid,profile,email" ] || fail "offline_access with the re-check off"
+"$HELM" template x "$chart" -n n "${ok_values[@]}" "${oidc[@]}" --set 'oidc.allowedGroups={pdp-users}' --set oidc.groupRecheckInterval=5m --set oidc.groupRecheckGrace=2h -s templates/configmap.yaml |
+  yq -e '.data.OIDC_GROUP_RECHECK_INTERVAL == "5m" and .data.OIDC_GROUP_RECHECK_GRACE == "2h"' >/dev/null || fail "the re-check settings are not passed on"
+refuses "groupRecheckInterval" "${ok_values[@]}" "${oidc[@]}" --set oidc.groupRecheckInterval=soon
+echo "ok: shutdown and group re-checks"
+
 step "kustomize"
 for d in overlays/kubernetes overlays/agent-sandbox overlays/agent-sandbox-cold examples/production examples/cilium examples/monitoring; do
   kubectl kustomize "$kz/$d" >"$tmp/kustomize-$(echo "$d" | tr / -).yaml" || fail "kustomize build $d"

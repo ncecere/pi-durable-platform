@@ -28,7 +28,7 @@ spec:
     spec:
       serviceAccountName: pi-durable-platform
       enableServiceLinks: false
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 75
       securityContext:
         runAsGroup: 65532
         runAsNonRoot: true

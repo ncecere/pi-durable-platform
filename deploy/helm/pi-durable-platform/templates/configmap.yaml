@@ -36,7 +36,11 @@ data:
   {{- with $o.issuer }}
   OIDC_ISSUER: {{ . | quote }}
   OIDC_CLIENT_ID: {{ $o.clientId | quote }}
-  OIDC_SCOPES: {{ join "," $o.scopes | quote }}
+  {{- $scopes := $o.scopes }}
+  {{- if and $o.allowedGroups (ne (toString $o.groupRecheckInterval) "0") (not (has "offline_access" $scopes)) }}
+  {{- $scopes = append $scopes "offline_access" }}
+  {{- end }}
+  OIDC_SCOPES: {{ join "," $scopes | quote }}
   OIDC_EMAIL_CLAIM: {{ $o.emailClaim | quote }}
   OIDC_GROUPS_CLAIM: {{ $o.groupsClaim | quote }}
   OIDC_REQUIRE_VERIFIED_EMAIL: {{ $o.requireVerifiedEmail | quote }}
@@ -45,6 +49,12 @@ data:
   {{- end }}
   {{- with $o.allowedGroups }}
   OIDC_ALLOWED_GROUPS: {{ join "," . | quote }}
+  {{- end }}
+  {{- with $o.groupRecheckInterval }}
+  OIDC_GROUP_RECHECK_INTERVAL: {{ . | quote }}
+  {{- end }}
+  {{- with $o.groupRecheckGrace }}
+  OIDC_GROUP_RECHECK_GRACE: {{ . | quote }}
   {{- end }}
   {{- end }}
   {{- with $o.bootstrapAdminSubject }}
