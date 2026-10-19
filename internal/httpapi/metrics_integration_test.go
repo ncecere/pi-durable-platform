@@ -145,15 +145,15 @@ func TestMetricsAndTraces(t *testing.T) {
 	ctx, stop := context.WithCancel(context.Background())
 	go app.Agents.ObserveAgents(ctx, time.Hour)
 	t.Cleanup(stop)
-	code, ec = e.member.call("POST", base+"/hibernate", nil, nil, nil)
-	mustCode(t, "hibernate", code, ec, 200, "")
-
-	var s metricstest.Scrape
+	// The observer's first pass sees the agent running; hibernate only after it has reported.
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
-		if s = metricstest.Fetch(t, scrape.URL+"/metrics"); s.Sum("pdp_agents", "enabled", "true") >= 1 || time.Now().After(deadline) {
+		if metricstest.Fetch(t, scrape.URL+"/metrics").Sum("pdp_agents", "enabled", "true") >= 1 || time.Now().After(deadline) {
 			break
 		}
 	}
+	code, ec = e.member.call("POST", base+"/hibernate", nil, nil, nil)
+	mustCode(t, "hibernate", code, ec, 200, "")
+	s := metricstest.Fetch(t, scrape.URL+"/metrics")
 
 	t.Run("metrics", func(t *testing.T) {
 		geq := func(name string, want float64, kv ...string) {

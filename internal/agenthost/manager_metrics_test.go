@@ -24,6 +24,7 @@ import (
 // scriptedLauncher answers Ensure with err, and lists running agents.
 type scriptedLauncher struct {
 	mu      sync.Mutex
+	ensures int
 	err     error
 	running map[string]launcher.Endpoint
 	stopped []string
@@ -33,7 +34,15 @@ type scriptedLauncher struct {
 func (s *scriptedLauncher) Ensure(_ context.Context, spec launcher.Spec) (launcher.Endpoint, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.ensures++
 	return s.running[spec.AgentID], s.err
+}
+
+func (s *scriptedLauncher) Lookup(_ context.Context, spec launcher.Spec) (launcher.Endpoint, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ep, ok := s.running[spec.AgentID]
+	return ep, ok, nil
 }
 func (s *scriptedLauncher) Stop(_ context.Context, id string) error {
 	s.mu.Lock()
@@ -171,5 +180,57 @@ func TestProxyTracesTheRuntimeRequest(t *testing.T) {
 				t.Errorf("span %s holds %s=%q", s.Name, a.Key, v)
 			}
 		}
+	}
+}
+
+// lockerStub is a Locker for one process: it records what was locked and can refuse the non-blocking lock.
+type lockerStub struct {
+	mu     sync.Mutex
+	locked []string
+	refuse bool
+}
+
+func (l *lockerStub) Lock(_ context.Context, key string) (func(), error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.locked = append(l.locked, key)
+	return func() {}, nil
+}
+
+func (l *lockerStub) TryLock(_ context.Context, key string) (func(), bool, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.refuse {
+		return nil, false, nil
+	}
+	l.locked = append(l.locked, key)
+	return func() {}, true, nil
+}
+
+// With several replicas an agent that is already running is found by one Lookup: no lock is taken, nothing is started,
+// and the wake counts as "running".
+func TestWakeThroughTheLockMetrics(t *testing.T) {
+	m := metrics.New(metrics.Info{})
+	l := &scriptedLauncher{running: map[string]launcher.Endpoint{"a1": {BaseURL: "http://127.0.0.1:1", Token: "t"}}}
+	lk := &lockerStub{}
+	mgr := New(l, time.Millisecond, quiet())
+	mgr.Metrics = m
+	mgr.SetLocker(lk)
+
+	if _, err := mgr.Wake(context.Background(), launcher.Spec{AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	if l.ensures != 0 || len(lk.locked) != 0 {
+		t.Errorf("a running agent started %d times under locks %v", l.ensures, lk.locked)
+	}
+	// Not running: the start is serialised by the agent's lock, then Ensure runs once.
+	if _, err := mgr.Wake(context.Background(), launcher.Spec{AgentID: "a2"}); err != nil {
+		t.Fatal(err)
+	}
+	if l.ensures != 1 || len(lk.locked) != 1 || lk.locked[0] != wakeLockPrefix+"a2" {
+		t.Errorf("ensures %d, locks %v", l.ensures, lk.locked)
+	}
+	if got := metricstest.Gather(t, m).Sum("pdp_agent_wakes_total", "result", "ok"); got != 2 {
+		t.Errorf("wakes = %v, want 2", got)
 	}
 }
