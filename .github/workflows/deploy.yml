@@ -172,7 +172,10 @@ jobs:
           {
             echo "Smoke test images ($MODE):"
             echo
-            sed 's/^[A-Z_]*=\(.*\)$/- `\1`/' <<<"$out"
+            bt=$'\x60'
+            while IFS= read -r line; do
+              [ -n "$line" ] && printf -- '- %s%s%s\n' "$bt" "${line#*=}" "$bt"
+            done <<<"$out"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install the chart into kind and check isolation
