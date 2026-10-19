@@ -8,8 +8,25 @@ export const platformRoleLabels: Record<Schemas["PlatformRole"], string> = {
   platform_auditor: "Platform auditor",
 };
 
-export function UserStatusBadge({ status }: { status: Schemas["User"]["status"] }) {
-  return status === "active" ? <StatusBadge tone="success">Active</StatusBadge> : <StatusBadge tone="danger">Suspended</StatusBadge>;
+/** Why the identity provider's group rule ended a person's access (User.accessDeniedReason). */
+export const accessDeniedReasons: Record<NonNullable<Schemas["User"]["accessDeniedReason"]>, string> = {
+  not_in_group: "They are no longer in a group allowed to sign in.",
+  idp_refused: "The identity provider no longer vouches for them (disabled, or their grant was revoked or expired).",
+  idp_unreachable: "The identity provider could not confirm their groups within the grace period.",
+};
+
+/** Active, Suspended (an admin's decision), or No longer in an allowed group (the identity provider's group rule). */
+export function UserStatusBadge({ user }: { user: Pick<Schemas["User"], "status" | "accessDeniedAt" | "accessDeniedReason"> }) {
+  if (user.status !== "active") return <StatusBadge tone="danger">Suspended</StatusBadge>;
+  if (user.accessDeniedAt) {
+    const why = user.accessDeniedReason ? accessDeniedReasons[user.accessDeniedReason] : undefined;
+    return (
+      <StatusBadge tone="warning" title={why}>
+        Group access ended
+      </StatusBadge>
+    );
+  }
+  return <StatusBadge tone="success">Active</StatusBadge>;
 }
 
 export function TeamStatusBadge({ status }: { status: Schemas["TeamStatus"] }) {

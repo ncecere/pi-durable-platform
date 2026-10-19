@@ -118,6 +118,8 @@ var settings = []setting{
 	{key: "OIDC_REQUIRE_VERIFIED_EMAIL", apply: boolean(func(c *Config) *bool { return &c.OIDC.RequireVerifiedEmail })},
 	{key: "OIDC_ALLOWED_EMAIL_DOMAINS", apply: list(func(c *Config) *[]string { return &c.OIDC.AllowedEmailDomains }, true)},
 	{key: "OIDC_ALLOWED_GROUPS", apply: list(func(c *Config) *[]string { return &c.OIDC.AllowedGroups }, false)},
+	{key: "OIDC_GROUP_RECHECK_INTERVAL", apply: duration(func(c *Config) *time.Duration { return &c.OIDC.GroupRecheckInterval }, 0, 24*time.Hour)},
+	{key: "OIDC_GROUP_RECHECK_GRACE", apply: duration(func(c *Config) *time.Duration { return &c.OIDC.GroupRecheckGrace }, 0, 30*24*time.Hour)},
 	{key: "BOOTSTRAP_ADMIN_SUBJECT", apply: str(func(c *Config) *string { return &c.OIDC.BootstrapAdminSubject })},
 	{key: "ENCRYPTION_KEY", secret: true, apply: str(func(c *Config) *string { return &c.EncryptionKey })},
 	{key: "ENCRYPTION_KEY_PREVIOUS", secret: true, apply: str(func(c *Config) *string { return &c.EncryptionKeyPrevious })},

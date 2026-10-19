@@ -408,17 +408,27 @@ type ThreadMcpServer struct {
 }
 
 type User struct {
-	ID           uuid.UUID
-	OIDCIssuer   string
-	OIDCSubject  string
-	Email        string
-	DisplayName  string
-	PlatformRole string
-	Status       string
-	Claims       json.RawMessage
-	Groups       []string
-	Revision     int64
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	LastLoginAt  *time.Time
+	ID                uuid.UUID
+	OIDCIssuer        string
+	OIDCSubject       string
+	Email             string
+	DisplayName       string
+	PlatformRole      string
+	Status            string
+	Claims            json.RawMessage
+	Groups            []string
+	Revision          int64
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	LastLoginAt       *time.Time
+	GroupDeniedAt     *time.Time
+	GroupDeniedReason *string
+}
+
+type UserIdpToken struct {
+	UserID          uuid.UUID
+	RefreshTokenEnc []byte
+	VerifiedAt      time.Time
+	CheckedAt       time.Time
+	CreatedAt       time.Time
 }

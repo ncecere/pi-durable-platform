@@ -16,6 +16,22 @@
 --     its threads (it does not know them), and are removed after 30 days
 --     without a message.
 
+-- Group re-check:
+--   * users.group_denied_at / group_denied_reason: the IdP no longer lists the
+--     person in an allowed group (OIDC_ALLOWED_GROUPS), or refuses to vouch
+--     for them. Separate from users.status, which admins set: the person
+--     counts as inactive while either says so, sessions and connected apps
+--     are revoked when this is set, and signing in again clears it. Reasons:
+--     not_in_group (the IdP's fresh claims lack an allowed group),
+--     idp_refused (it rejected the stored grant: person disabled, grant
+--     revoked, expired) and idp_unreachable (no answer for the grace period).
+--   * user_idp_tokens: the refresh token the IdP issued at the person's last
+--     sign-in (sealed with ENCRYPTION_KEY), used to ask the IdP for fresh
+--     claims. checked_at schedules the next check; verified_at is when the IdP
+--     last confirmed the person (the grace period counts from it).
+--   * oauth_grants.revoked_reason gains access_denied (revoked because the
+--     person lost access).
+
 -- +goose Up
 DELETE FROM thread_mcp_servers s
 WHERE NOT EXISTS (SELECT 1 FROM agent_threads t WHERE t.agent_id = s.agent_id AND t.thread_id = s.thread_id);
@@ -26,6 +42,31 @@ ALTER TABLE thread_mcp_servers
 
 ALTER TABLE agent_threads ADD COLUMN reserved boolean NOT NULL DEFAULT false;
 
+ALTER TABLE users
+    ADD COLUMN group_denied_at     timestamptz,
+    ADD COLUMN group_denied_reason text,
+    ADD CONSTRAINT users_group_denied CHECK (
+        (group_denied_at IS NULL) = (group_denied_reason IS NULL)
+        AND (group_denied_reason IS NULL OR group_denied_reason IN ('not_in_group', 'idp_refused', 'idp_unreachable')));
+
+CREATE TABLE user_idp_tokens (
+    user_id           uuid        PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+    refresh_token_enc bytea       NOT NULL,
+    verified_at       timestamptz NOT NULL DEFAULT now(),
+    checked_at        timestamptz NOT NULL DEFAULT now(),
+    created_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX user_idp_tokens_due ON user_idp_tokens (checked_at);
+
+ALTER TABLE oauth_grants DROP CONSTRAINT oauth_grants_revoked_reason_check;
+ALTER TABLE oauth_grants ADD CONSTRAINT oauth_grants_revoked_reason_check
+    CHECK (revoked_reason IN ('user', 'admin', 'client', 'refresh_reuse', 'access_denied'));
+
 -- +goose Down
+ALTER TABLE oauth_grants DROP CONSTRAINT oauth_grants_revoked_reason_check;
+ALTER TABLE oauth_grants ADD CONSTRAINT oauth_grants_revoked_reason_check
+    CHECK (revoked_reason IN ('user', 'admin', 'client', 'refresh_reuse'));
+DROP TABLE user_idp_tokens;
+ALTER TABLE users DROP CONSTRAINT users_group_denied, DROP COLUMN group_denied_reason, DROP COLUMN group_denied_at;
 ALTER TABLE agent_threads DROP COLUMN reserved;
 ALTER TABLE thread_mcp_servers DROP CONSTRAINT thread_mcp_servers_thread_fkey;

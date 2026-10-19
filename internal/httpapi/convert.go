@@ -14,15 +14,24 @@ import (
 
 func toAPIUser(u dbgen.User) apitypes.User {
 	return apitypes.User{
-		Id:           u.ID,
-		Email:        u.Email,
-		DisplayName:  u.DisplayName,
-		PlatformRole: apitypes.PlatformRole(u.PlatformRole),
-		Status:       apitypes.UserStatus(u.Status),
-		Revision:     u.Revision,
-		CreatedAt:    u.CreatedAt,
-		LastLoginAt:  u.LastLoginAt,
+		Id:             u.ID,
+		Email:          u.Email,
+		DisplayName:    u.DisplayName,
+		PlatformRole:   apitypes.PlatformRole(u.PlatformRole),
+		Status:         apitypes.UserStatus(u.Status),
+		Revision:       u.Revision,
+		CreatedAt:      u.CreatedAt,
+		LastLoginAt:    u.LastLoginAt,
+		AccessDeniedAt: u.GroupDeniedAt, AccessDeniedReason: ptrDeniedReason(u.GroupDeniedReason),
 	}
+}
+
+func ptrDeniedReason(r *string) *apitypes.UserAccessDeniedReason {
+	if r == nil {
+		return nil
+	}
+	v := apitypes.UserAccessDeniedReason(*r)
+	return &v
 }
 
 func toAPITeam(t dbgen.Team) apitypes.Team {

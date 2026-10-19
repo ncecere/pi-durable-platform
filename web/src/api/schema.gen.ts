@@ -2932,6 +2932,16 @@ export interface components {
             /** Format: date-time */
             lastLoginAt?: string | null;
             /**
+             * Format: date-time
+             * @description When the identity provider's group rule (OIDC_ALLOWED_GROUPS, re-checked while people are signed in) ended this person's access: sessions and connected apps were revoked and they count as inactive (like a suspended person) until they sign in again. Separate from `status`, which only admins change.
+             */
+            accessDeniedAt?: string | null;
+            /**
+             * @description not_in_group: the provider's fresh claims lack an allowed group. idp_refused: it rejected the stored grant (person disabled, grant revoked or expired). idp_unreachable: it could not vouch for the person within the grace period (OIDC_GROUP_RECHECK_GRACE).
+             * @enum {string|null}
+             */
+            accessDeniedReason?: "not_in_group" | "idp_refused" | "idp_unreachable" | null;
+            /**
              * Format: int64
              * @description Teams the user belongs to (admin user list only)
              */

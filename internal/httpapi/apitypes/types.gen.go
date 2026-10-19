@@ -855,6 +855,27 @@ func (e UsageReportGroupBy) Valid() bool {
 	}
 }
 
+// Defines values for UserAccessDeniedReason.
+const (
+	IdpRefused     UserAccessDeniedReason = "idp_refused"
+	IdpUnreachable UserAccessDeniedReason = "idp_unreachable"
+	NotInGroup     UserAccessDeniedReason = "not_in_group"
+)
+
+// Valid indicates whether the value is a known member of the UserAccessDeniedReason enum.
+func (e UserAccessDeniedReason) Valid() bool {
+	switch e {
+	case IdpRefused:
+		return true
+	case IdpUnreachable:
+		return true
+	case NotInGroup:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UserStatus.
 const (
 	UserStatusActive    UserStatus = "active"
@@ -2418,12 +2439,17 @@ type UsageRow struct {
 
 // User defines model for User.
 type User struct {
-	CreatedAt    time.Time          `json:"createdAt"`
-	DisplayName  string             `json:"displayName"`
-	Email        string             `json:"email"`
-	Id           openapi_types.UUID `json:"id"`
-	LastLoginAt  *time.Time         `json:"lastLoginAt,omitempty"`
-	PlatformRole PlatformRole       `json:"platformRole"`
+	// AccessDeniedAt When the identity provider's group rule (OIDC_ALLOWED_GROUPS, re-checked while people are signed in) ended this person's access: sessions and connected apps were revoked and they count as inactive (like a suspended person) until they sign in again. Separate from `status`, which only admins change.
+	AccessDeniedAt *time.Time `json:"accessDeniedAt,omitempty"`
+
+	// AccessDeniedReason not_in_group: the provider's fresh claims lack an allowed group. idp_refused: it rejected the stored grant (person disabled, grant revoked or expired). idp_unreachable: it could not vouch for the person within the grace period (OIDC_GROUP_RECHECK_GRACE).
+	AccessDeniedReason *UserAccessDeniedReason `json:"accessDeniedReason,omitempty"`
+	CreatedAt          time.Time               `json:"createdAt"`
+	DisplayName        string                  `json:"displayName"`
+	Email              string                  `json:"email"`
+	Id                 openapi_types.UUID      `json:"id"`
+	LastLoginAt        *time.Time              `json:"lastLoginAt,omitempty"`
+	PlatformRole       PlatformRole            `json:"platformRole"`
 
 	// Revision Increases on every change. Send it back in If-Match.
 	Revision Revision   `json:"revision"`
@@ -2432,6 +2458,9 @@ type User struct {
 	// TeamCount Teams the user belongs to (admin user list only)
 	TeamCount *int64 `json:"teamCount,omitempty"`
 }
+
+// UserAccessDeniedReason not_in_group: the provider's fresh claims lack an allowed group. idp_refused: it rejected the stored grant (person disabled, grant revoked or expired). idp_unreachable: it could not vouch for the person within the grace period (OIDC_GROUP_RECHECK_GRACE).
+type UserAccessDeniedReason string
 
 // UserDetail defines model for UserDetail.
 type UserDetail struct {

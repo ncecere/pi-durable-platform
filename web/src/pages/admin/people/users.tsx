@@ -58,7 +58,7 @@ const columns: DataTableColumn<User>[] = [
     accessor: (u) => platformRoleLabels[u.platformRole],
     cell: (u) => (u.platformRole === "none" ? <span className={s.muted}>—</span> : <Badge tone="info">{platformRoleLabels[u.platformRole]}</Badge>),
   },
-  { id: "status", header: "Status", accessor: "status", cell: (u) => <UserStatusBadge status={u.status} /> },
+  { id: "status", header: "Status", accessor: "status", cell: (u) => <UserStatusBadge user={u} /> },
   { id: "teams", header: "Teams", accessor: (u) => u.teamCount ?? 0, numeric: true },
   { ...timeColumn<User>("lastLoginAt", "Last sign-in", (u) => u.lastLoginAt), sortable: false },
   { ...timeColumn<User>("createdAt", "First sign-in", (u) => u.createdAt), sortable: false, defaultHidden: true },

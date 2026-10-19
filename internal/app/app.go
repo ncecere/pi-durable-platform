@@ -119,6 +119,7 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	loopCtx, stopLoops := context.WithCancel(ctx)
 	defer stopLoops()
 	go cleanupLoop(loopCtx, deps.Auth, deps.OAuth, deps.Agents, log)
+	go deps.Auth.RunGroupRecheck(loopCtx)
 	go rateCounterLoop(loopCtx, deps.RateStore, log)
 	go deps.Agents.Host().ReapLoop(loopCtx, 30*time.Second)
 	go deps.Agents.RunThreadEvents(loopCtx, log.With("component", "thread-events"))
@@ -196,6 +197,7 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (httpapi.D
 	}
 	authSvc := auth.NewService(cfg, pool, log)
 	authSvc.SetRateStore(rates)
+	authSvc.SetSecretBox(box)
 	// OAuth Connect: apps act as the people who connect them. Its tokens are
 	// digested under the API key pepper, like keys. The development allowance
 	// lets a metadata document live on this machine.

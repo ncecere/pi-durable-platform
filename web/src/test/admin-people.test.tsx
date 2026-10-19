@@ -33,6 +33,21 @@ describe("Admin → Users", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it("shows when the identity provider's group rule ended someone's access, apart from a suspension", async () => {
+    const denied = { ...other, accessDeniedAt: "2026-10-19T09:00:00Z", accessDeniedReason: "not_in_group" as const };
+    mockApi(routes("platform_admin", { "GET /v1/admin/users": () => page([denied]), [`GET /v1/admin/users/${other.id}`]: () => ({ user: denied, teams: [] }) }));
+    const { container, unmount } = renderApp("/admin/users");
+    const table = await screen.findByRole("table", { name: "Users" });
+    const badge = await within(table).findByText("Group access ended");
+    expect(badge).toHaveAttribute("title", expect.stringContaining("no longer in a group"));
+    expect(within(table).queryByText("Suspended")).not.toBeInTheDocument();
+    expect(await axe(container)).toHaveNoViolations();
+    unmount();
+    renderApp(`/admin/users/${other.id}`);
+    expect(await screen.findByText(/no longer in a group allowed to sign in\. Their sessions and connected apps were ended/)).toBeInTheDocument();
+    expect(screen.getByText("Group access ended")).toBeInTheDocument();
+  });
+
   it("asks before changing a platform role, naming what it can do, and sends If-Match", async () => {
     const u = userEvent.setup();
     const calls = mockApi(routes("platform_admin", { [`PATCH /v1/admin/users/${other.id}`]: () => ({ ...other, platformRole: "platform_auditor", revision: 2 }) }));
