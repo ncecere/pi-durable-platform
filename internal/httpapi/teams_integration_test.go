@@ -64,7 +64,7 @@ func (s *session) raw(method, path string, body any, headers map[string]string) 
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if method != http.MethodGet {
-		req.Header.Set("Origin", s.app.URL)
+		req.Header.Set("Origin", s.app.origin())
 		req.Header.Set("X-CSRF-Token", s.csrf)
 	}
 	for k, v := range headers {
