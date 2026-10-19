@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: **proposed 2026-10-18**, after v0.1.0. It is an order of work, not a schedule. Each item is a GitHub issue
+Status: **proposed 2026-10-18**, after v0.1.0; **revised 2026-10-19** for custom agents and unattended runs. It is an order of work, not a schedule. Each item is a GitHub issue
 (label `roadmap`, milestone per phase). Sizes are relative effort: **S** a few days, **M** a week or two, **L** several
 weeks. An item that needs a design gets a note in `docs/` before code.
 
@@ -13,14 +13,17 @@ documentation, and the first app's requests (a chat app using OAuth Connect).
    several replicas, metrics and the two security gaps make that safe without the maintainer's help.
 2. **Then the apps built on it.** Paging, smaller event streams, steering, safe retries and app-level events and
    usage are what an app with hundreds of people needs.
-3. **Then what agents can do.** Files, scheduled work and tool approvals change what agents are trusted with.
-4. **Then budgets and limits that hold**, once agents can run unattended.
+3. **Then agents that run on their own, and agents you can build.** The runtime as a library, triggers (schedules and
+   webhooks), hibernation that understands background work, first-party triage and research agents, and tool
+   approvals. Unattended runs use the team's credentials, never a person's.
+4. **Then files, memory and limits that hold**, once agents run unattended.
+5. **Last, coding agents.** A workspace with files and a shell, kept apart from the agent's credentials.
 
 Already fixed after v0.1.0, in [v0.1.1](releases/v0.1.1.md): a set of small UI bugs, `doctor` checking the
 agents database, and a console path for platform staff to a shared team's agents.
 
-Bugs are tracked separately: issues labelled `bug`, with the next fix release's milestone (now **v0.1.2**: the
-approval screen's app logo, #25, and the agent page's status badge after a wake, #27).
+Bugs are tracked separately: issues labelled `bug`, with the next fix release's milestone. Fixed in
+[v0.1.2](releases/v0.1.2.md): the approval screen's app logo (#25) and the agent page's status badge after a wake (#27).
 
 ## Overview
 
@@ -41,14 +44,18 @@ approval screen's app logo, #25, and the agent page's status badge after a wake,
 | v0.3 | L. OAuth Connect for apps with many people: login_hint, prompt=none, app-level events and usage | M | [#12](https://github.com/ncecere/pi-durable-platform/issues/12) |
 | v0.3 | M. Move an agent, with its conversations, to another team or workspace | M | [#13](https://github.com/ncecere/pi-durable-platform/issues/13) |
 | v0.3 | W. Usage reports for several agents at once, grouped by agent and day | S | [#24](https://github.com/ncecere/pi-durable-platform/issues/24) |
-| v0.4 | N. Files and images in messages, stored on S3-compatible object storage | L | [#14](https://github.com/ncecere/pi-durable-platform/issues/14) |
-| v0.4 | O. Scheduled wake-ups: agents run work at a time or on a schedule | M | [#15](https://github.com/ncecere/pi-durable-platform/issues/15) |
+| v0.4 | X. Custom agents, step 1: the runtime as a library, with documents, hooks and tasks, a stable facade and a test kit | L | [#28](https://github.com/ncecere/pi-durable-platform/issues/28) |
+| v0.4 | O. Triggers: schedules and webhooks wake agents and start runs | L | [#15](https://github.com/ncecere/pi-durable-platform/issues/15) |
+| v0.4 | Z1. Background-aware hibernation: an agent with work running in the background is not hibernated | M | [#34](https://github.com/ncecere/pi-durable-platform/issues/34) |
+| v0.4 | Z2. First-party agents: a triage agent and a deep researcher, built with the library | L | [#35](https://github.com/ncecere/pi-durable-platform/issues/35) |
 | v0.4 | P. Tool approvals: a person approves sensitive tool calls before they run | L | [#16](https://github.com/ncecere/pi-durable-platform/issues/16) |
-| v0.4 | Q. Runtime resources per template version | S | [#17](https://github.com/ncecere/pi-durable-platform/issues/17) |
-| v0.4 | X. Custom agents, step 1: the runtime as a library, a starter project and a local development loop | M | [#28](https://github.com/ncecere/pi-durable-platform/issues/28) |
-| v0.4 | Y. Custom agents, step 2: deploy your own agent image or package per template version | L | [#29](https://github.com/ncecere/pi-durable-platform/issues/29) |
+| v0.5 | N. Files and images in messages, stored on S3-compatible object storage | L | [#14](https://github.com/ncecere/pi-durable-platform/issues/14) |
+| v0.5 | Q. Runtime resources per template version | S | [#17](https://github.com/ncecere/pi-durable-platform/issues/17) |
 | v0.5 | R. Enforce budgets: monthly cost limits for personal workspaces and teams | M | [#18](https://github.com/ncecere/pi-durable-platform/issues/18) |
 | v0.5 | S. Limits for shared teams: maximum agents and maximum running | S | [#19](https://github.com/ncecere/pi-durable-platform/issues/19) |
+| v0.5 | Z3. An assistant with memory: notes that last across conversations | M | [#36](https://github.com/ncecere/pi-durable-platform/issues/36) |
+| v0.5 | Y. Custom agents, step 2: platform admins register agent runtimes, and a template version picks one | M | [#29](https://github.com/ncecere/pi-durable-platform/issues/29) |
+| v0.6 | Z4. Workspaces: files and a shell for coding agents | L | [#37](https://github.com/ncecere/pi-durable-platform/issues/37) |
 | later | T. Run without Kubernetes: a Docker Compose deployment with a bundled identity provider | L | [#20](https://github.com/ncecere/pi-durable-platform/issues/20) |
 | later | U. Stronger agent sandboxing: gVisor or Kata RuntimeClasses | M | [#21](https://github.com/ncecere/pi-durable-platform/issues/21) |
 
@@ -230,9 +237,88 @@ An app's usage page (a person's agents by day) makes one request per agent.
 
 **Done when:** One request returns daily usage for several agents, with tests for the filters and grouping.
 
-## v0.4: Agents that do more
+## v0.4: Agents that run on their own
 
-Agents are text-only, wake only when called, use every tool they're given without asking, and are all the same program: a template changes the instructions, the model and the MCP tools, never the agent's code. This phase adds files, scheduled work, approvals for sensitive tools, per-template resources and a way to build and run your own Pi Durable agents.
+Agents wake only when called, and every agent is the same program: a template changes the instructions, the model and the MCP tools, never the agent's code. This phase lets people build agents with their own tools, state and guards, lets agents work unattended on a schedule or when an event arrives, and ships two first-party agents built that way: a triage agent and a deep researcher. Unattended runs use the team's credentials, never a person's.
+
+### X. Custom agents, step 1: the runtime as a library, with documents, hooks and tasks, a stable facade and a test kit (L, [#28](https://github.com/ncecere/pi-durable-platform/issues/28))
+
+**Limitation:** No way to build your own agent: every agent is the one program in `runtime/` (instructions, a model and MCP tools are all a template changes).
+
+pi-durable supports much more than the runtime uses: custom documents (state next to the transcript), hooks (guards, approvals), tasks, subagents, an execution environment, code mode and settings. The runtime installs one extension with one tool, passes no settings, hooks or documents, and is an application, not a package, so someone who wants an agent with its own tools, state, guards or background work has nothing to start from. pi-durable is also marked experimental and changed its API between 1.1 and 1.2, so authors need a layer that absorbs that.
+
+- Make `runtime/` importable: `startAgent` and its parts (PostgreSQL storage, the thread view, thread records and status reports, the MCP client, usage reporting, the standby and activation server), with an injection point for extensions (tools, prompt sections, hooks, tasks), documents, `conversationCreated` and settings. The platform's own agent is the default composition.
+- The runtime reapplies the extension list on every message with an array selection, so an extension left out of that list (a guard hook, say) silently does not run. The library owns that list and always includes the author's extensions.
+- A stable facade over pi-durable (define an agent, tools, documents, hooks, a subagent helper with request-id idempotence, since pi-durable ships subagents only as examples). The platform pins pi-durable, and the runtime reports its pi-durable version and a contract version at `/status`.
+- Upgrades are checked: documents migrate when read and a newer stored version rejects older code, so the platform refuses to start an agent on a runtime older than the one that last wrote its data, and says why. Rolling a runtime back after it has written is not supported.
+- Custom state reaches apps in two ways: structured `details` on tool results in thread messages, and a read and watch endpoint for an agent's documents. A document kind opts in to being exposed, and reading it needs the same access as reading the thread, so private threads stay private.
+- A test kit: a fake model, in-memory storage, restart tests (a restart in the middle of a turn, a tool call and a subagent), a check that a replayed run neither repeats nor loses a tool call or a subagent's result, and pi-durable's storage conformance suite.
+- A starter project (scaffold, one tool, one document, one approval hook, tests, a Dockerfile on the runtime image) and a local loop: run the agent against the local launcher and a local PostgreSQL and chat with it in the console's Test tab.
+- A written contract for what a runtime must do (the `/threads` API, `/status` including busy threads, open streams and background work, standby and `/activate`, thread status and usage reports, ownership, exit on lost storage) with a conformance test anyone can run.
+- Design note first: the trust model for team-written code (it runs with the agent's database role and gateway key, inside the agents' network boundary, so an external integration is an MCP server and code adds logic, state and guards) and what step 2 must check.
+
+**Done when:** A person scaffolds an agent with a tool, a document and an approval hook, runs it locally against the console, passes the conformance and restart tests, and an app reads the agent's document, without changing the platform.
+
+### O. Triggers: schedules and webhooks wake agents and start runs (L, [#15](https://github.com/ncecere/pi-durable-platform/issues/15))
+
+**Limitation:** No scheduled wake-ups: a hibernated agent wakes only on a request.
+
+Agents hibernate, and pi-durable has no timer an extension's task can sleep on (its scheduler waits internally only for retry back-off), so an agent cannot wake itself. The control plane is always running, so it owns the triggers: it decides when work starts, wakes the agent, and records what happened. Triage, research and an assistant that reminds people all need this.
+
+- Triggers are platform records per agent: schedules (cron with a time zone) and webhooks (one inbound address per trigger, a signed secret, an optional filter on the payload). A fire submits an input to a thread, or to a new thread, with a template for the message.
+- Delivery is idempotent: each fire has an id that becomes the input's pi-durable `requestId`, so a retry or a second replica cannot run it twice. One replica fires a due schedule (an advisory lock), and a missed fire follows a per-schedule policy (skip, or run once on recovery).
+- Run records, one per fire: the trigger, the thread, start and finish, status, cost and a link. They appear in the API, in a Runs view in the console, and in the audit log with the trigger named.
+- Unattended runs act with the team's credentials (its model providers and MCP servers), never as a person: an OAuth Connect token's person is not borrowed, and a team owner or admin creates the trigger.
+- Limits that hold: concurrent runs per agent, a maximum run time, a cost budget per trigger and per agent, a pause switch per trigger and per agent, and back-off after repeated failures. Team-wide enforcement is #18 and #19.
+- Results: the thread is always the record. A trigger can also send a signed completion callback (HMAC, through the address guard; run id, status, an excerpt of the final text and a link, not the transcript). Agents can post results themselves through MCP tools such as a chat server.
+- Agent-made schedules: a `schedule` tool in the library (#28) registers a trigger for the agent itself through the gateway: only for itself, within the limits, and listed and removable in the console.
+- Design note first: webhook authentication and replay protection, the fire-id scheme, and how a run that needs approval (#16) waits.
+
+**Done when:** A team schedule runs daily and a webhook starts a run; each appears in Runs with its cost and fires its callback; a runaway trigger is stopped by the limits; an agent sets its own reminder and is woken for it; no run acts as a person.
+
+### Z1. Background-aware hibernation: an agent with work running in the background is not hibernated (M, [#34](https://github.com/ncecere/pi-durable-platform/issues/34))
+
+**Limitation:** The idle reaper counts a thread as busy only while it has a live run; background work doesn't count.
+
+The runtime reports an agent as busy when a thread has a live run, and the reaper adds open event streams and recent activity. Background tasks, background subagents and a command a tool started are not runs in a thread, so an agent could be hibernated in the middle of them. Triggers (#15) and agents built with the library (#28) make such work normal.
+
+- `/status` reports live background work, taken from pi-durable's task graph (tasks that are running or waiting, owned conversations), next to busy threads and open streams, and the reaper treats it as busy.
+- A run-time ceiling so a stuck task cannot keep an agent awake forever: past the per-agent maximum (from the limits in #15) the work is aborted and the agent may hibernate, with an audit entry.
+- What happens to work that is waiting for a person (an approval, #16, or a question) is written down: it does not hold the agent awake, and resumes when the answer arrives and the agent wakes.
+- Metrics and the agent page show why an agent is not hibernating (a run, a stream, background work).
+
+**Done when:** An agent with a background task running is not hibernated until it finishes or reaches its ceiling, one waiting only for a person is hibernated and resumes on the answer, and the console says what is keeping an agent awake.
+
+### Z2. First-party agents: a triage agent and a deep researcher, built with the library (L, [#35](https://github.com/ncecere/pi-durable-platform/issues/35))
+
+**Limitation:** Every agent is the same assistant: a template changes its instructions, model and MCP tools.
+
+Two common jobs need more than instructions and tools: keeping track of what has been seen and asking before acting (triage), and planning, splitting work and keeping sources (research). Building them with the library (#28) proves that the library is enough, without private APIs, and gives teams something to use before they write code.
+
+- A template version has an agent kind (`assistant` by default). Kinds ship in the standard runtime image, so there is no new image or warm pool.
+- **Triage:** reads issues and discussions through MCP servers, keeps what it has seen and decided in a document, drafts labels, replies and summaries, and asks for approval (#16) before it writes anywhere. It runs on triggers (#15): a webhook for a new issue, a schedule for a sweep.
+- **Deep researcher:** writes a plan into a document, runs subagents in parallel (foreground for short questions, background for long ones), keeps a sources document, compacts as it goes, and answers with a report in the thread. Reports as files wait for #14. It respects the run budget from #15.
+- Both expose their state (the queue, the plan, the sources) through the documents endpoint and `details` (#28), and the console renders it on the agent page.
+- The console's template editor offers the kind, with the settings each one has (for example, which MCP servers triage may write through).
+- Docs: what each does, its limits, and how to build a variant.
+
+**Done when:** A team makes a template of each kind in the console and runs one end to end: triage on a webhook with an approval before it comments, and a research run with subagents that ends in a report and a sources list. Neither uses an API that a custom agent could not.
+
+### P. Tool approvals: a person approves sensitive tool calls before they run (L, [#16](https://github.com/ncecere/pi-durable-platform/issues/16))
+
+**Limitation:** No tool approvals: agents call allowed tools without asking anyone.
+
+Templates can only allow or forbid a tool; there's no 'ask first'.
+
+- Template versions mark tools (built-in or MCP) as `approve`; the runtime pauses the call and the platform records a pending approval.
+- Approvals in the API, the event stream and the console (who may approve: the thread's creator, or team roles), with timeouts and audit.
+- An unattended run that needs approval waits, and the agent can hibernate meanwhile; the request carries the decision, the options and the evidence the agent gave, with a timeout, and the answer is recorded in the audit log. Hooks written with the library (#28) can request approval too.
+
+**Done when:** A call to an approval-required tool waits until someone allowed approves or denies it, and the conversation shows the decision.
+
+## v0.5: Files, memory and limits
+
+Once agents run unattended, limits have to hold (budgets, maximum agents, maximum running). Agents also need somewhere to put files and reports, resources that fit the template, and a memory that lasts across conversations. Platform admins can register extra agent runtimes once the contract has settled.
 
 ### N. Files and images in messages, stored on S3-compatible object storage (L, [#14](https://github.com/ncecere/pi-durable-platform/issues/14))
 
@@ -246,28 +332,6 @@ People can't give an agent a document or screenshot, and agents can't return fil
 
 **Done when:** A person sends an image and a PDF to an agent and downloads a file the agent produced, with private-thread rules applied to the files.
 
-### O. Scheduled wake-ups: agents run work at a time or on a schedule (M, [#15](https://github.com/ncecere/pi-durable-platform/issues/15))
-
-**Limitation:** No scheduled wake-ups: a hibernated agent wakes only on a request.
-
-Work an agent schedules for later, or recurring jobs (a daily summary), doesn't run while it sleeps.
-
-- The runtime reports pi-durable's next timer; the platform stores it and wakes the agent when due (survives restarts, one wake across replicas).
-- Team-defined schedules (cron) that post a message to a thread, with an audit trail and limits.
-
-**Done when:** An agent that schedules a reminder wakes from hibernation and runs it on time, and a team schedule runs daily.
-
-### P. Tool approvals: a person approves sensitive tool calls before they run (L, [#16](https://github.com/ncecere/pi-durable-platform/issues/16))
-
-**Limitation:** No tool approvals: agents call allowed tools without asking anyone.
-
-Templates can only allow or forbid a tool; there's no 'ask first'.
-
-- Template versions mark tools (built-in or MCP) as `approve`; the runtime pauses the call and the platform records a pending approval.
-- Approvals in the API, the event stream and the console (who may approve: the thread's creator, or team roles), with timeouts and audit.
-
-**Done when:** A call to an approval-required tool waits until someone allowed approves or denies it, and the conversation shows the decision.
-
 ### Q. Runtime resources per template version (S, [#17](https://github.com/ncecere/pi-durable-platform/issues/17))
 
 **Limitation:** Fixed runtime resources: 50m CPU / 160 MiB requested, 1 CPU / 512 MiB limit.
@@ -277,40 +341,6 @@ Heavier agents (large tools, big contexts) can't get more memory; light ones can
 - Template versions choose a size from platform-defined classes (small, medium, large), applied by the Kubernetes and Agent Sandbox launchers (warm pools per class).
 
 **Done when:** An agent on a 'large' template version runs with that class's requests and limits.
-
-### X. Custom agents, step 1: the runtime as a library, a starter project and a local development loop (M, [#28](https://github.com/ncecere/pi-durable-platform/issues/28))
-
-**Limitation:** No way to build your own agent: every agent is the one program in `runtime/` (instructions, a model and MCP tools are all a template changes).
-
-Someone who wants an agent with its own tools, its own Pi extensions or its own behaviour has nothing to start from: the runtime is an application, not a package, and it can only be run through the platform. The MCP catalog covers tools that live in a separate server, but not code that belongs inside the agent.
-
-- Make `runtime/` importable: a package that exports `startAgent` and its parts (storage on PostgreSQL, the chat view, thread records and status reports, the MCP client, usage reporting, the standby/activation server), with hooks to add extensions, tools and instructions, so a custom agent is a small program that composes them and the platform's own agent is the default composition.
-- A starter project (scaffold command or template repository): a TypeScript agent with one custom tool, its tests (including the storage conformance suite and a conversation test against a fake model), and a Dockerfile built on the runtime image.
-- A local loop: run the custom agent against the local launcher and a local PostgreSQL, and chat with it in the console's Test tab, so it is developed before anything is deployed.
-- A written contract for what a runtime must do to be run by the platform (the HTTP API under `/threads`, `/status`, standby and `/activate`, thread status and usage reports, ownership by the record in the agent's own schema (and the v0.1.x advisory lock until it is removed), exit on lost storage), with a conformance test anyone can run against their agent.
-- A design note first: the trust model for team-written code (it runs with the agent's database role and its model/MCP gateway key, inside the agents' network boundary) and what step 2 must check.
-
-**Done when:** A person scaffolds an agent, adds a tool, runs it locally against the platform's console, and passes the conformance test, without changing the platform.
-
-### Y. Custom agents, step 2: deploy your own agent image or package per template version (L, [#29](https://github.com/ncecere/pi-durable-platform/issues/29))
-
-**Limitation:** Agent runtime image is one platform-wide setting (AGENTS_IMAGE): templates can't use different agent code.
-
-A custom agent built in step 1 can only be run locally. Teams need to deploy it from a template like any other agent, with versions, upgrades, the catalog and the same isolation and accounting.
-
-- Design note first: choose between a custom container image built on the runtime (full freedom, but a warm pool per image and a heavier review) and a package of extensions loaded into the standard runtime (a smaller trust surface, one warm pool, less freedom). The design may support both.
-- A template version names its agent code: an image by digest (or a package reference), from registries platform admins allow; recorded in the version, so upgrades and rollbacks work as they do for instructions and models.
-- Checks before a version can be used: the image answers the runtime contract (conformance run by the platform against a throwaway instance), optionally a cosign signature from an allowed identity, and an SBOM or vulnerability summary shown to reviewers.
-- Launchers: the Kubernetes and Agent Sandbox launchers start the version's image. Warm pools exist per approved image (a SandboxTemplate and SandboxWarmPool created by the platform), with the cold-start cost stated for images without one.
-- Who may use it: team owners and admins can set it on their team's own templates; a template with custom code can't be submitted to the shared catalog without a platform admin's review of the image, as templates already are.
-- The isolation stays exactly as for every agent (agents reach only their database, the gateway port and DNS; their own database role and schema) and resource classes (#17) apply; documented limits for untrusted code until sandboxing (#21) is in place.
-- Audit entries for who set which image on which version, and a docs section: the contract, a worked example, and what the platform does and doesn't protect.
-
-**Done when:** A team deploys an agent from its own template whose version uses its own agent image, upgrades and rolls it back like any version, and the platform shows which code an agent runs. Depends on #7, #17 and #1.
-
-## v0.5: Budgets and limits
-
-Cost is recorded but not enforced, and shared teams have no limits. Once agents run unattended (scheduled wake-ups, files), platform admins need limits that hold.
 
 ### R. Enforce budgets: monthly cost limits for personal workspaces and teams (M, [#18](https://github.com/ncecere/pi-durable-platform/issues/18))
 
@@ -332,6 +362,54 @@ Only personal workspaces have limits; one team can fill the cluster.
 - The personal workspace limits (max agents, max running) applied to shared teams too, with platform defaults and per-team overrides in Admin › Teams.
 
 **Done when:** A team at its running limit gets `too_many_running` when waking another agent, as personal workspaces do.
+
+### Z3. An assistant with memory: notes that last across conversations (M, [#36](https://github.com/ncecere/pi-durable-platform/issues/36))
+
+**Limitation:** An agent remembers only within a thread; nothing carries over.
+
+A personal assistant is useful because it remembers preferences and facts. Memory shared across threads can leak what one person said in a private thread to another person who uses the same team agent, so whose memory it is has to be decided before any is built.
+
+- Design note first: whose memory it is (a person's, a thread's or the agent's), what a private thread may write to it, and who may read, edit and delete it.
+- A memory document with `remember`, `recall` and `forget` tools in the library (#28); in a personal workspace the memory belongs to the person, in a team agent it is per person or per agent as the team chooses. Private threads write to shared memory only if the person says so.
+- Memory is visible and editable in the console by whoever it belongs to, shown in the thread as `details`, and removed with the person or the agent.
+- It works with schedules (#15), so an assistant can remind and check back.
+
+**Done when:** An assistant remembers a fact in one conversation and uses it in another, its owner can read and delete it, and nothing from a private thread reaches anyone else's memory.
+
+### Y. Custom agents, step 2: platform admins register agent runtimes, and a template version picks one (M, [#29](https://github.com/ncecere/pi-durable-platform/issues/29))
+
+**Limitation:** Agent runtime image is one platform-wide setting (AGENTS_IMAGE): templates can't use different agent code.
+
+The first-party agents (triage, researcher) ship inside the standard runtime and a template version can choose among them, so most teams need no new image. Someone who builds an agent with the library (#28) outside this repository needs a way to run it from a template with versions, upgrades, a catalog and the same isolation and accounting. Code that runs in the agent's process runs with its database role, so who may register it is a security decision, not a convenience.
+
+- Platform admins register agent runtimes: an image pinned by digest, with its contract version, its pi-durable version, the result of the conformance test (run by the platform against a throwaway instance) and, optionally, a cosign signature from an allowed identity. A template version names one registered runtime (or a first-party kind), recorded in the version so upgrades and rollbacks work as they do for instructions and models.
+- Before an agent starts on a runtime, the platform checks the runtime's pi-durable and contract versions against what the agent's data was last written with (#28).
+- Launchers: the Kubernetes and Agent Sandbox launchers start the version's image. A warm pool exists per registered image (created by the platform), with the cold-start cost stated for one without a pool.
+- Teams registering their own images waits for stronger sandboxing (#21) and a decision on review; until then a template that uses a registered runtime can be shared only after a platform admin's review, as templates already are.
+- Isolation is unchanged (agents reach only their database, the gateway port and DNS; their own role and schema), and resource classes (#17) apply.
+- Audit entries for who registered which image and who set it on which version, and a docs section: the contract, a worked example, and what the platform does and does not protect.
+
+**Done when:** An admin registers an agent image, a team's template version uses it, upgrades and rolls it back like any version, and the platform shows which code each agent runs. Depends on #28, #17 and #1; self-service registration by teams depends on #21.
+
+## v0.6: Coding agents
+
+A coding agent needs a workspace with files and a shell. The shell must not run where the agent's database credentials are, and the files must outlive hibernation, so this is a phase of its own and the last of the agent-capability work.
+
+### Z4. Workspaces: files and a shell for coding agents (L, [#37](https://github.com/ncecere/pi-durable-platform/issues/37))
+
+**Limitation:** Agents have no files and no shell: the runtime installs no `read`, `write`, `edit` or `bash` tools.
+
+pi-durable's coding tools work through an execution environment, and the runtime provides none. Running `bash` inside the runtime's own pod would give a model-written command the agent's database credentials and gateway key, and files in a pod vanish when the agent hibernates. A coding agent needs a different shape.
+
+- Design note first: the threat model and the shape below.
+- The shell and the files live in a separate workspace sandbox (an Agent Sandbox claim per workspace) with its own pod, no database credentials and no gateway key; the runtime's execution environment talks to it.
+- Workspace storage survives hibernation: a volume per workspace, or a git clone restored on wake; the choice and its limits are written down.
+- Egress for git and package registries goes through an allowlist or a proxy set by the platform, never open internet, with an audit trail.
+- One writer at a time per workspace, and long commands (builds, tests) run without holding a model slot and wake the agent when they finish, through the wake path from #15.
+- Resource classes (#17) for workspaces, an idle timeout for the workspace itself, and metrics.
+- A first-party `coding` kind built with the library (#28) with `read`, `write`, `edit` and `bash`, plan mode and approvals (#16) for risky commands.
+
+**Done when:** A coding agent reads and edits a repository, runs its tests and commits, its workspace survives hibernation, and the shell cannot read the agent's credentials. Depends on #14, #15, #16, #17, #21 and #28.
 
 ## Later
 
