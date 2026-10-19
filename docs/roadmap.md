@@ -19,6 +19,9 @@ documentation, and the first app's requests (a chat app using OAuth Connect).
 Already fixed after v0.1.0, in [v0.1.1](releases/v0.1.1.md): a set of small UI bugs, `doctor` checking the
 agents database, and a console path for platform staff to a shared team's agents.
 
+Bugs are tracked separately: issues labelled `bug`, with the next fix release's milestone (now **v0.1.2**: the
+approval screen's app logo, #25, and the agent page's status badge after a wake, #27).
+
 ## Overview
 
 | Phase | Item | Size | Issue |
