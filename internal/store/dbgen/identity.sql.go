@@ -85,7 +85,7 @@ func (q *Queries) DeleteUserSessions(ctx context.Context, userID uuid.UUID) erro
 }
 
 const getSessionUser = `-- name: GetSessionUser :one
-SELECT sessions.id, sessions.user_id, sessions.token_digest, sessions.csrf_token, sessions.user_agent, sessions.client_ip, sessions.created_at, sessions.expires_at, users.id, users.oidc_issuer, users.oidc_subject, users.email, users.display_name, users.platform_role, users.status, users.claims, users.groups, users.revision, users.created_at, users.updated_at, users.last_login_at
+SELECT sessions.id, sessions.user_id, sessions.token_digest, sessions.csrf_token, sessions.user_agent, sessions.client_ip, sessions.created_at, sessions.expires_at, users.id, users.oidc_issuer, users.oidc_subject, users.email, users.display_name, users.platform_role, users.status, users.claims, users.groups, users.revision, users.created_at, users.updated_at, users.last_login_at, users.group_denied_at, users.group_denied_reason
 FROM sessions
 JOIN users ON users.id = sessions.user_id
 WHERE sessions.token_digest = $1
@@ -122,12 +122,14 @@ func (q *Queries) GetSessionUser(ctx context.Context, tokenDigest string) (GetSe
 		&i.User.CreatedAt,
 		&i.User.UpdatedAt,
 		&i.User.LastLoginAt,
+		&i.User.GroupDeniedAt,
+		&i.User.GroupDeniedReason,
 	)
 	return i, err
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, oidc_issuer, oidc_subject, email, display_name, platform_role, status, claims, groups, revision, created_at, updated_at, last_login_at FROM users WHERE id = $1
+SELECT id, oidc_issuer, oidc_subject, email, display_name, platform_role, status, claims, groups, revision, created_at, updated_at, last_login_at, group_denied_at, group_denied_reason FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
@@ -147,6 +149,8 @@ func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLoginAt,
+		&i.GroupDeniedAt,
+		&i.GroupDeniedReason,
 	)
 	return i, err
 }
@@ -229,7 +233,7 @@ const setPlatformRole = `-- name: SetPlatformRole :one
 UPDATE users
 SET platform_role = $1, revision = revision + 1, updated_at = now()
 WHERE id = $2
-RETURNING id, oidc_issuer, oidc_subject, email, display_name, platform_role, status, claims, groups, revision, created_at, updated_at, last_login_at
+RETURNING id, oidc_issuer, oidc_subject, email, display_name, platform_role, status, claims, groups, revision, created_at, updated_at, last_login_at, group_denied_at, group_denied_reason
 `
 
 type SetPlatformRoleParams struct {
@@ -254,6 +258,8 @@ func (q *Queries) SetPlatformRole(ctx context.Context, arg SetPlatformRoleParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLoginAt,
+		&i.GroupDeniedAt,
+		&i.GroupDeniedReason,
 	)
 	return i, err
 }
@@ -289,7 +295,7 @@ SET email         = EXCLUDED.email,
     groups        = EXCLUDED.groups,
     last_login_at = now(),
     updated_at    = now()
-RETURNING id, oidc_issuer, oidc_subject, email, display_name, platform_role, status, claims, groups, revision, created_at, updated_at, last_login_at
+RETURNING id, oidc_issuer, oidc_subject, email, display_name, platform_role, status, claims, groups, revision, created_at, updated_at, last_login_at, group_denied_at, group_denied_reason
 `
 
 type UpsertLoginUserParams struct {
@@ -326,6 +332,8 @@ func (q *Queries) UpsertLoginUser(ctx context.Context, arg UpsertLoginUserParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLoginAt,
+		&i.GroupDeniedAt,
+		&i.GroupDeniedReason,
 	)
 	return i, err
 }

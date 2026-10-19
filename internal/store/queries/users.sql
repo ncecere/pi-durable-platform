@@ -19,7 +19,7 @@ SELECT * FROM users WHERE email = @email ORDER BY created_at;
 -- Locks every active platform admin so concurrent demotions serialise.
 -- name: LockActivePlatformAdmins :many
 SELECT id FROM users
-WHERE platform_role = 'platform_admin' AND status = 'active'
+WHERE platform_role = 'platform_admin' AND status = 'active' AND group_denied_at IS NULL
 ORDER BY id
 FOR UPDATE;
 

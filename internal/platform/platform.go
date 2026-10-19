@@ -134,8 +134,8 @@ func (s *Service) UpdateUser(ctx context.Context, a authz.Actor, id uuid.UUID, i
 			out = u
 			return nil
 		}
-		wasActiveAdmin := u.PlatformRole == authz.PlatformAdmin && u.Status == "active"
-		staysActiveAdmin := role == authz.PlatformAdmin && status == "active"
+		wasActiveAdmin := u.PlatformRole == authz.PlatformAdmin && store.IsUserActive(u)
+		staysActiveAdmin := role == authz.PlatformAdmin && status == "active" && u.GroupDeniedAt == nil
 		if wasActiveAdmin && !staysActiveAdmin && len(admins) <= 1 {
 			return apperr.Conflict("last_admin", "This is the last active platform admin. Make someone else an admin first.")
 		}

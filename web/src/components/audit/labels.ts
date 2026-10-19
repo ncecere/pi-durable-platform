@@ -23,6 +23,8 @@ export const actionLabels: Record<string, string> = {
   "platform.user_role_change": "Changed platform role",
   "platform.user_suspend": "Suspended user",
   "platform.user_reactivate": "Reactivated user",
+  "user.group_denied": "Ended access: no longer in an allowed group",
+  "user.group_restored": "Restored access: back in an allowed group",
   "team.create": "Created team",
   "team.update": "Changed team",
   "team.archive": "Archived team",
@@ -109,6 +111,7 @@ export const actionGroups: { prefix: string; label: string; platform?: boolean }
   { prefix: "oauth.", label: "Connected apps", platform: true },
   { prefix: "api_key.", label: "API keys", platform: true },
   { prefix: "platform.", label: "Platform and users", platform: true },
+  { prefix: "user.", label: "User access (identity provider groups)", platform: true },
   { prefix: "auth.", label: "Sign-in", platform: true },
 ];
 

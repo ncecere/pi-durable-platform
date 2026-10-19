@@ -169,6 +169,15 @@ type OIDC struct {
 	// GroupsClaim) may sign in; the bootstrap admin always may.
 	AllowedGroups         []string
 	BootstrapAdminSubject string
+	// GroupRecheckInterval: with AllowedGroups, how often the IdP is asked
+	// whether each recently active person is still in an allowed group (0
+	// turns the re-check off: groups apply at sign-in only). It needs the
+	// IdP to issue refresh tokens (scope offline_access).
+	GroupRecheckInterval time.Duration
+	// GroupRecheckGrace: how long people keep access while the IdP can't be
+	// asked (unreachable, or a claim it should give is missing), counted
+	// from the last answer.
+	GroupRecheckGrace time.Duration
 }
 
 // Enabled reports whether an OIDC provider is configured.
@@ -189,6 +198,8 @@ func Defaults() Config {
 			EmailClaim:           "email",
 			GroupsClaim:          "groups",
 			RequireVerifiedEmail: true,
+			GroupRecheckInterval: 15 * time.Minute,
+			GroupRecheckGrace:    24 * time.Hour,
 		},
 		SessionTTL:             12 * time.Hour,
 		RequestsPerMinute:      600,

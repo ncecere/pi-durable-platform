@@ -32,7 +32,7 @@ import { toast } from "@/components/ui/toast/toast";
 import { useCurrentUser } from "@/session";
 import s from "../../shared.module.css";
 import { useIsPlatformAdmin } from "../hooks";
-import { platformRoleLabels, UserStatusBadge } from "./common";
+import { accessDeniedReasons, platformRoleLabels, UserStatusBadge } from "./common";
 import p from "./people.module.css";
 import { UserActivity } from "./user-activity";
 
@@ -77,10 +77,16 @@ export function AdminUserPage() {
     <Stack gap={6} className={s.page}>
       <PageHeader
         title={name}
-        description={self && isAdmin && !suspended ? `${user.email} · This is you: another platform admin can suspend your account.` : user.email}
+        description={
+          user.accessDeniedAt && user.accessDeniedReason
+            ? `${user.email} · ${accessDeniedReasons[user.accessDeniedReason]} Their sessions and connected apps were ended; they can sign in again once the provider lists them in an allowed group.`
+            : self && isAdmin && !suspended
+              ? `${user.email} · This is you: another platform admin can suspend your account.`
+              : user.email
+        }
         meta={
           <>
-            <UserStatusBadge status={user.status} />
+            <UserStatusBadge user={user} />
             {user.platformRole !== "none" && <Badge tone="info">{platformRoleLabels[user.platformRole]}</Badge>}
           </>
         }

@@ -25,7 +25,10 @@ type loginIdentity struct {
 	Claims                       json.RawMessage
 	// Groups are the IdP groups of this sign-in (bounded; see Groups).
 	Groups []string
-	Method string // "oidc" or "dev"
+	// RefreshToken is the IdP's refresh token of this sign-in ("": none was
+	// issued), kept sealed to re-check the person's groups later.
+	RefreshToken string
+	Method       string // "oidc" or "dev"
 	// EmailVerified gates invite acceptance: an unverified address must
 	// never claim a team membership.
 	EmailVerified bool
@@ -64,6 +67,16 @@ func (s *Service) completeLogin(ctx context.Context, w http.ResponseWriter, r *h
 				ActorUserID: user.ID, Action: "auth.login_denied", TargetType: "user", TargetID: user.ID.String(),
 				Metadata: map[string]any{"method": li.Method, "reason": "suspended"}, RequestID: reqID, ClientIP: ip,
 			})
+		}
+		// Signing in is proof of the group rule (verifyCode refuses anyone
+		// outside it): access the re-check ended comes back.
+		if user.GroupDeniedAt != nil {
+			if user, err = s.restoreGroupAccess(ctx, q, user, "sign_in", reqID, ip); err != nil {
+				return err
+			}
+		}
+		if err := s.keepIdPToken(ctx, q, user, li); err != nil {
+			return err
 		}
 		if user, err = applyBootstrapRole(ctx, q, user, li, reqID, ip); err != nil {
 			return err

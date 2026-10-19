@@ -25,6 +25,7 @@ const (
 )
 
 type oidcClient struct {
+	provider *oidc.Provider
 	oauth    *oauth2.Config
 	verifier *oidc.IDTokenVerifier
 }
@@ -44,6 +45,7 @@ func (s *Service) client(ctx context.Context) (*oidcClient, error) {
 		return nil, fmt.Errorf("OIDC discovery: %w", err)
 	}
 	s.oidc = &oidcClient{
+		provider: provider,
 		verifier: provider.Verifier(&oidc.Config{ClientID: s.cfg.OIDC.ClientID}),
 		oauth: &oauth2.Config{
 			ClientID:     s.cfg.OIDC.ClientID,
@@ -172,17 +174,16 @@ func (s *Service) verifyCode(ctx context.Context, c *oidcClient, code string, sa
 	li = loginIdentity{
 		Issuer: idToken.Issuer, Subject: idToken.Subject, Email: email, Name: name,
 		Claims: boundedClaims(claims), Method: "oidc", EmailVerified: truthy(claims["email_verified"]),
-		Groups: Groups(claims, s.cfg.OIDC.GroupsClaim),
+		Groups: Groups(claims, s.cfg.OIDC.GroupsClaim), RefreshToken: token.RefreshToken,
 	}
-	bootstrap := s.cfg.OIDC.BootstrapAdminSubject != "" && idToken.Subject == s.cfg.OIDC.BootstrapAdminSubject
+	bootstrap := s.isBootstrap(idToken.Subject)
 	if bootstrap {
 		li.BootstrapRole = RolePlatformAdmin
 	}
 	// Only members of the required groups may sign in (the bootstrap admin
-	// always may, so the platform can't be locked out).
-	if len(s.cfg.OIDC.AllowedGroups) > 0 && !bootstrap && !slices.ContainsFunc(li.Groups, func(g string) bool {
-		return slices.Contains(s.cfg.OIDC.AllowedGroups, g)
-	}) {
+	// always may, so the platform can't be locked out). The same rule is
+	// applied again while people are signed in (grouprecheck.go).
+	if len(s.cfg.OIDC.AllowedGroups) > 0 && !bootstrap && !s.groupAllowed(li.Groups) {
 		s.log.InfoContext(ctx, "sign-in refused: not in a required group", "subject", idToken.Subject)
 		return li, http.StatusForbidden, "group_denied", "Your account is not in a group allowed to use this platform"
 	}

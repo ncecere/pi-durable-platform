@@ -22,6 +22,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/ratelimit"
+	"github.com/ncecere/pi-durable-platform/internal/secrets"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 )
@@ -81,6 +82,10 @@ type Service struct {
 	// person (in memory until SetRateStore installs the shared store).
 	limiter ratelimit.Store
 	log     *slog.Logger
+	// box seals the IdP refresh tokens kept for the group re-check; now is
+	// the clock of that check.
+	box *secrets.Box
+	now func() time.Time
 
 	oidcMu sync.Mutex
 	oidc   *oidcClient // discovered lazily so an IdP outage cannot stop the API from starting
@@ -93,6 +98,7 @@ func NewService(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) *Servic
 		q:       dbgen.New(pool),
 		limiter: ratelimit.New(),
 		log:     log,
+		now:     time.Now,
 	}
 }
 
@@ -199,7 +205,11 @@ func (s *Service) RequireSession(next http.Handler) http.Handler {
 			httpx.Internal(w, r, err)
 			return
 		}
-		if row.User.Status != StatusActive {
+		if !store.IsUserActive(row.User) {
+			if row.User.Status == StatusActive { // denied by the group rule
+				httpx.Error(w, http.StatusForbidden, "group_denied", "Your account is no longer in a group allowed to use this platform")
+				return
+			}
 			httpx.Error(w, http.StatusForbidden, "user_suspended", "This account is suspended")
 			return
 		}

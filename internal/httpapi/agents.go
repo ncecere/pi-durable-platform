@@ -37,6 +37,7 @@ func (a *api) agentRoutes() []route {
 		{"POST", one + "/hibernate", k(a.hibernateAgent)},
 		{"GET", "/v1/agents/events", k(a.streamAgentEvents)},
 		{"GET", one + "/threads", k(a.listAgentThreads)},
+		{"POST", one + "/threads", k(a.createAgentThread)},
 		{"GET", thread, k(a.agentProxy(""))},
 		{"PATCH", thread, k(a.updateAgentThread)},
 		{"DELETE", thread, k(a.agentProxy(""))},
@@ -258,7 +259,7 @@ func (a *api) takeMessage(w http.ResponseWriter, r *http.Request, agentID uuid.U
 	if msg.claim, err = a.Agents.ClaimThread(r.Context(), actor, agentID, threadID, visibility, msg.text, at); failed(w, r, err) {
 		return message{}, false
 	}
-	if setServers && failed(w, r, a.Agents.SetThreadMCP(r.Context(), actor, agentID, threadID, clientServers(servers))) {
+	if setServers && failed(w, r, a.Agents.SetThreadMCP(r.Context(), actor, agentID, threadID, "", clientServers(servers))) {
 		a.Agents.Unclaim(r.Context(), msg.claim)
 		return message{}, false
 	}
@@ -333,6 +334,31 @@ func (a *api) listAgentThreads(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := a.Agents.Threads(r.Context(), a.actor(r), id)
 	writeList(w, r, rows, err, toAPIThread)
+}
+
+// createAgentThread starts a thread under a platform-chosen ID.
+func (a *api) createAgentThread(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "agentId")
+	if !ok {
+		return
+	}
+	var in apitypes.AgentThreadCreate
+	if r.ContentLength != 0 && !httpx.Decode(w, r, &in) {
+		return
+	}
+	var visibility, title string
+	if in.Visibility != nil {
+		visibility = string(*in.Visibility)
+	}
+	if in.Title != nil {
+		title = *in.Title
+	}
+	t, err := a.Agents.CreateThread(r.Context(), a.actor(r), id, visibility, title)
+	if failed(w, r, err) {
+		return
+	}
+	w.Header().Set("Location", "/v1/agents/"+id.String()+"/threads/"+t.ThreadID)
+	httpx.JSON(w, http.StatusCreated, toAPIThread(t))
 }
 
 func (a *api) updateAgentThread(w http.ResponseWriter, r *http.Request) {

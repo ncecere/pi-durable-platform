@@ -138,7 +138,7 @@ func (s *Service) usableGrant(ctx context.Context, q *dbgen.Queries, id uuid.UUI
 	if err != nil {
 		return g, err
 	}
-	if u.Status != "active" {
+	if !store.IsUserActive(u) {
 		return g, errInvalidGrant()
 	}
 	return g, nil
@@ -294,7 +294,7 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Principal, er
 	}
 	g := row.OauthGrant
 	resource := s.Resource()
-	if !ok || !row.OauthToken.ExpiresAt.After(s.now()) || g.RevokedAt != nil || row.User.Status != "active" ||
+	if !ok || !row.OauthToken.ExpiresAt.After(s.now()) || g.RevokedAt != nil || !store.IsUserActive(row.User) ||
 		row.OauthToken.Resource != resource || g.Resource != resource {
 		return Principal{}, ErrInvalidToken
 	}
