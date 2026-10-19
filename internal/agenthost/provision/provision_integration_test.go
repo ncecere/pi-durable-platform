@@ -690,3 +690,42 @@ func TestPruneRolesDropsLeftoversInTheAgentsDatabase(t *testing.T) {
 		t.Error("the large object is still there")
 	}
 }
+
+// An agent's role can connect to the agents database and take any advisory
+// lock, including the one replicas use to prepare it one at a time: holding it
+// must not stop the platform from starting.
+func TestAnAgentHoldingThePrepareLockDoesNotBlockPrepare(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	e := newEnv(t)
+	const agentID = "aaaaaaaa-0000-0000-0000-000000000005"
+	e.track(agentID)
+	p, _ := e.provisioner(ctx)
+	if err := p.Prepare(ctx); err != nil {
+		t.Fatal(err)
+	}
+	creds, err := p.Create(ctx, agentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostile := connect(ctx, t, e.url(e.db), creds)
+	defer hostile.Close(ctx)
+	if _, err := hostile.Exec(ctx, "SELECT pg_advisory_lock(hashtextextended('pdp.prepare-agents-database', 0))"); err != nil {
+		t.Fatal(err)
+	}
+	defer provision.SetPrepareLockWait(300 * time.Millisecond)()
+
+	start := time.Now()
+	replicas := make(chan error, 4)
+	for range cap(replicas) {
+		go func() { q, _ := e.provisioner(ctx); replicas <- q.Prepare(ctx) }()
+	}
+	for range cap(replicas) {
+		if err := <-replicas; err != nil {
+			t.Errorf("Prepare with the lock held by an agent's role: %v", err)
+		}
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Errorf("Prepare took %v", d)
+	}
+}

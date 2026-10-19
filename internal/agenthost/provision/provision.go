@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -72,18 +73,30 @@ type Provisioner struct {
 
 func New(admin *pgxpool.Pool) *Provisioner { return &Provisioner{admin: admin} }
 
+// prepareLockWait is how long Prepare waits for its advisory lock before it
+// goes on without it (see Prepare).
+var prepareLockWait = 20 * time.Second
+
 // Prepare hardens the agents database once: PUBLIC loses CREATE and USAGE on
 // schema public and TEMP on the database. Idempotent.
 //
 // Platform replicas prepare the database as they start, and concurrent
 // REVOKEs on the same object fail ("tuple concurrently updated"): one at a
-// time, through an advisory lock in the agents database.
+// time, through an advisory lock in the agents database. That lock is only
+// an optimisation: an agent's role can connect to this database and take any
+// advisory lock, so it must not be able to stop the platform from starting by
+// holding this one. After prepareLockWait Prepare goes on without it, and
+// retries a statement that conflicts with another replica's.
 func (p *Provisioner) Prepare(ctx context.Context) error {
-	unlock, err := store.AdvisoryLockText(ctx, p.admin, "pdp.prepare-agents-database")
-	if err != nil {
-		return fmt.Errorf("prepare agents database: %w", err)
+	lctx, cancel := context.WithTimeout(ctx, prepareLockWait)
+	unlock, err := store.AdvisoryLockText(lctx, p.admin, "pdp.prepare-agents-database")
+	cancel()
+	locked := err == nil
+	if locked {
+		defer unlock()
+	} else if ctx.Err() != nil {
+		return fmt.Errorf("prepare agents database: %w", ctx.Err())
 	}
-	defer unlock()
 	var db string
 	if err := p.admin.QueryRow(ctx, "SELECT current_database()").Scan(&db); err != nil {
 		return err
@@ -92,8 +105,18 @@ func (p *Provisioner) Prepare(ctx context.Context) error {
 		"REVOKE ALL ON SCHEMA public FROM PUBLIC",
 		fmt.Sprintf("REVOKE TEMPORARY ON DATABASE %s FROM PUBLIC", quoteIdent(db)),
 	} {
-		if _, err := p.admin.Exec(ctx, stmt); err != nil {
-			return fmt.Errorf("prepare agents database: %w", err)
+		for attempt := 1; ; attempt++ {
+			_, err := p.admin.Exec(ctx, stmt)
+			if err == nil {
+				break
+			}
+			if locked || attempt == 5 || ctx.Err() != nil {
+				return fmt.Errorf("prepare agents database: %w", err)
+			}
+			select { // another replica may be revoking the same privilege
+			case <-ctx.Done():
+			case <-time.After(time.Duration(attempt) * 150 * time.Millisecond):
+			}
 		}
 	}
 	return nil
