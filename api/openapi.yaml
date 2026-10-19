@@ -3804,6 +3804,63 @@ paths:
           $ref: '#/components/responses/ErrorReply'
         '409':
           $ref: '#/components/responses/ErrorReply'
+  /v1/oauth/client-logo:
+    get:
+      tags:
+      - oauth
+      operationId: getOAuthClientLogo
+      summary: An app's logo, served by the platform (the person signed in)
+      description: >-
+        The logo the app published (logo_uri; see OAuthClientInfo.logoUrl), fetched and checked by the platform and served
+        from its own origin, since the console's Content-Security-Policy allows images only from the platform. The address
+        is never taken from the request: only the logo of a client the platform knows (a registered client, a metadata
+        document in its cache, or an app someone connected) is fetched, so this is not a proxy for other URLs. It is
+        fetched from public addresses only over https without redirects, at most 256 KiB, and only PNG, JPEG, GIF or
+        WebP whose bytes decode as that type (never SVG). The answer is cached by the platform and by the browser (private,
+        one hour) and carries nosniff and a Content-Security-Policy that allows nothing. 404 logo_not_found: the client
+        is unknown or published no logo; 404 logo_unavailable: it couldn't be loaded or isn't an acceptable image (the
+        page shows the app's initials instead).
+      parameters:
+      - name: client_id
+        in: query
+        required: true
+        description: The client_id of the app (an https URL or a pdpcl_ value), URL-encoded
+        schema:
+          type: string
+          maxLength: 500
+      responses:
+        '200':
+          description: The logo
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: private, max-age=3600
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/gif:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '429':
+          $ref: '#/components/responses/ErrorReply'
   /v1/me/oauth-grants:
     get:
       tags:
@@ -6475,7 +6532,9 @@ components:
           description: Its home page (https)
         logoUrl:
           type: string
-          description: Its logo (https)
+          description: >-
+            The logo it published (https; present when it published one). Don't load it from the browser: show it with
+            GET /v1/oauth/client-logo?client_id=<id>, which the platform serves from its own origin.
         trusted:
           type: boolean
           description: On the platform's trusted list (skips the consent screen)

@@ -1712,6 +1712,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/oauth/client-logo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An app's logo, served by the platform (the person signed in)
+         * @description The logo the app published (logo_uri; see OAuthClientInfo.logoUrl), fetched and checked by the platform and served from its own origin, since the console's Content-Security-Policy allows images only from the platform. The address is never taken from the request: only the logo of a client the platform knows (a registered client, a metadata document in its cache, or an app someone connected) is fetched, so this is not a proxy for other URLs. It is fetched from public addresses only over https without redirects, at most 256 KiB, and only PNG, JPEG, GIF or WebP whose bytes decode as that type (never SVG). The answer is cached by the platform and by the browser (private, one hour) and carries nosniff and a Content-Security-Policy that allows nothing. 404 logo_not_found: the client is unknown or published no logo; 404 logo_unavailable: it couldn't be loaded or isn't an acceptable image (the page shows the app's initials instead).
+         */
+        get: operations["getOAuthClientLogo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/me/oauth-grants": {
         parameters: {
             query?: never;
@@ -3055,7 +3075,7 @@ export interface components {
             host: string;
             /** @description Its home page (https) */
             uri?: string;
-            /** @description Its logo (https) */
+            /** @description The logo it published (https; present when it published one). Don't load it from the browser: show it with GET /v1/oauth/client-logo?client_id=<id>, which the platform serves from its own origin. */
             logoUrl?: string;
             /** @description On the platform's trusted list (skips the consent screen) */
             trusted: boolean;
@@ -6728,6 +6748,37 @@ export interface operations {
             401: components["responses"]["ErrorReply"];
             403: components["responses"]["ErrorReply"];
             409: components["responses"]["ErrorReply"];
+        };
+    };
+    getOAuthClientLogo: {
+        parameters: {
+            query: {
+                /** @description The client_id of the app (an https URL or a pdpcl_ value), URL-encoded */
+                client_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The logo */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                    "image/jpeg": string;
+                    "image/gif": string;
+                    "image/webp": string;
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            429: components["responses"]["ErrorReply"];
         };
     };
     listMyOAuthGrants: {

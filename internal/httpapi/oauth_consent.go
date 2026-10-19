@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"github.com/google/uuid"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/oauth"
+	"github.com/ncecere/pi-durable-platform/internal/ratelimit"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 )
@@ -26,6 +28,7 @@ func (a *api) oauthRESTRoutes() []route {
 	return []route{
 		{"GET", "/v1/oauth/consent", a.session(a.getOAuthConsent)},
 		{"POST", "/v1/oauth/consent", a.session(a.decideOAuthConsent)},
+		{"GET", "/v1/oauth/client-logo", a.session(a.getOAuthClientLogo)},
 		{"GET", "/v1/me/oauth-grants", a.session(a.listMyOAuthGrants)},
 		{"DELETE", "/v1/me/oauth-grants/{grantId}", a.session(a.revokeMyOAuthGrant)},
 		{"GET", "/v1/admin/users/{userId}/oauth-grants", a.admin(a.adminListUserOAuthGrants)},
@@ -206,4 +209,41 @@ func (a *api) adminUpdateTrustedClients(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeRevised(w, http.StatusOK, t.Revision, toAPITrustedClients(t))
+}
+
+// logoRatePerMinute is how many logos a person may ask for a minute (a page
+// shows a handful; browsers keep them for an hour).
+const logoRatePerMinute = 120
+
+// getOAuthClientLogo serves a known app's logo from the platform's own
+// origin (the console's CSP allows no other image source). Any signed-in
+// person may fetch the logo of any client the platform knows: a logo is
+// public by nature. The address is the client's, never the request's.
+func (a *api) getOAuthClientLogo(w http.ResponseWriter, r *http.Request) {
+	id, _ := auth.FromContext(r.Context())
+	ok, wait, err := ratelimit.Allow(r.Context(), a.limiter, ratelimit.Bucket("oauth:logo", id.User.ID.String()), logoRatePerMinute)
+	if failed(w, r, err) {
+		return
+	}
+	if !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(ratelimit.RetryAfter(wait)))
+		httpx.Error(w, http.StatusTooManyRequests, "rate_limited", "Too many requests. Try again shortly.")
+		return
+	}
+	clientID := r.URL.Query().Get("client_id")
+	if clientID == "" {
+		httpx.Error(w, http.StatusBadRequest, "invalid_request", "Give the app's client_id.")
+		return
+	}
+	logo, err := a.OAuth.ClientLogo(r.Context(), clientID)
+	if failed(w, r, err) {
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", logo.ContentType)
+	h.Set("Content-Length", strconv.Itoa(len(logo.Data)))
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Cache-Control", "private, max-age=3600")
+	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	_, _ = w.Write(logo.Data)
 }

@@ -117,6 +117,7 @@ type Service struct {
 	previous []byte
 	issuer   string
 	docs     *metadataDocs
+	logos    *logos
 	Log      *slog.Logger
 	now      func() time.Time
 }
@@ -129,10 +130,12 @@ func New(pool *pgxpool.Pool, cfg Config) *Service {
 	}
 	s := &Service{
 		pool: pool, q: q, pepper: cfg.Pepper, previous: cfg.PepperPrevious, issuer: strings.TrimRight(cfg.Issuer, "/"),
-		docs: newMetadataDocs(&netguard.Dialer{AllowPrivate: cfg.DevAllowance, Timeout: docTimeout}, cfg.DevAllowance),
-		Log:  slog.Default(), now: time.Now,
+		docs:  newMetadataDocs(&netguard.Dialer{AllowPrivate: cfg.DevAllowance, Timeout: docTimeout}, cfg.DevAllowance),
+		logos: newLogos(&netguard.Dialer{AllowPrivate: cfg.DevAllowance, Timeout: logoTimeout}),
+		Log:   slog.Default(), now: time.Now,
 	}
 	s.docs.log = func() *slog.Logger { return s.Log }
+	s.logos.log = func() *slog.Logger { return s.Log }
 	return s
 }
 

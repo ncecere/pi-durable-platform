@@ -81,7 +81,14 @@ is the platform itself: `APP_URL`.
    the checked address, no redirects or proxies), at most 16 KiB, cached for its max-age (1 min to 1 h). Or with
    **Dynamic Client Registration**: `POST /oauth/register` (RFC 7591) returns a `pdpcl_…` client ID, deleted after 30
    days unused. Metadata documents are preferred: their host vouches for the name; a registered name is unverified
-   and the consent page says so.
+   and the consent page says so. An app's `logo_uri` (https) is not loaded by the browser, whose Content-Security-Policy
+   allows images only from the platform: `GET /v1/oauth/client-logo?client_id=…` (browser sessions only; any
+   signed-in person may ask for the logo of a client the platform knows: registered, or with a cached metadata document or a connection; a logo is public
+   by nature) fetches the
+   client's own logo, never an address from the request, through `internal/netguard` (public addresses, https, no
+   redirects, 5 s, 256 KiB), serves only PNG, JPEG, GIF and WebP whose bytes check out (never SVG), from a one-hour
+   cache, with `nosniff` and a Content-Security-Policy that allows nothing. Without a usable logo the pages show the
+   app's initials.
 3. Send the person to `GET /oauth/authorize` with `response_type=code`, `client_id`, `redirect_uri`, `state`, PKCE
    (`code_challenge`, `code_challenge_method=S256`, required), optional `scope=agents` (the only scope; omitted means
    agents) and optional `resource=<APP_URL>` (anything else is `invalid_target`). Loopback redirect URIs match on any

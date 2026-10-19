@@ -15,9 +15,11 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/agents"
 	"github.com/ncecere/pi-durable-platform/internal/auth"
 	"github.com/ncecere/pi-durable-platform/internal/authz"
+	"github.com/ncecere/pi-durable-platform/internal/httpapi"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
 	"github.com/ncecere/pi-durable-platform/internal/mcp"
+	"github.com/ncecere/pi-durable-platform/internal/testutil"
 )
 
 // The authorization matrix. Every operation in api/openapi.yaml is
@@ -62,7 +64,9 @@ type matrixEnv struct {
 	// oauthClient is a registered OAuth Connect client; spareGrant one of
 	// spareUser's connected apps.
 	oauthClient, spareGrant string
-	n                       int
+	// logoURL is the logo of oauthClient (an https server on this machine).
+	logoURL string
+	n       int
 }
 
 func (e *matrixEnv) next() int { e.n++; return e.n }
@@ -136,7 +140,9 @@ func (e *matrixEnv) newInvite(tf teamFix) string {
 }
 
 func newMatrixEnv(t *testing.T) *matrixEnv {
-	e := &matrixEnv{t: t, app: newTestApp(t, nil)}
+	logoHost := newLogoHost(t)
+	e := &matrixEnv{t: t, logoURL: logoHost.srv.URL + "/logo.png",
+		app: newTestAppDeps(t, nil, testutil.Logger(), func(d *httpapi.Deps) { d.OAuth.SetMetadataTLS(logoHost.tls()) })}
 	e.a = e.newTeam("alpha", "Alpha Confidential Team")
 	e.b = e.newTeam("bravo", "Bravo Team")
 	e.a.owner = e.newMember(e.a, "owner")
@@ -190,8 +196,8 @@ func newMatrixEnv(t *testing.T) *matrixEnv {
 // Registration would) with a loopback redirect URI.
 func (e *matrixEnv) newOAuthClient() string {
 	id := fmt.Sprintf("pdpcl_matrix%d", e.next())
-	return e.exec(`INSERT INTO oauth_clients (client_id, client_name, redirect_uris) VALUES ($1, 'Matrix app', '{http://127.0.0.1/cb}')
-		RETURNING client_id`, id)
+	return e.exec(`INSERT INTO oauth_clients (client_id, client_name, redirect_uris, logo_uri) VALUES ($1, 'Matrix app', '{http://127.0.0.1/cb}', $2)
+		RETURNING client_id`, id, e.logoURL)
 }
 
 // consentQuery is an authorization request for the matrix's client.
