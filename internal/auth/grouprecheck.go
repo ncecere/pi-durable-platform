@@ -290,7 +290,12 @@ func (s *Service) checkOne(ctx context.Context, row dbgen.ListDueGroupChecksRow)
 	log := s.log.With("user", row.UserID)
 	refresh, err := s.box.Open(row.RefreshTokenEnc, idpTokenAD(row.UserID))
 	if err != nil {
-		log.Error("group re-check: the stored refresh token can't be opened (ENCRYPTION_KEY changed?)", "err", err)
+		// Not "nothing to say": checked_at has moved, so returning here would exempt this
+		// person from every later check. The IdP can't be asked, which is verdict unknown:
+		// access is kept for the grace period and then ends, like an unreachable IdP.
+		log.Warn("group re-check: the stored refresh token could not be opened; if ENCRYPTION_KEY was changed, set " +
+			"ENCRYPTION_KEY_PREVIOUS to the old key and run rekey, or the person must sign in again")
+		s.apply(ctx, log, row, answer{verdict: unknown, why: "the stored refresh token could not be opened"})
 		return
 	}
 	c, err := s.client(ctx)

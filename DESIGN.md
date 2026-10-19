@@ -92,8 +92,9 @@ again, with no credentials of its own to the IdP and no SCIM:
 - *Outcome by answer.* The IdP lists an allowed group: access continues (the person's stored groups are updated).
   It lists none: **denied**, `not_in_group`. It refuses the refresh token (`invalid_grant`, `access_denied` and the
   like: the person was disabled, the grant revoked or expired): denied, `idp_refused`. It can't be asked
-  (unreachable, 5xx, an unexpected answer, or neither the ID token nor userinfo has the groups claim): nothing
-  changes and the platform logs a warning, until `OIDC_GROUP_RECHECK_GRACE` (default 24h) has passed since the IdP
+  (unreachable, 5xx, an unexpected answer, neither the ID token nor userinfo has the groups claim, or the stored
+  token can't be opened because `ENCRYPTION_KEY` changed without `ENCRYPTION_KEY_PREVIOUS`; the warning names the
+  person by ID): nothing changes and the platform logs a warning, until `OIDC_GROUP_RECHECK_GRACE` (default 24h) has passed since the IdP
   last vouched for the person: then denied, `idp_unreachable`. So an IdP outage costs nobody access for a day, and
   a person the IdP no longer answers for loses it after one.
 - *Denied is a separate state.* `users.group_denied_at`/`group_denied_reason`, apart from `users.status`, which only
