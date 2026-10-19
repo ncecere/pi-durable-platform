@@ -1,0 +1,12 @@
+# Monitoring: a ServiceMonitor for the metrics Service (Prometheus Operator CRDs
+# required), the NetworkPolicy that lets your scraper reach the metrics port
+# (patch its `from`: the base allows nobody), and the Grafana dashboard as a
+# ConfigMap for Grafana's sidecar (label grafana_dashboard). Without the
+# Prometheus Operator, leave the ServiceMonitor out and scrape the Service
+# `pi-durable-platform-metrics` (port `metrics`) with your own configuration.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - servicemonitor.yaml
+  - networkpolicy-metrics.yaml
+  - grafana-dashboard.yaml

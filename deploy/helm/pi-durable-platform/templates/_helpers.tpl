@@ -20,6 +20,10 @@
 {{- printf "%s-gateway" (include "pdp.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "pdp.metricsName" -}}
+{{- printf "%s-metrics" (include "pdp.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "pdp.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}
 {{- default (include "pdp.fullname" .) .Values.serviceAccount.name -}}

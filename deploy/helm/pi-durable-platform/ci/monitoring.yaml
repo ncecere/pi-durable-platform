@@ -1,0 +1,46 @@
+# Metrics for a Prometheus Operator, the dashboard for Grafana's sidecar, and
+# traces to a collector in the cluster.
+appUrl: https://agents.example.com
+oidc:
+  issuer: https://idp.example.com/application/o/pi-durable-platform/
+  clientId: pi-durable-platform
+networkPolicy:
+  kubeApiServer:
+    cidrs: [192.0.2.10/32]
+  database:
+    podLabels:
+      cnpg.io/cluster: pdp-db
+  metrics:
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: monitoring
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: prometheus
+  egress:
+    tracing:
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tempo
+metrics:
+  port: 9100
+  serviceMonitor:
+    enabled: true
+    namespace: monitoring
+    labels:
+      release: kube-prometheus-stack
+    interval: 15s
+  dashboard:
+    enabled: true
+    namespace: monitoring
+    annotations:
+      grafana_folder: Pi Durable Platform
+tracing:
+  otlpEndpoint: http://tempo.observability.svc:4318
+  serviceName: pdp-prod
+  sampleRatio: "0.25"

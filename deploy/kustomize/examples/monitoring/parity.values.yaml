@@ -1,0 +1,23 @@
+rolloutOnConfigChange: false
+appUrl: https://agents.example.com
+agents:
+  keepNamespace: false
+oidc:
+  issuer: https://idp.example.com/
+  clientId: pi-durable-platform
+networkPolicy:
+  database:
+    podLabels:
+      cnpg.io/cluster: pdp-db
+  kubeApiServer:
+    cidrs: [192.0.2.10/32]
+  metrics:
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: monitoring
+metrics:
+  serviceMonitor:
+    enabled: true
+  dashboard:
+    enabled: true

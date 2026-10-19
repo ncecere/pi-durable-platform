@@ -217,6 +217,51 @@ podDisruptionBudget:
   minAvailable: 1
   maxUnavailable: ""
 
+# Prometheus metrics (DESIGN.md, Observability): /metrics on a listener of its
+# own, never behind the Ingress and without authentication. Nothing can scrape
+# it until a NetworkPolicy peer is allowed (networkPolicy.metrics.from), or
+# the NetworkPolicies are off.
+metrics:
+  enabled: true
+  # The container port (METRICS_ADDR=:<port>); the Service port is named `metrics`.
+  port: 9090
+  # A Prometheus Operator ServiceMonitor for the metrics Service (its CRD must
+  # exist). Without the Operator, scrape the Service's `metrics` port with
+  # your own configuration (see the README).
+  serviceMonitor:
+    enabled: false
+    # Default: the release namespace.
+    namespace: ""
+    # Labels your Prometheus selects ServiceMonitors by (for example
+    # release: kube-prometheus-stack).
+    labels: {}
+    interval: 30s
+    scrapeTimeout: 10s
+    relabelings: []
+    metricRelabelings: []
+  # The Grafana dashboard as a ConfigMap for Grafana's dashboard sidecar
+  # (label grafana_dashboard: "1"). Off by default.
+  dashboard:
+    enabled: false
+    # Default: the release namespace.
+    namespace: ""
+    labels:
+      grafana_dashboard: "1"
+    # For example grafana_folder: Pi Durable Platform.
+    annotations: {}
+
+# OpenTelemetry traces (DESIGN.md, Observability): off unless an endpoint is
+# set. HTTP/protobuf (OTLP port 4318), not gRPC. Give the pod the exporter's
+# headers (authentication) through extraEnv, from a Secret
+# (OTEL_EXPORTER_OTLP_HEADERS). Allow the egress in networkPolicy.egress.tracing.
+tracing:
+  # The collector's base URL, for example http://tempo.observability.svc:4318.
+  otlpEndpoint: ""
+  # service.name of the spans (default pi-durable-platform).
+  serviceName: ""
+  # The share of new traces kept, 0 to 1 (default 1: every trace).
+  sampleRatio: ""
+
 # Restart the pod when the ConfigMap changes (Helm only).
 rolloutOnConfigChange: true
 
@@ -266,6 +311,14 @@ networkPolicy:
     # Default: every namespace; narrow it to your ingress controller's.
     from:
       - namespaceSelector: {}
+  # Who may scrape the metrics port: peers as in NetworkPolicy `from`, for
+  # example your Prometheus or Alloy pods:
+  #   - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } }
+  #     podSelector: { matchLabels: { app.kubernetes.io/name: prometheus } }
+  # Default: nobody (no policy is created, and the default-deny of the
+  # platform's pods applies if you have one).
+  metrics:
+    from: []
   egress:
     # Identity provider, model providers and MCP servers by their public names.
     publicHttps:
@@ -280,6 +333,12 @@ networkPolicy:
         - 127.0.0.0/8
     # Further egress rules for the platform pods (NetworkPolicy `egress` items).
     extra: []
+    # Where tracing.otlpEndpoint is, when it is in the cluster or on a private
+    # address: peers as in NetworkPolicy `to` (a collector's pods, or a CIDR),
+    # and the OTLP/HTTP port. Default: no rule (public HTTPS is allowed above).
+    tracing:
+      to: []
+      ports: [4318]
   agents:
     # Further egress rules for agent pods (for direct-mode providers).
     extraEgress: []

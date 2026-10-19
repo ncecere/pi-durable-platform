@@ -50,6 +50,18 @@ data:
   {{- with $o.bootstrapAdminSubject }}
   BOOTSTRAP_ADMIN_SUBJECT: {{ . | quote }}
   {{- end }}
+  {{- if .Values.metrics.enabled }}
+  METRICS_ADDR: {{ printf ":%v" .Values.metrics.port | quote }}
+  {{- end }}
+  {{- with .Values.tracing.otlpEndpoint }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ . | quote }}
+  {{- with $.Values.tracing.serviceName }}
+  OTEL_SERVICE_NAME: {{ . | quote }}
+  {{- end }}
+  {{- with $.Values.tracing.sampleRatio }}
+  OTEL_TRACES_SAMPLER_ARG: {{ . | quote }}
+  {{- end }}
+  {{- end }}
   AGENTS_LAUNCHER: {{ $a.launcher | quote }}
   AGENTS_NAMESPACE: {{ $a.namespace | quote }}
   {{- if not (include "pdp.warmPool" .) }}

@@ -60,6 +60,10 @@ spec:
             - { name: http, containerPort: 8098 }
             # The gateway agents call (the model proxy); nothing else listens here.
             - { name: gateway, containerPort: 8099 }
+            {{- if .Values.metrics.enabled }}
+            # /metrics and nothing else; not in the web Service or the Ingress.
+            - { name: metrics, containerPort: {{ .Values.metrics.port }} }
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "pdp.fullname" . }}

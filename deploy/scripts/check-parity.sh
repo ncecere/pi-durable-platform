@@ -54,5 +54,6 @@ compare overlays/agent-sandbox "$gen/base.values.yaml" "$gen/agent-sandbox.value
 compare overlays/agent-sandbox-cold "$gen/base.values.yaml" "$gen/agent-sandbox-cold.values.yaml"
 compare examples/production "$kz/examples/production/parity.values.yaml"
 compare examples/cilium "$kz/examples/cilium/parity.values.yaml"
+compare examples/monitoring "$kz/examples/monitoring/parity.values.yaml"
 
 exit "$status"

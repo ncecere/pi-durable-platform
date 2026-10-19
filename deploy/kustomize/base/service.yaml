@@ -35,3 +35,23 @@ spec:
     app.kubernetes.io/instance: pi-durable-platform
   ports:
     - { name: gateway, port: 8099, targetPort: gateway }
+---
+# The metrics port, for scrapers (and the ServiceMonitor). Not the web
+# Service, so what routes to the web port never sees it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pi-durable-platform-metrics
+  namespace: pi-durable-platform
+  labels:
+    app.kubernetes.io/name: pi-durable-platform
+    app.kubernetes.io/instance: pi-durable-platform
+    app.kubernetes.io/version: "0.1.2"
+    app.kubernetes.io/component: metrics
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: pi-durable-platform
+    app.kubernetes.io/instance: pi-durable-platform
+  ports:
+    - { name: metrics, port: 9090, targetPort: metrics }

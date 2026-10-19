@@ -31,3 +31,22 @@ spec:
     {{- include "pdp.selectorLabels" . | nindent 4 }}
   ports:
     - { name: gateway, port: 8099, targetPort: gateway }
+{{- if .Values.metrics.enabled }}
+---
+# The metrics port, for scrapers (and the ServiceMonitor). Not the web
+# Service, so what routes to the web port never sees it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pdp.metricsName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "pdp.selectorLabels" . | nindent 4 }}
+  ports:
+    - { name: metrics, port: {{ .Values.metrics.port }}, targetPort: metrics }
+{{- end }}
