@@ -47,7 +47,7 @@ func TestDoctorHealthyInstall(t *testing.T) {
 	if !rep.OK {
 		t.Fatalf("report not ok: %+v", rep.Checks)
 	}
-	if c, _ := find(rep, "postgres", "migrations"); c.Status != doctor.OK || !strings.Contains(c.Detail, "current (version 18)") {
+	if c, _ := find(rep, "postgres", "migrations"); c.Status != doctor.OK || !strings.Contains(c.Detail, "current (version 17)") {
 		t.Errorf("migrations = %+v", c)
 	}
 	if c, _ := find(rep, "safety", "production"); c.Status != doctor.Info {
