@@ -12,6 +12,11 @@
 // Never message content, headers, URLs, keys or tokens, and never a person's
 // ID or e-mail address; call sites choose their attributes with that rule and
 // the tests check it.
+//
+// A caller's trace context is never trusted to decide sampling: the listeners
+// (StartRequest) start a root span of their own, which the configured sampler
+// decides, and keep an inbound traceparent only as a link. Spans of the
+// platform's own work (Start, below a request) follow their parent.
 package tracing
 
 import (
@@ -41,7 +46,9 @@ type Config struct {
 	// ServiceName is the service.name resource (OTEL_SERVICE_NAME).
 	ServiceName string
 	// SampleRatio is the share of new traces kept (OTEL_TRACES_SAMPLER_ARG,
-	// 0 to 1); a request that arrives with a sampling decision keeps it.
+	// 0 to 1). It decides every request the listeners receive, whatever
+	// traceparent (and sampled flag) the caller sent; the spans below a request
+	// follow the request's decision.
 	SampleRatio float64
 	// Version is the platform's version (service.version).
 	Version string
@@ -98,9 +105,25 @@ func Start(ctx context.Context, name string, kind trace.SpanKind, attrs ...attri
 	return otel.Tracer(tracerName).Start(ctx, name, trace.WithSpanKind(kind), trace.WithAttributes(attrs...))
 }
 
+// StartRequest begins the server span of a request received by a listener. It
+// is always a new root, decided by the configured sampler: a client's
+// traceparent cannot force sampling (an unauthenticated caller could
+// otherwise defeat OTEL_TRACES_SAMPLER_ARG and fill the collector). A valid
+// inbound trace context is kept as a link, which does not influence the
+// decision. The context returned carries the span, so spans started below it,
+// and the traceparent sent to upstreams and the runtime, follow its decision.
+func StartRequest(ctx context.Context, h http.Header, name string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
+	opts := []trace.SpanStartOption{trace.WithNewRoot(), trace.WithSpanKind(trace.SpanKindServer), trace.WithAttributes(attrs...)}
+	if remote := trace.SpanContextFromContext(Extract(context.Background(), h)); remote.IsValid() {
+		opts = append(opts, trace.WithLinks(trace.Link{SpanContext: remote}))
+	}
+	return otel.Tracer(tracerName).Start(ctx, name, opts...)
+}
+
 var propagator = propagation.TraceContext{}
 
-// Extract returns ctx with the trace context of an incoming request.
+// Extract returns ctx with the trace context of an incoming request. The
+// listeners don't continue it (see StartRequest).
 func Extract(ctx context.Context, h http.Header) context.Context {
 	return propagator.Extract(ctx, propagation.HeaderCarrier(h))
 }

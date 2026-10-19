@@ -129,3 +129,89 @@ func TestStatusAndFail(t *testing.T) {
 		}
 	}
 }
+
+// installForTest installs the platform's provider (its sampler included) with
+// an in-memory exporter.
+func installForTest(t *testing.T, ratio float64) *tracetest.InMemoryExporter {
+	t.Helper()
+	exp := tracetest.NewInMemoryExporter()
+	prev := otel.GetTracerProvider()
+	shutdown, err := install(sdktrace.NewSimpleSpanProcessor(exp), Config{ServiceName: "pdp-under-test", SampleRatio: ratio})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = shutdown(context.Background()); otel.SetTracerProvider(prev) })
+	return exp
+}
+
+const sampledByCaller = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+
+// A caller's sampled flag does not defeat the sampling ratio: with ratio 0 the
+// request is not recorded, and what the platform sends upstream says so.
+func TestStartRequestIgnoresTheCallersSampledFlag(t *testing.T) {
+	exp := installForTest(t, 0)
+	in := http.Header{"Traceparent": {sampledByCaller}}
+	ctx, span := StartRequest(context.Background(), in, "GET /v1/me")
+	if span.SpanContext().IsSampled() || span.IsRecording() {
+		t.Fatal("a caller's sampled flag forced sampling")
+	}
+	// The platform's own work below the request follows the request's decision.
+	cctx, child := Start(ctx, "agent.wake", trace.SpanKindInternal)
+	out := http.Header{}
+	Inject(cctx, out)
+	child.End()
+	span.End()
+	if got := out.Get("Traceparent"); !strings.HasSuffix(got, "-00") || strings.Contains(got, "4bf92f3577b34da6a3ce929d0e0e4736") {
+		t.Errorf("upstream traceparent %q: want a trace of the platform's own, unsampled", got)
+	}
+	if n := len(exp.GetSpans()); n != 0 {
+		t.Errorf("%d spans exported at ratio 0", n)
+	}
+}
+
+// With sampling on, a request is a new root that links the caller's trace;
+// spans below it follow it, and upstreams get the platform's trace context.
+func TestStartRequestStartsARootAndLinksTheCaller(t *testing.T) {
+	exp := installForTest(t, 1)
+	ctx, span := StartRequest(context.Background(), http.Header{"Traceparent": {sampledByCaller}}, "POST /v1/x")
+	cctx, child := Start(ctx, "agent.runtime_request", trace.SpanKindClient)
+	out := http.Header{}
+	Inject(cctx, out)
+	child.End()
+	span.End()
+
+	spans := exp.GetSpans()
+	if len(spans) != 2 {
+		t.Fatalf("spans %v", spans)
+	}
+	server, down := spans[1], spans[0]
+	if server.Parent.IsValid() || server.SpanContext.TraceID().String() == "4bf92f3577b34da6a3ce929d0e0e4736" {
+		t.Errorf("the request span is not a root of its own: parent %v trace %s", server.Parent, server.SpanContext.TraceID())
+	}
+	if len(server.Links) != 1 || server.Links[0].SpanContext.SpanID().String() != "00f067aa0ba902b7" {
+		t.Errorf("links %v", server.Links)
+	}
+	if down.Parent.SpanID() != server.SpanContext.SpanID() || down.SpanContext.TraceID() != server.SpanContext.TraceID() {
+		t.Error("the span below the request does not follow it")
+	}
+	if got, want := out.Get("Traceparent"), "00-"+down.SpanContext.TraceID().String()+"-"+down.SpanContext.SpanID().String()+"-01"; got != want {
+		t.Errorf("upstream traceparent %q, want %q", got, want)
+	}
+}
+
+// Junk or no traceparent is a plain root, with no link.
+func TestStartRequestWithoutAValidTraceparent(t *testing.T) {
+	exp := installForTest(t, 1)
+	for _, tp := range []string{"", "garbage", "00-00000000000000000000000000000000-0000000000000000-01"} {
+		_, span := StartRequest(context.Background(), http.Header{"Traceparent": {tp}}, "GET /x")
+		span.End()
+	}
+	for _, s := range exp.GetSpans() {
+		if len(s.Links) != 0 || s.Parent.IsValid() {
+			t.Errorf("span %+v", s)
+		}
+	}
+	if n := len(exp.GetSpans()); n != 3 {
+		t.Errorf("%d spans", n)
+	}
+}

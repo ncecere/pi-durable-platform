@@ -540,8 +540,11 @@ the same on every replica: use `max`.
 **Tracing** is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set (the collector's base URL; OTLP over HTTP, port 4318, not
 gRPC). `OTEL_SERVICE_NAME` (default `pi-durable-platform`) and `OTEL_TRACES_SAMPLER_ARG` (the share of new traces kept,
 default 1) are settings; the exporter itself honours the standard variables for headers, timeout, compression and TLS
-(`OTEL_EXPORTER_OTLP_HEADERS` and its siblings). A request that arrives with a `traceparent` is continued (and keeps
-its sampling decision); `baggage` is neither read nor sent. Spans:
+(`OTEL_EXPORTER_OTLP_HEADERS` and its siblings). A caller does not decide sampling: every request to the API or the gateway
+starts a trace of its own, which `OTEL_TRACES_SAMPLER_ARG` decides, whatever `traceparent` (or sampled flag) it
+carries, so nobody can force traces to be recorded. An inbound `traceparent` is kept as a span link only; the
+spans below the request (wake, runtime request, upstream calls) follow the request's decision and send their own
+`traceparent`. `baggage` is neither read nor sent. Spans:
 
 - a server span for every request of the API and the gateway, named `METHOD route-pattern` (the same pattern the
   metrics use, never the path), with `http.route`, `http.response.status_code` and `pdp.request_id`; the access log

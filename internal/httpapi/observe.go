@@ -22,13 +22,13 @@ type observation struct {
 	start    time.Time
 }
 
-// observe starts observing r: a server span (a child of the trace context
-// the caller sent, if any), and one more request in flight. The returned
-// request carries the span's context.
+// observe starts observing r: a server span, and one more request in flight.
+// The span is a new root that the platform's sampler decides: the trace
+// context the caller sent is only linked, never obeyed (tracing.StartRequest).
+// The returned request carries the span's context.
 func observe(m *metrics.Metrics, listener string, r *http.Request) (*http.Request, *observation) {
-	ctx := tracing.Extract(r.Context(), r.Header)
 	// Named by the method until the mux has chosen the route.
-	ctx, span := tracing.Start(ctx, r.Method, trace.SpanKindServer,
+	ctx, span := tracing.StartRequest(r.Context(), r.Header, r.Method,
 		attribute.String("http.request.method", metrics.Method(r.Method)),
 		attribute.String("pdp.listener", listener))
 	m.InFlight(listener, 1)
