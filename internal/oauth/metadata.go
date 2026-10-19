@@ -2,7 +2,6 @@ package oauth
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"io"
@@ -69,10 +68,6 @@ func newMetadataDocs(guard *netguard.Dialer, devHTTP bool) *metadataDocs {
 		transport: tr, devHTTP: devHTTP, now: time.Now, cache: map[string]cachedDoc{},
 	}
 }
-
-// SetMetadataTLS sets the TLS configuration of metadata document fetches
-// (tests: to trust a test server's certificate). The address guard stays.
-func (s *Service) SetMetadataTLS(c *tls.Config) { s.docs.transport.TLSClientConfig = c }
 
 // validMetadataURL: an https URL with a path (not just "/"), no user info,
 // query or fragment, and no dot segments. With devHTTP, plain http on a

@@ -95,3 +95,11 @@ UPDATE oauth_tokens SET rotated_at = now() WHERE id = $1 AND rotated_at IS NULL;
 
 -- name: DeleteOAuthToken :exec
 DELETE FROM oauth_tokens WHERE id = $1;
+
+-- name: GetLatestOAuthGrantByClient :one
+-- The newest active grant of a client, by anyone: the client as consent saw it
+-- (its logo is public, so any signed-in person may see it).
+SELECT * FROM oauth_grants
+WHERE client_id = $1 AND revoked_at IS NULL
+ORDER BY created_at DESC, id DESC
+LIMIT 1;

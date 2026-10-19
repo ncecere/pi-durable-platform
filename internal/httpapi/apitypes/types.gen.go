@@ -2022,7 +2022,7 @@ type OAuthClientInfo struct {
 	// Kind metadata: identified by a Client ID Metadata Document, whose host vouches for it; registered: it registered itself, so its name is unverified.
 	Kind OAuthClientInfoKind `json:"kind"`
 
-	// LogoUrl Its logo (https)
+	// LogoUrl The logo it published (https; present when it published one). Don't load it from the browser: show it with GET /v1/oauth/client-logo?client_id=<id>, which the platform serves from its own origin.
 	LogoUrl *string `json:"logoUrl,omitempty"`
 	Name    string  `json:"name"`
 
@@ -2768,6 +2768,12 @@ type SetThreadMcpServersJSONBody struct {
 type GetMeParams struct {
 	// Optional With true, a request without a session cookie gets data null (200) instead of a 401, for pages that work signed out. An expired session is still a 401 (and clears the cookie).
 	Optional *bool `form:"optional,omitempty" json:"optional,omitempty"`
+}
+
+// GetOAuthClientLogoParams defines parameters for GetOAuthClientLogo.
+type GetOAuthClientLogoParams struct {
+	// ClientId The client_id of the app (an https URL or a pdpcl_ value), URL-encoded
+	ClientId string `form:"client_id" json:"client_id"`
 }
 
 // GetOAuthConsentParams defines parameters for GetOAuthConsent.

@@ -107,6 +107,36 @@ func (q *Queries) GetActiveOAuthGrant(ctx context.Context, arg GetActiveOAuthGra
 	return i, err
 }
 
+const getLatestOAuthGrantByClient = `-- name: GetLatestOAuthGrantByClient :one
+SELECT id, user_id, client_id, client_kind, client_name, client_uri, logo_uri, scopes, resource, created_at, last_used_at, revoked_at, revoked_reason FROM oauth_grants
+WHERE client_id = $1 AND revoked_at IS NULL
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+`
+
+// The newest active grant of a client, by anyone: the client as consent saw it
+// (its logo is public, so any signed-in person may see it).
+func (q *Queries) GetLatestOAuthGrantByClient(ctx context.Context, clientID string) (OauthGrant, error) {
+	row := q.db.QueryRow(ctx, getLatestOAuthGrantByClient, clientID)
+	var i OauthGrant
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ClientID,
+		&i.ClientKind,
+		&i.ClientName,
+		&i.ClientUri,
+		&i.LogoUri,
+		&i.Scopes,
+		&i.Resource,
+		&i.CreatedAt,
+		&i.LastUsedAt,
+		&i.RevokedAt,
+		&i.RevokedReason,
+	)
+	return i, err
+}
+
 const getOAuthClient = `-- name: GetOAuthClient :one
 SELECT id, client_id, client_name, redirect_uris, client_uri, logo_uri, created_at, last_used_at FROM oauth_clients WHERE client_id = $1 AND last_used_at > $2
 `

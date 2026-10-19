@@ -23,6 +23,7 @@ import {
 } from "../../../api/agents";
 import { errorMessage } from "../../../api/client";
 import { useCurrentUser } from "../../../session";
+import { markAwake } from "./labels";
 import { ChatMessages } from "./messages";
 import { ThreadAudience, ThreadList } from "./thread-list";
 import { VisibilityPicker } from "./visibility-picker";
@@ -102,9 +103,11 @@ export function TestChat({ agent, personal = false }: Props) {
     queryClient.invalidateQueries({
       queryKey: threadsQuery(agent.id).queryKey,
     });
-  // Sending wakes the agent: refresh its status right away.
-  const refreshAgent = () =>
-    queryClient.invalidateQueries({ queryKey: agentsKey });
+  // An accepted message wakes the agent: show it awake right away, then take the platform's word.
+  const refreshAgent = () => {
+    markAwake(queryClient, agent.id);
+    return queryClient.invalidateQueries({ queryKey: agentsKey });
+  };
 
   /** Back to the list with a new conversation ready (the open one is gone or can't take the message). */
   const startNew = () => {

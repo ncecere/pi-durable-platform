@@ -385,12 +385,15 @@ var matrixPolicies = map[string]policy{
 	}},
 
 	// OAuth Connect: everyone signed in sees an app's request and decides
-	// it, and lists and disconnects their own apps; platform staff read
+	// it, and an app's logo (public by nature), and lists and disconnects their own apps; platform staff read
 	// anyone's apps and the trusted list; only platform admins disconnect
 	// another person's apps or change the list.
 	"getOAuthConsent": {own: signedIn, build: func(c *mctx) request { return get("/v1/oauth/consent?" + c.e.consentQuery()) }},
 	"decideOAuthConsent": {own: signedIn, build: func(c *mctx) request {
 		return post("/v1/oauth/consent", map[string]any{"query": c.e.consentQuery(), "decision": "deny"})
+	}},
+	"getOAuthClientLogo": {own: signedIn, build: func(c *mctx) request {
+		return get("/v1/oauth/client-logo?client_id=" + c.e.oauthClient)
 	}},
 	"listMyOAuthGrants":  {own: signedIn, build: func(*mctx) request { return get("/v1/me/oauth-grants") }},
 	"revokeMyOAuthGrant": {own: signedIn, build: func(c *mctx) request { return del("/v1/me/oauth-grants/" + c.myGrant()) }},

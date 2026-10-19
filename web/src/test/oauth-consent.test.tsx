@@ -1,5 +1,5 @@
 /* The OAuth Connect consent page: the app (verified, trusted or not), what it can do, where the browser goes back to, Allow and Deny, invalid requests and signing in first. */
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import { rawQuery, redirectTo, safeRedirect } from "../pages/connect/consent";
@@ -65,14 +65,27 @@ describe("OAuth consent page", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
-  it("shows an app's logo only from an https address", async () => {
+  it("loads an app's logo through the platform, never from the app's own address", async () => {
     const { unmount, container } = openConsent({ "GET /v1/oauth/consent": () => oauthConsent({ client: oauthClient({ logoUrl: "https://chat.example.com/logo.png" }) }) });
     await screen.findByRole("heading", { level: 1 });
-    expect(container.querySelector("main img")).toHaveAttribute("src", "https://chat.example.com/logo.png");
+    expect(container.querySelector("main img")).toHaveAttribute(
+      "src",
+      "/v1/oauth/client-logo?client_id=https%3A%2F%2Fchat.example.com%2Foauth%2Fclient-metadata.json",
+    );
     unmount();
     const other = openConsent({ "GET /v1/oauth/consent": () => oauthConsent({ client: oauthClient({ logoUrl: "http://tracker.example.net/pixel.png" }) }) });
     await screen.findByRole("heading", { level: 1 });
     expect(other.container.querySelector("main img")).toBeNull();
+  });
+
+  it("falls back to the app's initials when its logo can't be loaded", async () => {
+    const { container } = openConsent({ "GET /v1/oauth/consent": () => oauthConsent({ client: registeredClient({ logoUrl: "https://helper.example.net/logo.png" }) }) });
+    await screen.findByRole("heading", { level: 1 });
+    const img = container.querySelector("main img")!;
+    expect(img).toHaveAttribute("src", "/v1/oauth/client-logo?client_id=pdpcl_3f9a1c");
+    fireEvent.error(img);
+    await waitFor(() => expect(container.querySelector("main img")).toBeNull());
+    expect(container.querySelector("main")).toHaveTextContent("HH");
   });
 
   it("allows: posts the query string as received, with the CSRF token, then sends the browser to the app", async () => {

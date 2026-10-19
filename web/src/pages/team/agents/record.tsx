@@ -11,7 +11,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import { LayoutDashboard, MessageSquare, MessagesSquare, Moon, Settings2 } from "lucide-react";
-import { agentQuery } from "../../../api/agents";
+import { agentQuery, useAgentEvents } from "../../../api/agents";
 import { api, errorMessage, unwrap } from "../../../api/client";
 import { isNotFound, NotFoundState } from "../../../components/not-found";
 import { PageSkeleton } from "../../../components/page-skeleton";
@@ -28,6 +28,7 @@ import {
   type Agent,
   agentAbilities,
   agentStatus,
+  markAwake,
   storeAgent,
   whatIsServiceManaged,
 } from "./labels";
@@ -75,6 +76,12 @@ function Record({ agent }: { agent: Agent }) {
     },
     onError: (err) =>
       toast.error("Couldn't hibernate the agent", errorMessage(err)),
+  });
+  // A thread replying means the agent is awake (a message from an app, another tab or the Test chat); the
+  // record follows hibernation too, from the platform's answer, so the badge needs no reload.
+  useAgentEvents(agent.id, abilities.canUse, (event) => {
+    if (event !== "ready" && event.thread?.busy) markAwake(qc, agent.id);
+    void qc.invalidateQueries({ queryKey: agentQuery(agent.id).queryKey });
   });
   const props = { agent, abilities };
   return (
