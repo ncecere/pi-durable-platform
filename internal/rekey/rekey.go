@@ -15,7 +15,7 @@
 //     anything is written.
 //  2. Re-seal, unless it is a dry run: each batch is one transaction that
 //     opens, re-seals and writes its values back. A write is a
-//     compare-and-swap on the old ciphertext (UPDATE ... WHERE id = $1 AND
+//     compare-and-swap on the old ciphertext (UPDATE ... WHERE key = $1 AND
 //     col = $old), so a row that someone saved in the meantime (always under
 //     the current key, which is what the platform seals with) is left as
 //     they wrote it and counted as changed during the run. No row is locked
@@ -67,17 +67,28 @@ var afterBatchRead func(column string)
 type column struct {
 	table, name string
 	ad          func(id uuid.UUID) []byte
+	// key is the table's uuid primary key, "id" when empty.
+	key string
+}
+
+func (c column) pk() string {
+	if c.key == "" {
+		return "id"
+	}
+	return c.key
 }
 
 func (c column) label() string { return c.table + "." + c.name }
 
 var columns = []column{
-	{"agents", "db_password_enc", func(id uuid.UUID) []byte { return []byte(id.String()) }},
-	{"agents", "runtime_token_enc", func(id uuid.UUID) []byte { return []byte(id.String()) }},
-	{"model_providers", "api_key_enc", func(id uuid.UUID) []byte { return []byte("model_provider:" + id.String()) }},
-	{"model_providers", "headers_enc", func(id uuid.UUID) []byte { return []byte("model_provider:" + id.String()) }},
-	{"mcp_servers", "headers_enc", func(id uuid.UUID) []byte { return []byte("mcp_server:" + id.String()) }},
-	{"thread_mcp_servers", "headers_enc", func(id uuid.UUID) []byte { return []byte("thread_mcp_server:" + id.String()) }},
+	{table: "agents", name: "db_password_enc", ad: func(id uuid.UUID) []byte { return []byte(id.String()) }},
+	{table: "agents", name: "runtime_token_enc", ad: func(id uuid.UUID) []byte { return []byte(id.String()) }},
+	{table: "model_providers", name: "api_key_enc", ad: func(id uuid.UUID) []byte { return []byte("model_provider:" + id.String()) }},
+	{table: "model_providers", name: "headers_enc", ad: func(id uuid.UUID) []byte { return []byte("model_provider:" + id.String()) }},
+	{table: "mcp_servers", name: "headers_enc", ad: func(id uuid.UUID) []byte { return []byte("mcp_server:" + id.String()) }},
+	{table: "thread_mcp_servers", name: "headers_enc", ad: func(id uuid.UUID) []byte { return []byte("thread_mcp_server:" + id.String()) }},
+	// The refresh token of a person's last sign-in (group re-checks, internal/auth).
+	{table: "user_idp_tokens", name: "refresh_token_enc", key: "user_id", ad: func(id uuid.UUID) []byte { return []byte("idp_refresh_token:" + id.String()) }},
 }
 
 // ColumnResult is what is stored in one sealed column.
@@ -191,9 +202,9 @@ type sealedRow struct {
 // pending returns up to limit rows after the given id (by id) whose value is
 // not under the current key.
 func (c column) pending(ctx context.Context, db queryer, box *secrets.Box, after uuid.NullUUID, limit int) ([]sealedRow, error) {
-	rows, err := db.Query(ctx, fmt.Sprintf(`SELECT id, %[2]s FROM %[1]s
-		WHERE %[2]s IS NOT NULL AND substring(%[2]s FROM 1 FOR %[3]d) <> $1 AND ($2::uuid IS NULL OR id > $2)
-		ORDER BY id LIMIT $3`, c.table, c.name, secrets.PrefixLen), box.CurrentPrefix(), after, limit)
+	rows, err := db.Query(ctx, fmt.Sprintf(`SELECT %[4]s, %[2]s FROM %[1]s
+		WHERE %[2]s IS NOT NULL AND substring(%[2]s FROM 1 FOR %[3]d) <> $1 AND ($2::uuid IS NULL OR %[4]s > $2)
+		ORDER BY %[4]s LIMIT $3`, c.table, c.name, secrets.PrefixLen, c.pk()), box.CurrentPrefix(), after, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +277,7 @@ func (c column) reseal(ctx context.Context, pool *pgxpool.Pool, box *secrets.Box
 				if err != nil {
 					return err
 				}
-				tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s SET %[2]s = $1 WHERE id = $2 AND %[2]s = $3`, c.table, c.name),
+				tag, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s SET %[2]s = $1 WHERE %[3]s = $2 AND %[2]s = $3`, c.table, c.name, c.pk()),
 					sealed, row.id, row.ciphertext)
 				if err != nil {
 					return err
