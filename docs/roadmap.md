@@ -86,6 +86,8 @@ Rate limits, thread events and OAuth state are already shared through PostgreSQL
 - Make wake-up single-flight across replicas (an advisory lock per agent around launch).
 - An integration test with two platform processes against one database; a PodDisruptionBudget and `replicas: 2` in the chart.
 
+Design: [docs/replicas.md](replicas.md). Chosen: the runtime reports its open streams and the reaper (one replica at a time, by advisory lock) believes the runtime, so replicas keep no activity of their own.
+
 **Done when:** Two replicas behind one Service pass the acceptance suite, and an agent with an open stream on either replica is never hibernated.
 
 ### C. Metrics and tracing: a Prometheus endpoint, dashboards and OpenTelemetry traces (M, [#3](https://github.com/ncecere/pi-durable-platform/issues/3))

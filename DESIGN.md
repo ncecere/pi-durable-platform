@@ -34,6 +34,7 @@ Later: teams build and upload their own agents (self-service). That requires str
 | 11 | **Agents belong to teams** (a personal workspace is a team of kind `personal`). The console is for service owners and platform admins; end users use the teams' apps. | Ownership, data and cost follow the team. |
 | 12 | **Service-managed agents** (created by a service account with its own key) hold the app's users' conversations: only the team's service accounts use them; owners and admins see and delete them, never read them. | End users' chats aren't readable by every team member. The only other access is a platform admin's reasoned, audited read (Threads). |
 | 13 | **Templates are the governance unit**: platform-curated catalog templates and team templates, versioned, agents pinned to a version, team templates published to the catalog with platform-admin approval. Org-wide agents are per-person instances of a template, not one shared agent. | One agent shares one store: shared agents would mix teams' data. |
+| 14 | **Platform replicas keep nothing another replica could contradict**: shared state is in PostgreSQL, an agent's activity is the runtime's own report (`/status`: work, open streams, last activity), starting an agent is serialised by a database lock, and one replica at a time reaps. See [Several replicas](#several-replicas) and [docs/replicas.md](docs/replicas.md). | Any number of replicas behind one Service, with no leader, sticky sessions or shared disk; a replica that has not seen an agent cannot hibernate it. |
 
 ## Architecture
 
@@ -434,7 +435,7 @@ alone. Roles made before the comment existed carry no mark and are still conside
 
 | `AGENTS_LAUNCHER` | Runtime per active agent | Hibernate | Wake |
 | --- | --- | --- | --- |
-| `local` | a child process of the platform (development only) | stop the process | start it |
+| `local` | a child process of the platform (development only; one platform process) | stop the process | start it |
 | `kubernetes` | a pod `agent-<id>`, secrets in a Secret of the same name | delete the pod | create it |
 | `agent-sandbox` | a [Sandbox](https://agent-sandbox.sigs.k8s.io) `agent-<id>` around the same pod | `operatingMode: Suspended` | `Running` |
 | `agent-sandbox` + `AGENTS_SANDBOX_WARM_POOL` | a standby runtime claimed from a `SandboxWarmPool` (claim `agent-<id>`) | release the claim | claim + activate |
@@ -497,7 +498,29 @@ launchers above:
   Kubernetes API (an address list for standard policies, the `kube-apiserver` entity for Cilium) and public HTTPS. The
   policies need a CNI that enforces them; `deploy/scripts/smoke-kind.sh` (run in CI) checks the rules on kind.
 - **Pod Security `restricted`** for the agents namespace; the platform pod meets it too.
-- One platform replica (above, and roadmap item B); the chart's schema refuses more.
+- **Several platform replicas** are supported (`replicaCount: 2` is the tested setup; see below), with the `kubernetes` or
+  `agent-sandbox` launcher.
+
+## Several replicas
+
+The platform runs as any number of replicas behind one Service ([docs/replicas.md](docs/replicas.md) is the design note,
+with the inventory of what each replica keeps). In short:
+
+- Sessions, sign-in state, OAuth Connect state, rate limits, the thread record and its change notifications
+  (`LISTEN/NOTIFY`, heard by every replica) are in PostgreSQL. The clean-up loops delete idempotently and the group
+  re-check claims people with `SKIP LOCKED`, so every replica runs them.
+- **The runtime is the authority on whether an agent is idle.** `/status` reports `busyThreads`, `openStreams` and
+  `lastActivityAt`; the reaper hibernates an agent only when all three say idle for `AGENTS_IDLE_TIMEOUT`. Any replica's
+  requests and streams count, because they all go through the runtime. One replica at a time reaps (a PostgreSQL
+  advisory lock per pass), to avoid duplicate status calls; correctness does not depend on it. An agent whose runtime
+  predates `openStreams` is judged by its own replica's streams until it restarts.
+- **Waking is serialised by a lock per agent.** A running agent costs one `Launcher.Lookup`; starting one takes an
+  advisory lock (`pdp.agent-wake:<id>`) and calls `Ensure`, which re-checks under the lock, so two replicas waking an
+  agent start one runtime.
+- Launchers: `kubernetes` and `agent-sandbox` share their state through the Kubernetes API. `local` is one process.
+- Not shared, and fine: caches with a TTL (OIDC discovery, OAuth client metadata documents and logos, team connections).
+  A consent page's logo is a second request that may reach a replica that has not cached the app's document, and then
+  shows the app's initials.
 
 ## Verified so far
 
@@ -514,8 +537,8 @@ launchers above:
 
 ## Known limits and open items
 
-The [v0.1.0 release notes](docs/releases/v0.1.0.md#known-limitations) list the product limits (one replica, no budget
-enforcement, text-only messages, no paging, …). The design-level ones:
+The [v0.1.0 release notes](docs/releases/v0.1.0.md#known-limitations) list the product limits as of v0.1.0 (no budget
+enforcement, text-only messages, no paging, …; several replicas are supported since v0.2, see above). The design-level ones:
 
 - Agent roles still share the server's connection and CPU capacity (no per-role quotas), and any role can see that
   other roles' sessions exist. Cross-agent ownership interference is closed (see Agent storage and ownership), but
