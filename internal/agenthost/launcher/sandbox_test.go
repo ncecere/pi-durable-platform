@@ -218,6 +218,9 @@ func TestAgentSandboxWarmPool(t *testing.T) {
 	ctx := context.Background()
 	spec := testSpec()
 
+	if _, ok, err := s.Lookup(ctx, spec); ok || err != nil {
+		t.Fatalf("Lookup before the agent runs = %v %v", ok, err)
+	}
 	ep, err := s.Ensure(ctx, spec)
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
@@ -257,6 +260,10 @@ func TestAgentSandboxWarmPool(t *testing.T) {
 	if r := s.Running(); r["A1b2"].BaseURL != ep.BaseURL {
 		t.Fatalf("Running = %v", r)
 	}
+	// Lookup is the fast path: the running agent's endpoint, its runtime activated again (idempotent).
+	if got, ok, err := s.Lookup(ctx, spec); !ok || err != nil || got != ep {
+		t.Fatalf("Lookup = %+v %v %v, want %+v", got, ok, err, ep)
+	}
 	// Waking again re-activates idempotently (the runtime may have restarted).
 	if _, err := s.Ensure(ctx, spec); err != nil {
 		t.Fatalf("second Ensure: %v", err)
@@ -267,6 +274,9 @@ func TestAgentSandboxWarmPool(t *testing.T) {
 	}
 	if api.has("sandboxclaims/agent-a1b2") {
 		t.Fatal("Stop did not release the claim")
+	}
+	if _, ok, err := s.Lookup(ctx, spec); ok || err != nil {
+		t.Fatalf("Lookup after Stop = %v %v", ok, err)
 	}
 	if len(s.Running()) != 0 {
 		t.Fatal("still running after Stop")
@@ -326,12 +336,18 @@ func TestAgentSandboxPerAgent(t *testing.T) {
 	ctx := context.Background()
 	spec := testSpec()
 
+	if _, ok, err := s.Lookup(ctx, spec); ok || err != nil {
+		t.Fatalf("Lookup before the agent runs = %v %v", ok, err)
+	}
 	ep, err := s.Ensure(ctx, spec)
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
 	if ep.BaseURL != "http://127.0.0.1:4100" || ep.Token != spec.Token {
 		t.Fatalf("endpoint = %+v", ep)
+	}
+	if got, ok, err := s.Lookup(ctx, spec); !ok || err != nil || got != ep {
+		t.Fatalf("Lookup = %+v %v %v, want %+v", got, ok, err, ep)
 	}
 	secret := api.get("secrets/agent-a1b2")
 	if secret == nil || secret["stringData"].(map[string]any)["AGENT_DATABASE_URL"] != spec.DatabaseURL {
@@ -367,6 +383,9 @@ func TestAgentSandboxPerAgent(t *testing.T) {
 	if len(s.Running()) != 0 {
 		t.Fatal("suspended sandbox listed as running")
 	}
+	if _, ok, err := s.Lookup(ctx, spec); ok || err != nil {
+		t.Fatalf("Lookup of a suspended sandbox = %v %v", ok, err)
+	}
 
 	// Waking resumes the same Sandbox.
 	if _, err := s.Ensure(ctx, spec); err != nil {
@@ -399,4 +418,38 @@ func mustJSON(t *testing.T, v any) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// Lookup on the Kubernetes backend is one read of the pod: a ready pod's
+// endpoint, and not running for a missing, unready or terminating pod.
+func TestKubernetesLookup(t *testing.T) {
+	s, api := newTestSandbox(t, "", nil)
+	k := s.Kubernetes
+	ctx := context.Background()
+	spec := testSpec()
+	pod := func(ready string, deleting bool) map[string]any {
+		meta := map[string]any{"labels": map[string]any{agentLabel: spec.AgentID}}
+		if deleting {
+			meta["deletionTimestamp"] = "2026-01-01T00:00:00Z"
+		}
+		return map[string]any{"metadata": meta, "status": map[string]any{
+			"phase": "Running", "podIP": "10.1.2.3", "conditions": []map[string]string{{"type": "Ready", "status": ready}}}}
+	}
+	check := func(what string, want bool) {
+		t.Helper()
+		ep, ok, err := k.Lookup(ctx, spec)
+		if err != nil || ok != want {
+			t.Fatalf("%s: Lookup = %+v %v %v, want running %v", what, ep, ok, err, want)
+		}
+		if ok && (ep.BaseURL != "http://10.1.2.3:4100" || ep.Token != spec.Token) {
+			t.Fatalf("%s: endpoint = %+v", what, ep)
+		}
+	}
+	check("no pod", false)
+	api.objects["pods/agent-a1b2"] = pod("False", false)
+	check("a pod not ready", false)
+	api.objects["pods/agent-a1b2"] = pod("True", false)
+	check("a ready pod", true)
+	api.objects["pods/agent-a1b2"] = pod("True", true)
+	check("a terminating pod", false)
 }
