@@ -8,7 +8,7 @@
 --     reference is enforced from now on. Deleting a thread (or its agent)
 --     deletes its servers. Releases before this one could set servers on an
 --     unrecorded thread; their requests fail against the reference during a
---     rolling upgrade (the platform runs one replica).
+--     rolling upgrade (until every replica runs this release).
 --   * agent_threads.reserved: the platform created the record (a thread
 --     created with POST .../threads, or started by setting its MCP servers)
 --     and no message has been accepted yet. Reserved threads are listed only

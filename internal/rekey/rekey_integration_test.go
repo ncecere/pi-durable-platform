@@ -38,6 +38,9 @@ func box(t testing.TB, current []byte, previous ...[]byte) *secrets.Box {
 	return b
 }
 
+// sealedValues is how many sealed values seed() stores.
+const sealedValues = 13
+
 // value is one sealed value the fixture stored.
 type value struct {
 	table, column string
@@ -91,6 +94,14 @@ func seed(t testing.TB, pool *pgxpool.Pool, sealer *secrets.Box) *fixture {
 			thread, id, f.seal(t, "thread_mcp_servers", "headers_enc", thread, "thread_mcp_server:"+thread.String(), fmt.Sprintf(`{"Authorization":"Bearer thread-%d"}`, i)))
 	}
 	for i := range 2 {
+		// A person's stored IdP refresh token (group re-checks), keyed by the user.
+		user := uuid.New()
+		f.exec(t, `INSERT INTO users (id, oidc_issuer, oidc_subject, email) VALUES ($1, 'https://idp.example.com', $2, $3)`,
+			user, fmt.Sprintf("subject-%d", i), fmt.Sprintf("person%d@example.com", i))
+		f.exec(t, `INSERT INTO user_idp_tokens (user_id, refresh_token_enc) VALUES ($1, $2)`,
+			user, f.seal(t, "user_idp_tokens", "refresh_token_enc", user, "idp_refresh_token:"+user.String(), fmt.Sprintf("refresh-%d", i)))
+	}
+	for i := range 2 {
 		id := uuid.New()
 		var headers any // the second provider has none
 		if i == 0 {
@@ -112,7 +123,11 @@ func seed(t testing.TB, pool *pgxpool.Pool, sealer *secrets.Box) *fixture {
 func (f *fixture) stored(t testing.TB, v value) []byte {
 	t.Helper()
 	var ct []byte
-	err := f.pool.QueryRow(context.Background(), fmt.Sprintf(`SELECT %s FROM %s WHERE id = $1`, v.column, v.table), v.id).Scan(&ct)
+	key := "id"
+	if v.table == "user_idp_tokens" {
+		key = "user_id"
+	}
+	err := f.pool.QueryRow(context.Background(), fmt.Sprintf(`SELECT %s FROM %s WHERE %s = $1`, v.column, v.table, key), v.id).Scan(&ct)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +192,7 @@ func TestRekeyMovesEverythingToTheCurrentKey(t *testing.T) {
 	ctx := context.Background()
 	keyA, keyB := key(t), key(t)
 	f := seed(t, pool, box(t, keyA))
-	if len(f.values) != 11 {
+	if len(f.values) != sealedValues {
 		t.Fatalf("fixture holds %d values", len(f.values))
 	}
 	rotated := box(t, keyB, keyA)
@@ -192,7 +207,7 @@ func TestRekeyMovesEverythingToTheCurrentKey(t *testing.T) {
 	for _, c := range counts {
 		cur, prev, bad = cur+c.Current, prev+c.Previous, bad+c.Unreadable
 	}
-	if cur != 0 || prev != 11 || bad != 0 {
+	if cur != 0 || prev != sealedValues || bad != 0 {
 		t.Fatalf("count = %d current, %d previous, %d unreadable", cur, prev, bad)
 	}
 
@@ -202,7 +217,7 @@ func TestRekeyMovesEverythingToTheCurrentKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c, p, u, r, _ := res.Totals(); c != 0 || p != 11 || u != 0 || r != 0 || !res.DryRun {
+	if c, p, u, r, _ := res.Totals(); c != 0 || p != sealedValues || u != 0 || r != 0 || !res.DryRun {
 		t.Errorf("dry run = %+v", res)
 	}
 	if !equalSnapshots(before, f.snapshot(t)) || len(f.audits(t)) != 0 {
@@ -221,7 +236,7 @@ func TestRekeyMovesEverythingToTheCurrentKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c, p, u, r, ch := res.Totals(); c != 0 || p != 11 || u != 0 || r != 11 || ch != 0 {
+	if c, p, u, r, ch := res.Totals(); c != 0 || p != sealedValues || u != 0 || r != sealedValues || ch != 0 {
 		t.Errorf("run = current %d previous %d unreadable %d resealed %d changed %d", c, p, u, r, ch)
 	}
 	f.assertOpensWith(t, box(t, keyB), secrets.SlotCurrent) // the previous key is no longer needed
@@ -237,7 +252,7 @@ func TestRekeyMovesEverythingToTheCurrentKey(t *testing.T) {
 
 	// One audit entry for the run, with counts and no values.
 	audits := f.audits(t)
-	if len(audits) != 1 || !strings.Contains(audits[0], `"resealed": 11`) || !strings.Contains(audits[0], `"complete": true`) {
+	if len(audits) != 1 || !strings.Contains(audits[0], `"resealed": 13`) || !strings.Contains(audits[0], `"complete": true`) {
 		t.Fatalf("audit entries = %v", audits)
 	}
 	for _, v := range f.values {
@@ -252,7 +267,7 @@ func TestRekeyMovesEverythingToTheCurrentKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c, p, _, r, _ := res.Totals(); c != 11 || p != 0 || r != 0 {
+	if c, p, _, r, _ := res.Totals(); c != sealedValues || p != 0 || r != 0 {
 		t.Errorf("second run = %+v", res)
 	}
 	if !equalSnapshots(after, f.snapshot(t)) {
@@ -378,8 +393,8 @@ func TestRekeyDoesNotLoseAConcurrentSave(t *testing.T) {
 	if !saved {
 		t.Fatal("the hook never ran")
 	}
-	if _, _, _, resealed, changed := res.Totals(); changed != 1 || resealed != 10 {
-		t.Errorf("resealed %d, changed %d; want 10, 1", resealed, changed)
+	if _, _, _, resealed, changed := res.Totals(); changed != 1 || resealed != sealedValues-1 {
+		t.Errorf("resealed %d, changed %d; want %d, 1", resealed, changed, sealedValues-1)
 	}
 	plain, err := box(t, keyB).Open(f.stored(t, target), target.ad)
 	if err != nil || string(plain) != "sk-saved-meanwhile" {
@@ -460,7 +475,7 @@ func TestRekeyResumesAfterAnInterrupt(t *testing.T) {
 		t.Fatal("the interrupted run reported success")
 	}
 	_, _, _, first, _ := res.Totals()
-	if first == 0 || first >= 11 {
+	if first == 0 || first >= sealedValues {
 		t.Fatalf("re-sealed %d before the interrupt", first)
 	}
 	// Whatever state it stopped in, every value opens with the two keys.
@@ -474,8 +489,8 @@ func TestRekeyResumesAfterAnInterrupt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, second, _ := res.Totals(); first+second != 11 {
-		t.Errorf("re-sealed %d + %d, want 11", first, second)
+	if _, _, _, second, _ := res.Totals(); first+second != sealedValues {
+		t.Errorf("re-sealed %d + %d, want %d", first, second, sealedValues)
 	}
 	f.assertOpensWith(t, box(t, keyB), secrets.SlotCurrent)
 	audits := f.audits(t)
@@ -497,9 +512,10 @@ func TestRekeyBatchBounds(t *testing.T) {
 // services keep theirs unexported, so this reads their sources.
 func TestAssociatedDataMatchesTheServices(t *testing.T) {
 	for file, snippets := range map[string][]string{
-		"../llm/service.go":   {`[]byte("model_provider:" + id.String())`},
-		"../mcp/service.go":   {`[]byte("mcp_server:" + id.String())`, `[]byte("thread_mcp_server:" + id.String())`},
-		"../agents/agents.go": {`ad := []byte(p.ID.String())`, `[]byte(ag.ID.String())`},
+		"../llm/service.go":       {`[]byte("model_provider:" + id.String())`},
+		"../mcp/service.go":       {`[]byte("mcp_server:" + id.String())`, `[]byte("thread_mcp_server:" + id.String())`},
+		"../agents/agents.go":     {`ad := []byte(p.ID.String())`, `[]byte(ag.ID.String())`},
+		"../auth/grouprecheck.go": {`[]byte("idp_refresh_token:" + userID.String())`},
 	} {
 		src, err := os.ReadFile(file)
 		if err != nil {
@@ -510,5 +526,42 @@ func TestAssociatedDataMatchesTheServices(t *testing.T) {
 				t.Errorf("%s no longer contains %s: update the associated data in internal/rekey", file, s)
 			}
 		}
+	}
+}
+
+// Every column the schema names *_enc holds sealed values: a new one must be added to the columns a run re-seals, or
+// dropping the previous key would leave its values unreadable.
+func TestEverySealedColumnIsRekeyed(t *testing.T) {
+	pool, _ := testutil.NewDB(t)
+	rows, err := pool.Query(context.Background(), `SELECT table_name || '.' || column_name FROM information_schema.columns
+		WHERE table_schema = current_schema() AND column_name LIKE '%\_enc' ESCAPE '\' ORDER BY 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	covered := map[string]bool{}
+	for _, c := range rekey.SealedColumns() {
+		covered[c] = true
+	}
+	n := 0
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			t.Fatal(err)
+		}
+		n++
+		if !covered[c] {
+			t.Errorf("%s looks sealed (*_enc) but internal/rekey does not re-seal it", c)
+		}
+		delete(covered, c)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	for c := range covered {
+		t.Errorf("internal/rekey re-seals %s, which the schema does not have", c)
+	}
+	if n == 0 {
+		t.Fatal("found no *_enc columns: the query is wrong")
 	}
 }
