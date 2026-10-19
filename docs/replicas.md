@@ -67,6 +67,11 @@ with its holder. A running agent costs no lock.
 The launchers' own safeguards stay: the agent's storage ownership record refuses a second runtime for one agent, whatever
 starts it.
 
+These locks (the wake locks, the reaper's, the migration lock) are in the platform database, and advisory locks are per
+database, so they are out of an agent's reach exactly when its role cannot connect to that database. PostgreSQL lets PUBLIC
+connect by default: revoke it (`REVOKE CONNECT ON DATABASE <platform database> FROM PUBLIC`, then grant it to the platform's
+role); `doctor` warns until that is done. See "Where an agent's role can connect" in [DESIGN.md](../DESIGN.md).
+
 ## Deployment
 
 `replicaCount` may be greater than 1 (the schema no longer refuses it; the default stays 1). With more than one replica:

@@ -11,7 +11,10 @@ Requires Kubernetes 1.27 or newer, Helm 3 or 4, and a CNI that enforces NetworkP
 
 1. **PostgreSQL 17** with a platform database and an agents database (whose role has `CREATEROLE` and `CREATE` on it).
    [`deploy/examples/cloudnative-pg`](../../examples/cloudnative-pg) is a CloudNativePG `Cluster` named `pdp-db` and its
-   policies; any PostgreSQL 17 works.
+   policies; any PostgreSQL 17 works. Whatever you use, revoke PUBLIC's `CONNECT` on the platform database
+   (`REVOKE CONNECT ON DATABASE pdp FROM PUBLIC; GRANT CONNECT ON DATABASE pdp TO pdp;`), so agents' roles can't open it
+   and hold its advisory locks; the example does, and `doctor` warns until it is done
+   (see [`deploy/README.md`](../../README.md#before-you-install)).
 
 2. **The platform's namespace and Secret.** The chart creates the agents namespace, not this one:
 

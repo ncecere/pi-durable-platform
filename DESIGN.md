@@ -406,6 +406,42 @@ What is left: any role can see which sessions of other roles exist (`pg_stat_act
 and agents share the server's connection and CPU capacity, so a hostile agent can still be a noisy neighbour. Per-role
 quotas are the database's, not this design's. An agent's own role can of course tamper with its own record and data.
 
+**Where an agent's role can connect: the trust boundary.** An agent's role is a login role of the PostgreSQL *server*, and
+the runtime that holds its password runs code the platform does not trust. Schema privileges keep it inside its own
+schema of the agents database, but PostgreSQL grants PUBLIC the `CONNECT` privilege on every database it creates, so unless
+that is revoked the role can also open the platform's own database and any other database on the server. Three things
+there are not protected by table privileges:
+
+- *Advisory locks* are per database, and the platform's live in the platform database: the wake lock for each agent
+  (`pdp.agent-wake:<agent id>`), the reaper's (`pdp.agent-reaper`) and the migration lock. Any role may take any advisory
+  lock key, so a role that can connect there could hold them: no agent would wake, no replica would reap, a starting pod
+  would wait on the migration lock. A role that cannot connect to the platform database cannot take any of them.
+- *LISTEN/NOTIFY* is per database too and `NOTIFY` needs no privilege, so such a role could send notices on `pdp_threads`.
+  The platform re-reads the thread from its table for every notice (the payload only names an agent and a thread), so a
+  forged notice causes a refresh, or a "deleted" event for a thread that does not exist, and wasted reads; nothing is taken
+  from the payload as fact. Closing `CONNECT` closes this too.
+- Anything else in those databases that PUBLIC may read or use.
+
+So the platform keeps its locks in its own database, which is sound **once agent roles cannot connect to it**; this
+is an operator step, not a migration, because other roles may depend on PUBLIC's `CONNECT`:
+
+```sql
+REVOKE CONNECT ON DATABASE <platform database> FROM PUBLIC;
+GRANT CONNECT ON DATABASE <platform database> TO <the platform's role>;  -- and any other role that uses it
+```
+
+Other databases on the server need the same `REVOKE`, or `pg_hba.conf` rules that let agent roles (named
+`agent_<uuid without dashes>`; PostgreSQL 16 reads `/^agent_` as a regular expression) reach the agents database only.
+`pi-durable-platform doctor` warns, never fails, while PUBLIC may connect to the platform database (`postgres public-connect`,
+read from `datacl` with the statements above filled in) and lists the other databases of the agents database's server
+that PUBLIC may connect to (`agents public-connect`). It only compares the two servers by their start time, so an agents
+database on another server is reported as out of reach. The CloudNativePG example under `deploy/examples/cloudnative-pg`
+does both steps.
+
+The agents database itself cannot be closed to agent roles, so nothing the platform needs in it depends on a lock an agent
+could hold: the one advisory lock taken there (`pdp.prepare-agents-database`, which serialises replicas' `Prepare`) is only an
+optimisation, and `Prepare` goes on without it after 20 seconds (`TestAnAgentHoldingThePrepareLockDoesNotBlockPrepare`).
+
 **Upgrading agents made by v0.1.x, and rolling upgrades.** There is nothing to migrate in the platform database or by the
 provisioner. The runtime creates the table with the agent's own role (`CREATE TABLE IF NOT EXISTS`, retried if two
 processes of one agent race) the first time a new runtime starts that agent: agents upgrade as they next wake, with no
