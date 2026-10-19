@@ -104,7 +104,7 @@ The database is yours.
 | `appUrl` | required: the public origin |
 | `images.{platform,runtime}.{tag,digest}` | default tag `v<appVersion>`; pin by digest |
 | `secrets.name` and per-setting `{name, key}` | where the database URLs, `ENCRYPTION_KEY`, `API_KEY_PEPPER` and the OIDC secret are read |
-| `oidc.*` | issuer, client ID, claims, `allowedGroups`, `allowedEmailDomains`, `bootstrapAdminSubject` |
+| `oidc.*` | issuer, client ID, claims, `allowedGroups`, `allowedEmailDomains`, `bootstrapAdminSubject`; `groupRecheckInterval` and `groupRecheckGrace` (strings; with `allowedGroups` the chart adds the `offline_access` scope, and the identity provider must issue refresh tokens for it) |
 | `agents.*` | namespace, launcher, idle timeout, runtime class, pull Secret, default model, MCP hosts, quota |
 | `agentSandbox.*` | warm pool size, names, runtime resources |
 | `ingress.*` | class, host (default: `appUrl`'s), path, TLS, annotations |

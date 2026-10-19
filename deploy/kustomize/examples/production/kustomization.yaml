@@ -44,6 +44,9 @@ patches:
         OIDC_ISSUER: https://idp.example.org/application/o/pi-durable-platform/
         OIDC_CLIENT_ID: pi-durable-platform
         OIDC_ALLOWED_GROUPS: pi-durable-users,pi-durable-admins
+        # Group membership is re-checked with the refresh token of each sign-in, which needs offline_access
+        # (the identity provider must issue refresh tokens for it). The Helm chart adds it for you.
+        OIDC_SCOPES: openid,profile,email,offline_access
         BOOTSTRAP_ADMIN_SUBJECT: admin-subject
         TRUSTED_PROXIES: 10.244.0.0/16
         AGENTS_CLIENT_MCP_HOSTS: "*.example.org"

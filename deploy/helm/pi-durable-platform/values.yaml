@@ -98,6 +98,17 @@ oidc:
   # Only people in one of these IdP groups may sign in (the bootstrap admin
   # always may). Empty: no group is required.
   allowedGroups: []
+  # With allowedGroups, the platform asks the identity provider every
+  # groupRecheckInterval (default 15m; the string "0" turns it off) whether the person is
+  # still in an allowed group, and ends their access when not. That needs the
+  # refresh token of their sign-in, so the chart adds the offline_access scope
+  # when allowedGroups is set and the re-check is not off; the provider must
+  # issue refresh tokens for it (in Authentik, the scope mapping for
+  # offline_access on the provider). If the provider can't be asked, access
+  # lasts for groupRecheckGrace (default 24h) after its last confirmation.
+  # Empty: the platform's defaults.
+  groupRecheckInterval: ""
+  groupRecheckGrace: ""
   # The OIDC subject made platform admin on its first sign-in.
   bootstrapAdminSubject: ""
 
@@ -207,7 +218,12 @@ securityContext:
   capabilities:
     drop: [ALL]
 
-terminationGracePeriodSeconds: 30
+# The platform fails readiness for SHUTDOWN_DELAY (5s), then gives requests
+# and event streams SHUTDOWN_TIMEOUT (60s) to finish. The pod needs at least
+# the two together, or a rollout kills it in the middle (a rolling update of
+# several replicas drops the streams that are still open). If you raise either
+# setting under `config`, raise this too.
+terminationGracePeriodSeconds: 75
 
 # Off by default: with one replica a budget of minAvailable 1 blocks node drains.
 # With replicaCount 2 or more, turn it on (minAvailable 1: a drain evicts one
