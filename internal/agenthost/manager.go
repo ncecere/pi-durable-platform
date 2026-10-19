@@ -293,7 +293,9 @@ func (m *Manager) ReapOnce(ctx context.Context) {
 	if m.locker != nil {
 		release, ok, err := m.locker.TryLock(ctx, reapLockKey)
 		if err != nil {
-			m.log.Warn("reaper: take the lock", "err", err)
+			if ctx.Err() == nil {
+				m.log.Warn("reaper: take the lock", "err", err)
+			}
 			return
 		}
 		if !ok {
