@@ -140,6 +140,18 @@ func (k *Kubernetes) Ensure(ctx context.Context, spec Spec) (Endpoint, error) {
 	return k.waitReady(ctx, name, spec.Token)
 }
 
+func (k *Kubernetes) Lookup(ctx context.Context, spec Spec) (Endpoint, bool, error) {
+	p, err := k.getPod(ctx, podName(spec.AgentID))
+	if err != nil || p == nil || p.deleting() {
+		return Endpoint{}, false, err
+	}
+	ip, ok := p.ready()
+	if !ok {
+		return Endpoint{}, false, nil
+	}
+	return Endpoint{BaseURL: k.runtimeURL(ip), Token: spec.Token}, true, nil
+}
+
 func (k *Kubernetes) Stop(ctx context.Context, agentID string) error {
 	name := podName(agentID)
 	err := k.do(ctx, http.MethodDelete, k.path("pods", name), map[string]any{"gracePeriodSeconds": 30}, nil)

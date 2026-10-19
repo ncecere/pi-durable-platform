@@ -19,6 +19,9 @@ type fixedLauncher struct{ ep launcher.Endpoint }
 func (f fixedLauncher) Ensure(context.Context, launcher.Spec) (launcher.Endpoint, error) {
 	return f.ep, nil
 }
+func (f fixedLauncher) Lookup(context.Context, launcher.Spec) (launcher.Endpoint, bool, error) {
+	return f.ep, true, nil
+}
 func (f fixedLauncher) Stop(context.Context, string) error    { return nil }
 func (f fixedLauncher) Running() map[string]launcher.Endpoint { return nil }
 func (f fixedLauncher) Remove(context.Context, string) error  { return nil }
