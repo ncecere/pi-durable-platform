@@ -57,7 +57,7 @@ const (
 )
 
 // afterBatchRead is a test hook: called in a batch's transaction after its
-// rows of a column ("table.column") were read and before they are re-sealed,
+// rows of a column (table.column) were read and before they are re-sealed,
 // where a concurrent save or an interrupt is injected.
 var afterBatchRead func(column string)
 
@@ -95,7 +95,7 @@ type ColumnResult struct {
 	Resealed, Changed int
 }
 
-// Label is "table.column".
+// Label is table.column.
 func (r ColumnResult) Label() string { return r.Table + "." + r.Column }
 
 // Result is the outcome of a run, one entry per sealed column.
