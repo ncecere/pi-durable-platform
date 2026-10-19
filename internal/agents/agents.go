@@ -880,6 +880,12 @@ func (s *Service) AuthenticateMCP(ctx context.Context, agentID uuid.UUID, token 
 // Another person's private thread is not found, and a visibility that
 // differs from an existing thread's is refused (visibility_fixed). An empty
 // list on an unknown thread starts nothing.
+//
+// A reserved thread (no message yet) is its creator's: servers can't be set on
+// it by anyone else (not found, as for a private thread), or they would become
+// active for the creator's first message without the creator knowing. And the
+// first message from someone other than the creator drops the servers the
+// creator set (takeOverReserved).
 func (s *Service) SetThreadMCP(ctx context.Context, a authz.Actor, agentID uuid.UUID, threadID, visibility string, servers []mcp.ClientServer) error {
 	ag, err := s.load(ctx, s.q, agentID)
 	if err != nil {
@@ -904,14 +910,21 @@ func (s *Service) SetThreadMCP(ctx context.Context, a authz.Actor, agentID uuid.
 		return err
 	}
 	if len(servers) == 0 {
-		if err := s.ThreadAccess(ctx, a, agentID, threadID); err != nil {
+		t, found, err := s.thread(ctx, s.q, a, agentID, threadID)
+		if err != nil {
 			return err
+		}
+		if found && t.Reserved && !owns(a, t) {
+			return errThreadNotFound
 		}
 		return s.mcp.SetThreadServers(ctx, agentID, threadID, tv.ClientMcp, nil)
 	}
 	t, created, err := s.claim(ctx, a, agentID, threadID, visibility, DefaultTitle, true, time.Now())
 	if err != nil {
 		return err
+	}
+	if !created && t.Reserved && !owns(a, t) {
+		return errThreadNotFound
 	}
 	if err := s.mcp.SetThreadServers(ctx, agentID, threadID, tv.ClientMcp, servers); err != nil {
 		s.Unclaim(ctx, Claim{Thread: t, Created: created})

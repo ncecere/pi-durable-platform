@@ -1129,7 +1129,7 @@ type AgentMessageAccepted struct {
 	SubmissionId int64 `json:"submissionId"`
 }
 
-// AgentMessageCreate The platform records the thread (its creator and visibility) before relaying the first message. Another's private thread reads as not found (404 thread_not_found), on this and every thread route.
+// AgentMessageCreate The platform records the thread (its creator and visibility) before relaying the first message. Another's private thread reads as not found (404 thread_not_found), on this and every thread route. If the thread ID was reserved by someone else (they set its MCP servers before any message), this message still goes through, but the servers they set are dropped and not active for it; send `mcpServers` to give the thread your own.
 type AgentMessageCreate struct {
 	// McpServers The MCP servers this thread's user enabled in the app (replaces the thread's; [] removes them). For template versions with clientMcp, on hosts the platform allows. Never forwarded to the agent: the platform keeps them.
 	McpServers *[]ClientMcpServer `json:"mcpServers,omitempty"`

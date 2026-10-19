@@ -1347,7 +1347,7 @@ export interface paths {
         get: operations["getThreadMcpServers"];
         /**
          * Give the thread the MCP servers its user enabled in the app (replaces them; [] removes them)
-         * @description For template versions with clientMcp, on hosts the platform allows (AGENTS_CLIENT_MCP_HOSTS). Headers, such as the user's token, are stored encrypted until the server expires (default a day). The same list can be sent with a message as mcpServers. Servers belong to a thread whose creator is known: setting servers on a thread ID the platform has no record of starts the thread (the caller is its creator, with the `visibility` sent here, default shared), exactly as its first message would. A thread that exists must be one the caller may reach: another person's private thread is 404 thread_not_found, and a `visibility` that differs from the thread's is 409 visibility_fixed. The servers go with the thread when it is deleted. An empty list on an unknown thread changes nothing.
+         * @description For template versions with clientMcp, on hosts the platform allows (AGENTS_CLIENT_MCP_HOSTS). Headers, such as the user's token, are stored encrypted until the server expires (default a day). The same list can be sent with a message as mcpServers. Servers belong to a thread whose creator is known: setting servers on a thread ID the platform has no record of starts the thread (the caller is its creator, with the `visibility` sent here, default shared), exactly as its first message would. A thread that exists must be one the caller may reach: another person's private thread is 404 thread_not_found, and a `visibility` that differs from the thread's is 409 visibility_fixed. The servers go with the thread when it is deleted. An empty list on an unknown thread changes nothing. A thread nobody has sent to yet (reserved) is its creator's: anyone else setting or clearing its servers gets 404 thread_not_found, and the first message from someone other than the creator drops the servers the creator set (they are not active for that sender's turn) and ends the reservation.
          */
         put: operations["setThreadMcpServers"];
         post?: never;
@@ -2552,7 +2552,7 @@ export interface components {
             /** @description The thread now (absent when deleted) */
             thread?: components["schemas"]["AgentThread"] | null;
         };
-        /** @description The platform records the thread (its creator and visibility) before relaying the first message. Another's private thread reads as not found (404 thread_not_found), on this and every thread route. */
+        /** @description The platform records the thread (its creator and visibility) before relaying the first message. Another's private thread reads as not found (404 thread_not_found), on this and every thread route. If the thread ID was reserved by someone else (they set its MCP servers before any message), this message still goes through, but the servers they set are dropped and not active for it; send `mcpServers` to give the thread your own. */
         AgentMessageCreate: {
             text: string;
             /** @description Idempotency key; a repeated one is not submitted again */

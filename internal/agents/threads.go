@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/ncecere/pi-durable-platform/internal/agenthost/launcher"
 	"github.com/ncecere/pi-durable-platform/internal/apperr"
@@ -260,12 +261,66 @@ func (s *Service) ClaimThread(ctx context.Context, a authz.Actor, agentID uuid.U
 	if err != nil {
 		return Claim{}, err
 	}
+	if !c.Created && c.Thread.Reserved && !owns(a, c.Thread) {
+		if c.Thread, err = s.takeOverReserved(ctx, a, c.Thread, TitleFrom(text)); err != nil {
+			return Claim{}, err
+		}
+	}
 	if c.Author, err = s.author(ctx, a); err != nil {
 		s.Unclaim(ctx, c)
 		return Claim{}, err
 	}
 	c.AnnounceAuthor = c.Thread.Visibility == VisibilityShared && team.Kind == teams.KindTeam
 	return c, nil
+}
+
+// takeOverReserved handles the first message to a reserved thread that
+// someone other than its creator sends (a client-chosen ID the creator set MCP
+// servers on before anyone had sent). The servers the creator set were not the
+// sender's choice and the thread is hidden from them (reserved threads are
+// listed for their creator only), so they never become active for the
+// sender's turn: they are dropped, and the reservation ends, so the thread is
+// listed like any other. Both happen under a lock on the thread's record, so
+// a write of servers racing with it is either deleted here or made after, on a
+// thread that is no longer hidden. The message is not refused: the sender
+// joins the thread as for any shared thread (a private one was refused as not
+// found before this point).
+func (s *Service) takeOverReserved(ctx context.Context, a authz.Actor, t Thread, title string) (Thread, error) {
+	out := t
+	var dropped bool
+	err := store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {
+		cur, err := q.LockAgentThread(ctx, dbgen.LockAgentThreadParams{AgentID: t.AgentID, ThreadID: t.ThreadID})
+		if errors.Is(store.NotFound(err), store.ErrNotFound) {
+			return nil // deleted meanwhile: the message starts it as a shared placeholder, as before
+		} else if err != nil {
+			return err
+		}
+		out = cur
+		if !cur.Reserved || owns(a, cur) {
+			return nil
+		}
+		servers, err := q.ListThreadMCPServers(ctx, dbgen.ListThreadMCPServersParams{AgentID: t.AgentID, ThreadID: &t.ThreadID})
+		if err != nil {
+			return err
+		}
+		dropped = len(servers) > 0
+		if err := q.DeleteThreadMCPServers(ctx, dbgen.DeleteThreadMCPServersParams{AgentID: t.AgentID, ThreadID: t.ThreadID}); err != nil {
+			return err
+		}
+		out, err = q.EndThreadReservation(ctx, dbgen.EndThreadReservationParams{AgentID: t.AgentID, ThreadID: t.ThreadID, Title: title})
+		return err
+	})
+	if err != nil {
+		return t, err
+	}
+	if !out.Reserved && t.Reserved {
+		if dropped {
+			slog.Info("a reserved thread's first message came from someone else: the MCP servers set on it were dropped",
+				"agent", t.AgentID, "thread", t.ThreadID)
+		}
+		s.announce(ctx, out)
+	}
+	return out, nil
 }
 
 func checkVisibility(v string) error {

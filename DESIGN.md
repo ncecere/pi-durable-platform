@@ -331,6 +331,16 @@ on `GET /v1/agents/events`.
   and changing a thread's servers takes the same access as reading the thread: the creator for a private one, anyone
   who may use the agent for a shared one. An empty list on an unknown ID starts nothing; bad servers (host, template
   without `clientMcp`) start nothing.
+  *Reserved threads and other people's servers.* A thread whose servers were set but nobody has sent to yet is
+  reserved, hidden from everyone but its creator, so the servers on it are the creator's choice and nobody else knows
+  they are there. Two rules keep them from reaching someone else's turn. The first message from anyone other than the
+  creator (a client-chosen ID the creator guessed or learned) is accepted, but drops the creator's servers and ends
+  the reservation, in one transaction that holds the thread's row lock, so a concurrent write of servers is deleted
+  or lands on a thread that is no longer hidden; the sender's own `mcpServers` in that message apply. (Not chosen: a
+  409 for that message, which would break the documented use of a shared reserved thread by its ID.) And nobody but
+  the creator may set or clear servers on a reserved thread (404 `thread_not_found`): otherwise they would be active
+  for the creator's first message without the creator knowing. Once a thread has its first message it is an ordinary
+  shared thread, whose servers anyone who may use the agent can see and set.
   *Why claim rather than refuse.* Refusing servers for unrecorded threads (404) would break apps that set servers
   before the first message (the documented flow) and would need a second, identical step; claiming keeps that flow
   working and still binds the servers to a known creator. Platform-chosen IDs make the attack impossible rather
@@ -340,7 +350,8 @@ on `GET /v1/agents/events`.
   ID), titled "New chat" until its first message names it (a title given at creation stays), kept when the
   runtime lists the threads it has (it knows none of them), and deleted after 30 days without a message (with its
   servers; `agents.Cleanup`, which also prunes expired thread servers). The first accepted message ends the
-  reservation.
+  reservation (a first message from someone other than the creator ends it at once and drops the servers the creator
+  set).
 - **Shared or private.** The first message (or `POST …/threads`, or the servers `PUT`) chooses (`visibility`, default
   `shared`; it never changes: a different value later is 409 `visibility_fixed`). A shared thread is seen by everyone who may use the agent. A private one is
   listed and read only by the person or service account that started it: not other members, not the team's owners
@@ -710,4 +721,7 @@ enforcement, text-only messages, no paging, …; several replicas are supported 
 - Hostile-code isolation (gVisor/Kata on Talos) is required before self-service uploads.
 - Client-chosen thread IDs are guessable if the client picks guessable ones: whoever uses an ID first starts that
   thread (a shared one anyone allowed on the agent may join; a private one is 404 for everyone else). Use
-  `POST …/threads` or random IDs. (The v0.1.0 pre-seeding of thread MCP servers is closed: see Threads.)
+  `POST …/threads` or random IDs. (The v0.1.0 pre-seeding of thread MCP servers is closed: see Threads.) For the
+  same reason a 404 `thread_not_found` on a client-chosen ID tells the caller that the ID is someone's private
+  thread (every route does, since a free ID would have worked): that can't be hidden without refusing free IDs too,
+  and platform-chosen IDs (128 random bits) can't be probed that way.

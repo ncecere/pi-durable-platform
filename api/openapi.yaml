@@ -2959,7 +2959,9 @@ paths:
         default shared), exactly as its first message would. A thread that exists must be one the caller may reach:
         another person's private thread is 404 thread_not_found, and a `visibility` that differs from the thread's is
         409 visibility_fixed. The servers go with the thread when it is deleted. An empty list on an unknown thread
-        changes nothing.
+        changes nothing. A thread nobody has sent to yet (reserved) is its creator's: anyone else setting or clearing
+        its servers gets 404 thread_not_found, and the first message from someone other than the creator drops the
+        servers the creator set (they are not active for that sender's turn) and ends the reservation.
       requestBody:
         required: true
         content:
@@ -5509,7 +5511,9 @@ components:
       required: [text]
       description: >-
         The platform records the thread (its creator and visibility) before relaying the first message. Another's
-        private thread reads as not found (404 thread_not_found), on this and every thread route.
+        private thread reads as not found (404 thread_not_found), on this and every thread route. If the thread ID
+        was reserved by someone else (they set its MCP servers before any message), this message still goes through,
+        but the servers they set are dropped and not active for it; send `mcpServers` to give the thread your own.
       properties:
         text:
           type: string
