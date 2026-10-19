@@ -18,6 +18,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/apperr"
 	"github.com/ncecere/pi-durable-platform/internal/audit"
 	"github.com/ncecere/pi-durable-platform/internal/authz"
+	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
@@ -66,6 +67,8 @@ type Service struct {
 	team *teamnet.Guard
 	// Client lets apps give agents their own MCP servers for a thread.
 	Client ClientPolicy
+	// Metrics counts the MCP proxy's requests and tool calls (nil: none).
+	Metrics *metrics.Metrics
 }
 
 // ClientPolicy says which MCP servers apps may give agents, and how agents

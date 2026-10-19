@@ -62,9 +62,42 @@ func Allow(ctx context.Context, s Store, bucket string, limit int) (bool, time.D
 		return false, 0, err
 	}
 	if counts[0] > int64(limit) {
+		if o, ok := s.(interface{ Rejected(bucket string) }); ok {
+			o.Rejected(bucket)
+		}
 		return false, reset, nil
 	}
 	return true, reset, nil
+}
+
+// Observed is a Store that tells onReject about each event Allow refuses
+// (for metrics): the bucket's name, whose kind is the part before the first
+// colon.
+type Observed struct {
+	Store
+	onReject func(bucket string)
+}
+
+// Observe wraps s so that onReject is called for every refused event.
+func Observe(s Store, onReject func(bucket string)) *Observed {
+	return &Observed{Store: s, onReject: onReject}
+}
+
+// Cleanup deletes old windows of the wrapped store, if it keeps any.
+func (o *Observed) Cleanup(ctx context.Context) (int64, error) {
+	if c, ok := o.Store.(interface {
+		Cleanup(context.Context) (int64, error)
+	}); ok {
+		return c.Cleanup(ctx)
+	}
+	return 0, nil
+}
+
+// Rejected is called by Allow.
+func (o *Observed) Rejected(bucket string) {
+	if o.onReject != nil {
+		o.onReject(bucket)
+	}
 }
 
 // RetryAfter is reset in whole seconds, at least 1 (for Retry-After).

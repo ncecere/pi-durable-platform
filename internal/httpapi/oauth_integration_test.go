@@ -16,6 +16,7 @@ import (
 
 	"github.com/ncecere/pi-durable-platform/internal/httpapi"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
+	"github.com/ncecere/pi-durable-platform/internal/metrics/metricstest"
 	"github.com/ncecere/pi-durable-platform/internal/testutil"
 )
 
@@ -327,6 +328,13 @@ func TestOAuthConnect(t *testing.T) {
 	}
 	if reason := scalar(t, app, `SELECT metadata->>'reason' FROM audit_log WHERE action = 'oauth.revoke' ORDER BY id DESC LIMIT 1`); reason != "refresh_reuse" {
 		t.Fatalf("revoke reason %q", reason)
+	}
+	// The metrics saw the token pairs issued (the code exchange, and the
+	// rotation and the repeat within the grace), the refusals and the reuse.
+	sc := metricstest.Gather(t, app.Metrics)
+	if sc.Sum("pdp_oauth_tokens_issued_total", "grant_type", "authorization_code") < 1 || sc.Sum("pdp_oauth_tokens_issued_total", "grant_type", "refresh_token") != 2 ||
+		sc.Sum("pdp_oauth_refresh_reuse_revocations_total") != 1 || sc.Sum("pdp_oauth_token_errors_total", "error", "invalid_grant") < 2 {
+		t.Fatalf("oauth metrics:\n%s", sc.Text)
 	}
 	// Revoked consent is forgotten: connecting again asks again.
 	if code, loc, _ := f.authorize(user, query("s4")); code != 302 || !strings.HasPrefix(loc, "/connect/consent?") {

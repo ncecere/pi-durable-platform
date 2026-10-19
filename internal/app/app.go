@@ -25,6 +25,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/httpapi"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
 	"github.com/ncecere/pi-durable-platform/internal/mcp"
+	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/oauth"
 	"github.com/ncecere/pi-durable-platform/internal/platform"
 	"github.com/ncecere/pi-durable-platform/internal/ratelimit"
@@ -33,6 +34,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/teamnet"
 	"github.com/ncecere/pi-durable-platform/internal/teams"
+	"github.com/ncecere/pi-durable-platform/internal/tracing"
 	"github.com/ncecere/pi-durable-platform/web"
 )
 
@@ -57,6 +59,16 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	}
 	log = log.With("mode", mode)
 	log.Info("starting", "version", buildinfo.Version, "commit", buildinfo.Commit)
+	if mode == ModeServe && cfg.Tracing.Endpoint != "" {
+		stopTracing, err := tracing.Setup(ctx, tracing.Config{Endpoint: cfg.Tracing.Endpoint, ServiceName: cfg.Tracing.ServiceName,
+			SampleRatio: cfg.Tracing.SampleRatio, Version: buildinfo.Version})
+		if err != nil {
+			return err
+		}
+		// Spans still buffered are sent before the process exits.
+		defer func() { _ = stopTracing(context.Background()) }()
+		log.Info("tracing on: exporting spans over OTLP/HTTP", "service", cfg.Tracing.ServiceName, "sample_ratio", cfg.Tracing.SampleRatio)
+	}
 
 	pool, err := store.OpenWait(ctx, cfg.DatabaseURL, dbConnectWait, log)
 	if err != nil {
@@ -117,6 +129,13 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 		IdleTimeout:       120 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return context.WithoutCancel(ctx) },
 	}
+	servers := []*http.Server{srv, gw}
+	if cfg.MetricsAddr != "" {
+		// Prometheus scrapes this listener, which serves /metrics and nothing
+		// else and has no authentication: it is not behind the Ingress, and
+		// the chart's NetworkPolicy lets only the scraper reach it.
+		servers = append(servers, deps.Metrics.NewServer(cfg.MetricsAddr))
+	}
 	loopCtx, stopLoops := context.WithCancel(ctx)
 	defer stopLoops()
 	// With several replicas every replica runs every loop: the clean-ups
@@ -124,16 +143,17 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	// each replica's thread events listener feeds its own subscribers, and the
 	// reaper passes are taken one at a time through a database lock
 	// (docs/replicas.md).
-	go cleanupLoop(loopCtx, deps.Auth, deps.OAuth, deps.Agents, log)
+	go cleanupLoop(loopCtx, deps.Auth, deps.OAuth, deps.Agents, deps.Metrics, log)
 	go deps.Auth.RunGroupRecheck(loopCtx)
-	go rateCounterLoop(loopCtx, deps.RateStore, log)
+	go rateCounterLoop(loopCtx, deps.RateStore, deps.Metrics, log)
+	go deps.Agents.ObserveAgents(loopCtx, 30*time.Second)
 	go deps.Agents.Host().ReapLoop(loopCtx, 30*time.Second)
 	go deps.Agents.RunThreadEvents(loopCtx, log.With("component", "thread-events"))
-	if err := serve(ctx, log, srv, gw); err != nil {
+	if err := serve(ctx, log, servers...); err != nil {
 		return err
 	}
 	stopLoops()
-	err = shutdown(cfg, log, health, srv, gw)
+	err = shutdown(cfg, log, health, servers...)
 	// Local runtimes are child processes: stop them gracefully with the
 	// platform. Kubernetes agents keep running and hibernate on their own.
 	if l, ok := deps.Agents.Host().Launcher().(*launcher.Local); ok {
@@ -163,8 +183,10 @@ func peppers(cfg config.Config) (keyPeppers, error) {
 
 // rateCounterLoop deletes old rate limit windows every minute (any replica;
 // deletes are idempotent).
-func rateCounterLoop(ctx context.Context, st ratelimit.Store, log *slog.Logger) {
-	pg, ok := st.(*ratelimit.PostgresStore)
+func rateCounterLoop(ctx context.Context, st ratelimit.Store, m *metrics.Metrics, log *slog.Logger) {
+	pg, ok := st.(interface {
+		Cleanup(context.Context) (int64, error)
+	})
 	if !ok {
 		return
 	}
@@ -176,7 +198,12 @@ func rateCounterLoop(ctx context.Context, st ratelimit.Store, log *slog.Logger) 
 			return
 		case <-t.C:
 		}
-		if _, err := pg.Cleanup(ctx); err != nil && ctx.Err() == nil {
+		done := m.Loop("rate_cleanup")
+		_, err := pg.Cleanup(ctx)
+		if ctx.Err() == nil {
+			done(err)
+		}
+		if err != nil && ctx.Err() == nil {
 			log.Warn("rate limit counter clean-up failed", "err", err)
 		}
 	}
@@ -208,7 +235,9 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger, opts ...Op
 		return httpapi.Deps{}, err
 	}
 	// Rate limits are counted in PostgreSQL, shared by every replica.
-	rates := ratelimit.NewPostgres(pool)
+	m := metrics.New(metrics.Info{Version: buildinfo.Version, Commit: buildinfo.Commit})
+	m.RegisterPool("platform", pool)
+	rates := ratelimit.Observe(ratelimit.NewPostgres(pool), m.RateLimited)
 	keys := apikeys.New(pool, pep.Current)
 	sas := serviceaccounts.New(pool, pep.Current)
 	if pep.Previous != nil {
@@ -218,13 +247,15 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger, opts ...Op
 	authSvc := auth.NewService(cfg, pool, log)
 	authSvc.SetRateStore(rates)
 	authSvc.SetSecretBox(box)
+	authSvc.SetMetrics(m)
 	// OAuth Connect: apps act as the people who connect them. Its tokens are
 	// digested under the API key pepper, like keys. The development allowance
 	// lets a metadata document live on this machine.
 	connect := oauth.New(pool, oauth.Config{Issuer: cfg.AppURL, Pepper: pep.Current, PepperPrevious: pep.Previous,
 		DevAllowance: cfg.DevAuth && cfg.LoopbackAppURL()})
-	connect.Log = log
+	connect.Log, connect.Metrics = log, m
 	models := llm.New(pool, box)
+	models.Metrics = m
 	// Team providers are reached through the address guard; the development
 	// allowance lets them live on this machine.
 	models.SetTeamNetwork(llm.TeamNetwork{DevAllowance: cfg.DevAuth && cfg.LoopbackAppURL()})
@@ -233,6 +264,7 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger, opts ...Op
 		return httpapi.Deps{}, fmt.Errorf("AGENTS_CLIENT_MCP_HOSTS: %w", err)
 	}
 	servers := mcp.New(pool, box, mcp.ClientPolicy{Hosts: hosts, Mode: cfg.Agents.ClientMCPMode})
+	servers.Metrics = m
 	// Teams' own MCP servers are reached through the address guard too, with
 	// the same development allowance; changing the private networks closes
 	// the connections kept to them.
@@ -242,7 +274,11 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger, opts ...Op
 	if err != nil {
 		return httpapi.Deps{}, err
 	}
+	agentSvc.Metrics = m
+	agentSvc.Host().Metrics = m
+	m.RegisterPool("agents", agentSvc.AgentsPool())
 	return httpapi.Deps{
+		Metrics:         m,
 		Config:          cfg,
 		Pool:            pool,
 		Log:             log,
@@ -281,11 +317,13 @@ func secretBox(cfg config.Config) (*secrets.Box, error) {
 // OAuth codes and tokens and unused registered OAuth clients, threads nobody
 // used and expired thread MCP servers. Deletes are idempotent, so every
 // replica may run it; no leader election is needed.
-func cleanupLoop(ctx context.Context, a *auth.Service, o *oauth.Service, ag *agents.Service, log *slog.Logger) {
+func cleanupLoop(ctx context.Context, a *auth.Service, o *oauth.Service, ag *agents.Service, m *metrics.Metrics, log *slog.Logger) {
 	t := time.NewTicker(cleanupInterval)
 	defer t.Stop()
 	for {
+		done := m.Loop("cleanup")
 		sessions, logins, err := a.Cleanup(ctx)
+		failed := err
 		switch {
 		case err != nil && ctx.Err() == nil:
 			log.Warn("session cleanup failed", "err", err)
@@ -293,6 +331,7 @@ func cleanupLoop(ctx context.Context, a *auth.Service, o *oauth.Service, ag *age
 			log.Debug("expired sessions deleted", "sessions", sessions, "loginStates", logins)
 		}
 		n, err := o.Cleanup(ctx)
+		failed = errors.Join(failed, err)
 		switch {
 		case err != nil && ctx.Err() == nil:
 			log.Warn("oauth cleanup failed", "err", err)
@@ -300,11 +339,15 @@ func cleanupLoop(ctx context.Context, a *auth.Service, o *oauth.Service, ag *age
 			log.Debug("expired oauth codes, tokens and clients deleted", "rows", n)
 		}
 		n, err = ag.Cleanup(ctx)
+		failed = errors.Join(failed, err)
 		switch {
 		case err != nil && ctx.Err() == nil:
 			log.Warn("agent thread cleanup failed", "err", err)
 		case n > 0:
 			log.Debug("unused threads and expired thread MCP servers deleted", "rows", n)
+		}
+		if ctx.Err() == nil {
+			done(failed)
 		}
 		select {
 		case <-ctx.Done():
@@ -319,10 +362,13 @@ func serve(ctx context.Context, log *slog.Logger, servers ...*http.Server) error
 	serveErr := make(chan error, len(servers))
 	for i, srv := range servers {
 		go func() {
-			if i == 0 {
+			switch i {
+			case 0:
 				log.Info("http listening", "addr", srv.Addr)
-			} else {
+			case 1:
 				log.Info("agent gateway listening", "addr", srv.Addr)
+			default:
+				log.Info("metrics listening (/metrics only)", "addr", srv.Addr)
 			}
 			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				serveErr <- fmt.Errorf("http server %s: %w", srv.Addr, err)

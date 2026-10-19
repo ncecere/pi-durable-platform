@@ -19,8 +19,13 @@ import (
 type Config struct {
 	// AppURL is the public origin (scheme://host[:port]) used for cookies,
 	// OIDC redirects and Origin checks.
-	AppURL         string
-	ListenAddr     string // HTTP listener (LISTEN_ADDR)
+	AppURL     string
+	ListenAddr string // HTTP listener (LISTEN_ADDR)
+	// MetricsAddr is where the Prometheus endpoint (/metrics, and nothing
+	// else) listens, on a listener of its own (METRICS_ADDR). Empty: off.
+	MetricsAddr string
+	// Tracing is the optional OpenTelemetry export (OTEL_* settings).
+	Tracing        Tracing
 	DatabaseURL    string
 	MigrateOnStart bool
 
@@ -75,6 +80,18 @@ type Config struct {
 	// Agents configures where agents keep their state and how their
 	// runtimes are started.
 	Agents Agents
+}
+
+// Tracing configures OpenTelemetry traces, which are off without an Endpoint.
+type Tracing struct {
+	// Endpoint is the OTLP/HTTP collector's base URL
+	// (OTEL_EXPORTER_OTLP_ENDPOINT), for example http://collector:4318.
+	Endpoint string
+	// ServiceName is the service.name of the spans (OTEL_SERVICE_NAME).
+	ServiceName string
+	// SampleRatio is the share of new traces kept, 0 to 1
+	// (OTEL_TRACES_SAMPLER_ARG).
+	SampleRatio float64
 }
 
 // Agent launchers.
@@ -192,6 +209,7 @@ func Defaults() Config {
 		ListenAddr: ":8098",
 		LogLevel:   "info",
 		LogFormat:  "json",
+		Tracing:    Tracing{ServiceName: "pi-durable-platform", SampleRatio: 1},
 		Instance:   Instance{Name: DefaultInstanceName, Theme: "neutral"},
 		OIDC: OIDC{
 			Scopes:               []string{"openid", "profile", "email"},

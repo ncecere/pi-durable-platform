@@ -24,6 +24,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
 	"github.com/ncecere/pi-durable-platform/internal/mcp"
+	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/oauth"
 	"github.com/ncecere/pi-durable-platform/internal/platform"
 	"github.com/ncecere/pi-durable-platform/internal/ratelimit"
@@ -58,6 +59,9 @@ type Deps struct {
 	// Secrets seals values stored in the database with ENCRYPTION_KEY
 	// (nil in tests that don't need it).
 	Secrets *secrets.Box
+	// Metrics counts the requests of both listeners (nil: none); the other
+	// services hold it too (app.NewDeps).
+	Metrics *metrics.Metrics
 	// RateStore counts sign-in attempts and per-person request limits (nil:
 	// in memory, for tests).
 	RateStore ratelimit.Store
@@ -201,7 +205,7 @@ func NewGatewayHandler(d Deps) http.Handler {
 	d.Models.RegisterGateway(mux, d.Agents.AuthenticateProxy, log)
 	d.MCP.RegisterGateway(mux, d.Agents.AuthenticateMCP, d.Config.Agents.GatewayURL, llm.Credential, log)
 	registerThreadReports(mux, d.Agents, log)
-	return mux
+	return observeHandler(d.Metrics, metrics.ListenerGateway, mux)
 }
 
 // registerThreadReports takes the runtime's reports of its threads' status:

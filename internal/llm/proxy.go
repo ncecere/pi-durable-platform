@@ -13,9 +13,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ncecere/pi-durable-platform/internal/apperr"
+	"github.com/ncecere/pi-durable-platform/internal/httpx"
+	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/netguard"
+	"github.com/ncecere/pi-durable-platform/internal/tracing"
 )
 
 // The model proxy: agents of a proxy-mode provider call
@@ -133,7 +138,23 @@ func credential(r *http.Request) (uuid.UUID, string, bool) {
 	return id, token, true
 }
 
+// proxy counts and times the request (kind and model are set once the model
+// is known; a request refused before that is counted as unknown).
 func (s *Service) proxy(w http.ResponseWriter, r *http.Request, auth AgentAuth, log *slog.Logger) {
+	began := time.Now()
+	sw := httpx.NewStatusWriter(w)
+	var kind, model string
+	var tokens Usage
+	defer func() {
+		s.Metrics.ModelRequest(kind, model, sw.Status(), time.Since(began))
+		s.Metrics.ModelTokens(kind, model, tokens.Input, tokens.Output, tokens.CacheRead, tokens.CacheWrite)
+	}()
+	s.relay(sw, r, auth, log, func(k, m string) { kind, model = k, m }, &tokens)
+}
+
+// relay is the model proxy; known is called with the provider's kind and the
+// model's metric label when they are, and tokens gets what the reply reported.
+func (s *Service) relay(w http.ResponseWriter, r *http.Request, auth AgentAuth, log *slog.Logger, known func(kind, model string), tokens *Usage) {
 	ctx := r.Context()
 	providerID, err := uuid.Parse(r.PathValue("providerId"))
 	if err != nil {
@@ -168,6 +189,12 @@ func (s *Service) proxy(w http.ResponseWriter, r *http.Request, auth AgentAuth, 
 		proxyError(w, http.StatusInternalServerError, "internal", "Internal error")
 		return
 	}
+	// A platform model is labelled by name; a team's own never is (its name is the team's).
+	label := metrics.ModelTeam
+	if !m.Provider.TeamID.Valid {
+		label = m.Model.UpstreamID
+	}
+	known(m.Kind.ID, label)
 	path := "/" + r.PathValue("path")
 	if m.Provider.ID != providerID || !slices.Contains(m.Kind.ProxyPaths, path) {
 		proxyError(w, http.StatusForbidden, "model_not_allowed", "This agent may not call that provider or endpoint")
@@ -211,8 +238,19 @@ func (s *Service) proxy(w http.ResponseWriter, r *http.Request, auth AgentAuth, 
 	}
 	authenticate(up, m.Kind, m.APIKey, m.Headers)
 	started := time.Now()
+	// The upstream call is a span of its own (kind and model, never the
+	// request or the key), and carries the trace context to the provider.
+	spanAttrs := []attribute.KeyValue{attribute.String("pdp.provider.kind", m.Kind.ID)}
+	if label != metrics.ModelTeam {
+		spanAttrs = append(spanAttrs, attribute.String("pdp.model", label))
+	}
+	uctx, span := tracing.Start(ctx, "model.upstream", trace.SpanKindClient, spanAttrs...)
+	defer span.End()
+	up = up.WithContext(uctx)
+	tracing.Inject(uctx, up.Header)
 	resp, err := s.clientFor(m.Provider).Do(up)
 	if err != nil {
+		tracing.Fail(span, "upstream unreachable")
 		if errors.Is(err, netguard.ErrBlockedAddress) {
 			// A team provider's host now resolves outside what teams may reach.
 			log.Warn("model proxy: team provider address not allowed", "provider", providerID, "err", errors.Unwrap(err))
@@ -226,6 +264,7 @@ func (s *Service) proxy(w http.ResponseWriter, r *http.Request, auth AgentAuth, 
 		return
 	}
 	defer resp.Body.Close()
+	tracing.Status(span, resp.StatusCode, false)
 	for k, vs := range resp.Header {
 		switch strings.ToLower(k) {
 		case "content-length", "content-encoding", "set-cookie", "connection", "keep-alive", "transfer-encoding", "trailer", "upgrade":
@@ -259,6 +298,8 @@ func (s *Service) proxy(w http.ResponseWriter, r *http.Request, auth AgentAuth, 
 		return
 	}
 	u := scan.Finish()
+	*tokens = u
+	span.SetAttributes(attribute.Int64("pdp.tokens.input", u.Input), attribute.Int64("pdp.tokens.output", u.Output))
 	if u.Empty() {
 		return
 	}

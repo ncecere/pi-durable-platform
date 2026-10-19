@@ -96,14 +96,17 @@ func (s *Service) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 	saved, ok := s.takeState(w, r)
 	if !ok {
+		s.metrics.SignIn("oidc", "failure", "invalid")
 		return
 	}
 	if r.URL.Query().Get("error") != "" {
+		s.metrics.SignIn("oidc", "failure", "denied")
 		httpx.Error(w, http.StatusUnauthorized, "login_declined", "The sign-in provider declined the request")
 		return
 	}
 	c, err := s.client(r.Context())
 	if err != nil {
+		s.metrics.SignIn("oidc", "failure", "unavailable")
 		httpx.Error(w, http.StatusServiceUnavailable, "idp_unavailable", "The sign-in provider is unavailable. Try again shortly.")
 		return
 	}
@@ -111,17 +114,21 @@ func (s *Service) Callback(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	li, status, code, problem := s.verifyCode(ctx, c, r.URL.Query().Get("code"), saved)
 	if problem != "" {
+		s.metrics.SignIn("oidc", "failure", failureReason(status))
 		httpx.Error(w, status, code, problem)
 		return
 	}
 	if _, err := s.completeLogin(ctx, w, r, li); err != nil {
 		if errors.Is(err, errSuspended) {
+			s.metrics.SignIn("oidc", "failure", "denied")
 			httpx.Error(w, http.StatusForbidden, "user_suspended", "This account is suspended")
 			return
 		}
+		s.metrics.SignIn("oidc", "failure", "error")
 		httpx.Internal(w, r, err)
 		return
 	}
+	s.metrics.SignIn("oidc", "success", "")
 	http.Redirect(w, r, saved.NextPath, http.StatusSeeOther)
 }
 
@@ -260,4 +267,17 @@ func safeNext(next string) string {
 		return "/"
 	}
 	return next
+}
+
+// failureReason classifies a refused sign-in by its status for the metrics:
+// 403 (the address, group or domain rules), 5xx (the provider), else the
+// request or the identity was invalid.
+func failureReason(status int) string {
+	switch {
+	case status == http.StatusForbidden:
+		return "denied"
+	case status >= 500:
+		return "unavailable"
+	}
+	return "invalid"
 }

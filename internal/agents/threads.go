@@ -739,6 +739,7 @@ func (s *Service) SubscribeThreads(ctx context.Context, a authz.Actor, only *uui
 	s.hub.mu.Lock()
 	s.hub.subs[raw] = struct{}{}
 	s.hub.mu.Unlock()
+	s.Metrics.ThreadSubscribers(1)
 	out := make(chan ThreadEvent, 64)
 	go func() {
 		defer close(out)
@@ -746,6 +747,7 @@ func (s *Service) SubscribeThreads(ctx context.Context, a authz.Actor, only *uui
 			s.hub.mu.Lock()
 			delete(s.hub.subs, raw)
 			s.hub.mu.Unlock()
+			s.Metrics.ThreadSubscribers(-1)
 		}()
 		allowed := map[uuid.UUID]bool{} // per agent, decided once per stream
 		for {
@@ -790,7 +792,9 @@ func (s *Service) publish(ev ThreadEvent) {
 // streams until ctx ends (reconnecting after failures).
 func (s *Service) RunThreadEvents(ctx context.Context, log *slog.Logger) {
 	for ctx.Err() == nil {
+		done := s.Metrics.Loop("thread_events")
 		if err := s.listenThreads(ctx); err != nil && ctx.Err() == nil {
+			done(err) // a listener's run ends only by failing
 			log.Warn("thread events: listener stopped; retrying", "err", err)
 			select {
 			case <-ctx.Done():

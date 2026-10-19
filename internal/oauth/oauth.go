@@ -45,6 +45,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/netguard"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 )
@@ -119,7 +120,9 @@ type Service struct {
 	docs     *metadataDocs
 	logos    *logos
 	Log      *slog.Logger
-	now      func() time.Time
+	// Metrics counts tokens issued and refused (nil: none).
+	Metrics *metrics.Metrics
+	now     func() time.Time
 }
 
 // New returns the service.

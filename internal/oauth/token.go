@@ -44,8 +44,23 @@ type Tokens struct {
 	Scope        string `json:"scope"`
 }
 
-// Token answers the token endpoint.
+// Token answers the token endpoint, counting the tokens issued and the
+// requests refused (by OAuth error code).
 func (s *Service) Token(ctx context.Context, r TokenRequest) (Tokens, error) {
+	out, err := s.token(ctx, r)
+	var oe *Error
+	switch {
+	case err == nil:
+		s.Metrics.OAuthTokenIssued(r.GrantType)
+	case errors.As(err, &oe):
+		s.Metrics.OAuthTokenError(oe.Code)
+	default:
+		s.Metrics.OAuthTokenError("server_error")
+	}
+	return out, err
+}
+
+func (s *Service) token(ctx context.Context, r TokenRequest) (Tokens, error) {
 	if r.ClientID == "" {
 		return Tokens{}, &Error{Code: "invalid_client", Description: "Send client_id (public clients authenticate with it alone).", Status: http.StatusUnauthorized}
 	}
@@ -193,6 +208,7 @@ func (s *Service) refresh(ctx context.Context, r TokenRequest) (Tokens, error) {
 	if err == nil && reused {
 		// The revocation committed; the client is told only that the token
 		// is no good.
+		s.Metrics.OAuthRefreshReuse()
 		return Tokens{}, errInvalidGrant()
 	}
 	return out, err

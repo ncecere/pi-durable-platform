@@ -9,7 +9,11 @@ import (
 	"runtime/debug"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
+	"github.com/ncecere/pi-durable-platform/internal/metrics"
 )
 
 // statusRecorder captures the status code while still supporting streaming
@@ -51,8 +55,8 @@ func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter 
 
 var quietRoutes = map[string]bool{"GET /healthz": true, "GET /readyz": true}
 
-// chain applies request IDs, security headers, panic recovery and access
-// logging around the router.
+// chain applies request IDs, security headers, panic recovery, metrics and
+// tracing (observe) and access logging around the router.
 func chain(mux *http.ServeMux, d Deps) http.Handler {
 	log := d.Log
 	if log == nil {
@@ -68,6 +72,9 @@ func chain(mux *http.ServeMux, d Deps) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		h.Set("X-Frame-Options", "DENY")
+
+		r, obs := observe(d.Metrics, metrics.ListenerAPI, r)
+		trace.SpanFromContext(r.Context()).SetAttributes(attribute.String("pdp.request_id", reqID))
 
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		defer func() {
@@ -86,16 +93,21 @@ func chain(mux *http.ServeMux, d Deps) http.Handler {
 				// The client went away first: not a server error (httpx.Internal).
 				rec.status = httpx.StatusClientClosedRequest
 			}
+			obs.end(r, rec.status)
 			level := slog.LevelInfo
 			if quietRoutes[r.Pattern] {
 				level = slog.LevelDebug
 			}
 			// ServeMux sets r.Pattern on the request it routes; the route
 			// pattern (never the raw path, which holds IDs) is logged.
-			log.Log(r.Context(), level, "http request",
-				"method", r.Method, "route", r.Pattern, "status", rec.status,
+			attrs := []any{"method", r.Method, "route", r.Pattern, "status", rec.status,
 				"duration_ms", time.Since(start).Milliseconds(), "request_id", reqID,
-				"client_ip", httpx.ClientIP(r, d.Config.TrustedProxies))
+				"client_ip", httpx.ClientIP(r, d.Config.TrustedProxies)}
+			// With tracing on, the trace ID finds the request's spans.
+			if sc := trace.SpanContextFromContext(r.Context()); sc.IsValid() {
+				attrs = append(attrs, "trace_id", sc.TraceID().String())
+			}
+			log.Log(r.Context(), level, "http request", attrs...)
 		}()
 		mux.ServeHTTP(rec, r)
 	})

@@ -21,6 +21,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/authz"
 	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
+	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/ratelimit"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
 	"github.com/ncecere/pi-durable-platform/internal/store"
@@ -86,6 +87,8 @@ type Service struct {
 	// the clock of that check.
 	box *secrets.Box
 	now func() time.Time
+	// metrics counts sign-ins and group re-check runs (nil: none).
+	metrics *metrics.Metrics
 
 	oidcMu sync.Mutex
 	oidc   *oidcClient // discovered lazily so an IdP outage cannot stop the API from starting
@@ -272,6 +275,9 @@ func (s *Service) LoginURL(next string) string {
 	}
 	return "/?next=" + url.QueryEscape(next)
 }
+
+// SetMetrics makes the service count sign-ins and group re-checks.
+func (s *Service) SetMetrics(m *metrics.Metrics) { s.metrics = m }
 
 // SetRateStore makes sign-in and /v1 limits use a shared store (the
 // PostgreSQL counters every replica uses).
