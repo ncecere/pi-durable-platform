@@ -4,7 +4,7 @@
  * first; the runtime is the source of truth for the transcript.
  */
 import { queryOptions } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, api, type Schemas, unwrap } from "./client";
 
 export type Agent = Schemas["Agent"];
@@ -12,6 +12,7 @@ export type ChatView = Schemas["ChatView"];
 export type ChatMessage = Schemas["ChatMessage"];
 export type ChatAuthor = Schemas["ChatAuthor"];
 export type AgentThread = Schemas["AgentThread"];
+export type AgentThreadEvent = Schemas["AgentThreadEvent"];
 export type AdminAgentThread = Schemas["AdminAgentThread"];
 export type ThreadVisibility = Schemas["ThreadVisibility"];
 
@@ -124,4 +125,30 @@ export function useLiveThread(agentId: string, threadId: string, enabled: boolea
     return () => source.close();
   }, [agentId, threadId, enabled]);
   return state;
+}
+
+/**
+ * Follows one agent's threads over `GET /v1/agents/events`: `onEvent` gets each thread event (created, renamed,
+ * replying, finished, deleted), and "ready" when the stream opens or reopens (it may have missed some).
+ * `enabled` is false for someone who can't use the agent (the platform refuses the stream). A thread replying
+ * means the agent's runtime is up, so the agent page uses this to keep its status badge current.
+ */
+export function useAgentEvents(agentId: string, enabled: boolean, onEvent: (event: AgentThreadEvent | "ready") => void) {
+  const latest = useRef(onEvent);
+  useEffect(() => {
+    latest.current = onEvent;
+  });
+  useEffect(() => {
+    if (!enabled) return;
+    const source = new EventSource(`/v1/agents/events?agentId=${encodeURIComponent(agentId)}`, { withCredentials: true });
+    source.addEventListener("ready", () => latest.current("ready"));
+    source.addEventListener("thread", (event) => {
+      try {
+        latest.current(JSON.parse((event as MessageEvent<string>).data) as AgentThreadEvent);
+      } catch {
+        // A malformed event is skipped; the next one or the poll catches up.
+      }
+    });
+    return () => source.close();
+  }, [agentId, enabled]);
 }

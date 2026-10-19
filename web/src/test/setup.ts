@@ -10,3 +10,13 @@ expect.extend(matchers);
 // waits when the element isn't there yet, so fast runs are no slower.
 configure({ asyncUtilTimeout: scaled(5000) }); // times TEST_TIME_SCALE, 1 unless set (test-scale.ts)
 afterEach(() => cleanup());
+
+// jsdom has no EventSource: pages that follow server-sent events get one that never connects. Tests that need
+// events stub their own (vi.stubGlobal("EventSource", …)).
+class InertEventSource {
+  onerror: (() => void) | null = null;
+  constructor(readonly url: string) {}
+  addEventListener() {}
+  close() {}
+}
+globalThis.EventSource ??= InertEventSource as unknown as typeof EventSource;

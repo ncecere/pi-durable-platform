@@ -50,6 +50,14 @@ export function storeAgent(qc: QueryClient, agent: Agent) {
   });
 }
 
+/**
+ * The agent is awake: a message was accepted, or one of its threads is replying (its runtime is up either way).
+ * Hibernating is the other way round: `storeAgent` with `running: false`, after the platform says so.
+ */
+export function markAwake(qc: QueryClient, agentId: string) {
+  qc.setQueryData(agentQuery(agentId).queryKey, (a: Agent | undefined) => (a && !a.running ? { ...a, running: true } : a));
+}
+
 export const nameProblem = (name: string) => {
   const n = name.trim();
   if (!n) return "Enter a name.";
