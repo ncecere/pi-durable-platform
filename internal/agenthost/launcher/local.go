@@ -56,8 +56,15 @@ func (l *Local) Ensure(ctx context.Context, spec Spec) (Endpoint, error) {
 			l.mu.Unlock()
 			select {
 			case <-a.starting:
-			case <-ctx.Done():
-				return Endpoint{}, ctx.Err()
+				report(ctx, StartRunning)
+			default:
+				// Another call is starting it: this one waits for that.
+				report(ctx, StartCold)
+				select {
+				case <-a.starting:
+				case <-ctx.Done():
+					return Endpoint{}, ctx.Err()
+				}
 			}
 			select {
 			case <-a.exited:
@@ -75,6 +82,7 @@ func (l *Local) Ensure(ctx context.Context, spec Spec) (Endpoint, error) {
 		a = &localAgent{starting: make(chan struct{}), exited: make(chan struct{})}
 		l.agents[spec.AgentID] = a
 		l.mu.Unlock()
+		report(ctx, StartCold)
 		a.startErr = l.start(spec, a)
 		close(a.starting)
 		if a.startErr != nil {

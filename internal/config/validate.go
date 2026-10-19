@@ -104,7 +104,34 @@ func (c Config) validateProcess() []error {
 	if c.ListenAddr == "" {
 		errs = append(errs, errors.New("LISTEN_ADDR must not be empty"))
 	}
+	if c.MetricsAddr != "" {
+		if _, _, err := net.SplitHostPort(c.MetricsAddr); err != nil {
+			errs = append(errs, errors.New("METRICS_ADDR must be host:port or :port (empty: no metrics endpoint)"))
+		}
+		for name, other := range map[string]string{"LISTEN_ADDR": c.ListenAddr, "AGENTS_GATEWAY_ADDR": c.Agents.GatewayAddr} {
+			if sameListener(c.MetricsAddr, other) {
+				errs = append(errs, fmt.Errorf("METRICS_ADDR must be a listener of its own, not %s's", name))
+			}
+		}
+	}
+	if e := c.Tracing.Endpoint; e != "" {
+		if u, err := url.Parse(e); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			errs = append(errs, errors.New("OTEL_EXPORTER_OTLP_ENDPOINT must be an http(s) URL, the OTLP/HTTP collector's base (for example http://collector:4318)"))
+		}
+	}
 	return errs
+}
+
+// sameListener reports whether two listen addresses would bind the same
+// port on an overlapping address.
+func sameListener(a, b string) bool {
+	ah, ap, err := net.SplitHostPort(a)
+	bh, bp, err2 := net.SplitHostPort(b)
+	if err != nil || err2 != nil || ap != bp {
+		return false
+	}
+	wild := func(h string) bool { return h == "" || h == "0.0.0.0" || h == "::" }
+	return ah == bh || wild(ah) || wild(bh)
 }
 
 // validateSecrets checks the encryption key and the API key pepper.

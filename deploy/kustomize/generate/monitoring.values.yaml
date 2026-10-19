@@ -1,0 +1,13 @@
+# The values components/monitoring is generated from.
+metrics:
+  serviceMonitor:
+    enabled: true
+  dashboard:
+    enabled: true
+networkPolicy:
+  metrics:
+    # REPLACE ME: your Prometheus or Alloy pods (patch the NetworkPolicy).
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: monitoring

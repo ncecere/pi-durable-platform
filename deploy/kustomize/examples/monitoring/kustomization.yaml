@@ -1,0 +1,8 @@
+# The kubernetes launcher with monitoring: a ServiceMonitor, the NetworkPolicy
+# for the scraper (patch `from` to your Prometheus) and the Grafana dashboard.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../overlays/kubernetes
+components:
+  - ../../components/monitoring

@@ -22,6 +22,7 @@ data:
   OIDC_EMAIL_CLAIM: "email"
   OIDC_GROUPS_CLAIM: "groups"
   OIDC_REQUIRE_VERIFIED_EMAIL: "true"
+  METRICS_ADDR: ":9090"
   AGENTS_LAUNCHER: "kubernetes"
   AGENTS_NAMESPACE: "pi-durable-agents"
   AGENTS_IMAGE: "ghcr.io/ncecere/pi-durable-platform-runtime:v0.1.2"

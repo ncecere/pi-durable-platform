@@ -483,6 +483,90 @@ Two keys protect what the database holds:
 4. `pi-durable-platform doctor` (check `keys encryption`) warns while any value is still under the previous key, and
    fails for values under no configured key. When it reports none, remove `ENCRYPTION_KEY_PREVIOUS`.
 
+## Observability
+
+Metrics are Prometheus metrics (`internal/metrics`, the Prometheus Go client); traces are OpenTelemetry, optional
+(`internal/tracing`). Both are instrumented at the choke points, not scattered: the HTTP middleware of each listener
+(`internal/httpapi/observe.go`), the agent manager (wake, hibernate, reaper), the model and MCP proxies, OAuth's token
+endpoint, sign-in, the rate limiter (`ratelimit.Allow`) and the background loops. A package given no metrics does
+nothing (every method accepts nil), so commands that don't serve and most unit tests need no registry.
+
+**Ports.** `METRICS_ADDR` (default off; the chart sets `:9090`) starts a third listener that serves `GET /metrics` and
+nothing else (any other path is a 404). It has no authentication, because it is a port of its own: it is not behind the
+Ingress, neither the web listener (`LISTEN_ADDR`) nor the agents' gateway serves `/metrics`, and the chart's
+NetworkPolicy lets only the peers in `networkPolicy.metrics.from` reach it (nobody by default). Never publish it. It is
+not part of `api/openapi.yaml`, as the gateway isn't.
+
+**What is exported** (every name starts with `pdp_`; histograms add `_bucket`, `_sum` and `_count`):
+
+| Metric | Labels | Meaning |
+|---|---|---|
+| `http_requests_total`, `http_request_duration_seconds`, `http_requests_in_flight` | `listener` (api, gateway), `method`, `route`, `code` (2xx…; no `code` on the histogram and the gauge) | Every request of both listeners. `route` is the mux's pattern (`/v1/agents/{agentId}`), never the path; requests nothing matched (the web app's files, 404s) are `unmatched` |
+| `agent_wakes_total`, `agent_wake_duration_seconds` | `launcher` (local, kubernetes, agent-sandbox), `start`, `result` | Every call that makes sure an agent's runtime is up. `start`: `running` (nothing to start: the fast path), `cold` (started or resumed), `warm` (a standby runtime of the warm pool was adopted), `pool_miss` (the pool was empty: created on demand), `unknown` (failed before saying). `result`: ok, error, timeout, canceled |
+| `warm_pool_claims_total` | `result` (hit, miss) | Claims on the Agent Sandbox warm pool. A claim is a hit when the sandbox the claim got is not named after the claim (the controller names a sandbox it creates itself after the claim) |
+| `agents_running` | none | Agents with a live runtime, as the reaper last saw them (every 30 s) |
+| `agents` | `enabled` | Agents that exist (a query every 30 s; the same on every replica: use `max`) |
+| `agent_hibernations_total` | `reason` (idle, request), `result` | `idle`: the reaper; `request`: an explicit hibernate, or a change that restarts the agent |
+| `model_proxy_requests_total`, `model_proxy_request_duration_seconds` | `provider_kind`, `model`, `code` | The model proxy. Duration is the whole reply, streams included |
+| `model_proxy_tokens_total` | `provider_kind`, `model`, `direction` (input, output, cache_read, cache_write) | Tokens the replies report |
+| `mcp_proxy_requests_total`, `mcp_proxy_request_duration_seconds` | `server`, `code` | The MCP proxy |
+| `mcp_tool_calls_total` | `server`, `result` (ok, error, denied) | Tool calls through the proxy (tool names are not labels) |
+| `oauth_tokens_issued_total` | `grant_type` | Token pairs issued |
+| `oauth_token_errors_total` | `error` (the OAuth error code) | Refused token requests |
+| `oauth_refresh_reuse_revocations_total` | none | Grants revoked for refresh token reuse |
+| `signins_total` | `method` (oidc, dev), `result`, `reason` (none, denied, invalid, unavailable, error) | Sign-ins |
+| `rate_limit_rejections_total` | `limiter` (login, user, apikey, service-account, oauth, …) | Requests refused with 429 |
+| `thread_event_subscribers` | none | Open thread event streams on this replica |
+| `background_runs_total`, `background_run_duration_seconds`, `background_last_success_timestamp_seconds` | `loop` (reaper, cleanup, rate_cleanup, group_recheck, thread_events, agent_count), `result` | Background loops; `thread_events` counts only listeners that failed |
+| `db_pool_*` | `pool` (platform, agents) | `acquired_connections`, `idle_connections`, `total_connections`, `max_connections` and the counters `acquires_total`, `acquires_waited_total`, `acquire_wait_seconds_total`, `canceled_acquires_total`, from pgx's pool statistics, read at scrape time |
+| `build_info` | `version`, `commit`, `go_version` | Always 1 |
+
+The Go runtime and process collectors (`go_*`, `process_*`) are there too.
+
+**Label policy.** A label holds only a small set of values the platform defines: route patterns, status classes,
+methods, launcher modes, provider kinds, loop names. Nothing that identifies a person, a team, an agent, a thread or a
+URL is ever a label, and no label comes from a request (a test throws hundreds of different IDs and paths at the API
+and asserts that the series stay few; another asserts that every label name is on an allowlist). Two labels are
+chosen by administrators and so go through a bounded guard (at most 64 values, plain characters, else `other`): the
+`model` label is the upstream name of a *platform* model, and the `server` label of the MCP metrics is the slug of a
+*platform* MCP server. A team's own models are `team`, a team's own MCP servers `team`, and servers an app gave a
+thread `app`: their names belong to the teams and are unbounded. Per-team usage is in the usage reports (Models), not
+in metrics; team slugs are not labelled.
+
+**Several replicas.** Each replica exports its own metrics, so sum counters and rates. Gauges that describe the cluster
+rather than the process (`agents`, and `agents_running` with a cluster launcher, which lists the cluster's pods) are
+the same on every replica: use `max`.
+
+**Tracing** is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set (the collector's base URL; OTLP over HTTP, port 4318, not
+gRPC). `OTEL_SERVICE_NAME` (default `pi-durable-platform`) and `OTEL_TRACES_SAMPLER_ARG` (the share of new traces kept,
+default 1) are settings; the exporter itself honours the standard variables for headers, timeout, compression and TLS
+(`OTEL_EXPORTER_OTLP_HEADERS` and its siblings). A request that arrives with a `traceparent` is continued (and keeps
+its sampling decision); `baggage` is neither read nor sent. Spans:
+
+- a server span for every request of the API and the gateway, named `METHOD route-pattern` (the same pattern the
+  metrics use, never the path), with `http.route`, `http.response.status_code` and `pdp.request_id`; the access log
+  carries `trace_id` when there is a trace;
+- `agent.wake` (launcher mode, how it started, the result; the agent's ID) and `agent.runtime_request` (the relay to
+  the runtime) below the request that woke the agent. The runtime request carries `traceparent`, as does the warm
+  pool's activation call;
+- `model.upstream` (provider kind, the platform model's name, status, tokens; a team's model is not named) and
+  `mcp.upstream` (the server's label, the number and names of the tools called) below the gateway request, with the
+  trace context sent to the provider or MCP server.
+
+A span never holds message content, request or response bodies, headers, URLs, keys, tokens or a person's identity:
+call sites pick their attributes by that rule, errors are reduced to a fixed reason, and a test checks all the spans of
+a conversation for any of the secrets and prompts it used. Not done: the runtime does not read `traceparent` yet (no
+runtime-side spans), and the model and MCP requests an agent makes to the gateway start traces of their own, because
+the runtime does not forward the trace context it was given. Following a conversation from the API into the runtime
+needs the runtime to propagate it.
+
+**Dashboards and alerts.** `deploy/grafana/pi-durable-platform.json` is a Grafana dashboard (wake latency and warm vs
+cold, running agents, request rate and errors, model proxy, MCP proxy, sign-in and OAuth, the reaper, database pools,
+process); `deploy/grafana/alerts.yaml` is an example PrometheusRule. A test (`internal/metrics/grafana_test.go`)
+checks every expression in both against the metrics and labels the platform exports. The chart can ship the dashboard
+as a ConfigMap for Grafana's sidecar (`metrics.dashboard.enabled`) and a ServiceMonitor
+(`metrics.serviceMonitor.enabled`); see [deploy/README.md](deploy/README.md).
+
 ## Deployment
 
 `deploy/` ships a Helm chart and a Kustomize base with overlays ([deploy/README.md](deploy/README.md)); the chart is the

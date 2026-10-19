@@ -126,11 +126,14 @@ func (k *Kubernetes) Ensure(ctx context.Context, spec Spec) (Endpoint, error) {
 				return Endpoint{}, err
 			}
 		} else if ip, ok := p.ready(); ok {
+			report(ctx, StartRunning)
 			return Endpoint{BaseURL: fmt.Sprintf("http://%s:%d", ip, runtimePort), Token: spec.Token}, nil
 		} else {
+			report(ctx, StartCold)
 			return k.waitReady(ctx, name, spec.Token)
 		}
 	}
+	report(ctx, StartCold)
 	if err := k.putSecret(ctx, name, spec); err != nil {
 		return Endpoint{}, err
 	}

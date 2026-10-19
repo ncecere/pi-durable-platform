@@ -50,6 +50,9 @@ render components/cilium/ciliumnetworkpolicy.yaml networkpolicy-kube-api.yaml ba
 render components/ingress/ingress.yaml ingress.yaml base.values.yaml ingress.values.yaml
 render components/pod-disruption-budget/pdb.yaml pdb.yaml base.values.yaml pdb.values.yaml
 render components/resourcequota/resourcequota.yaml resourcequota.yaml base.values.yaml resourcequota.values.yaml
+render components/monitoring/servicemonitor.yaml servicemonitor.yaml base.values.yaml monitoring.values.yaml
+render components/monitoring/networkpolicy-metrics.yaml networkpolicy-metrics.yaml base.values.yaml monitoring.values.yaml
+render components/monitoring/grafana-dashboard.yaml grafana-dashboard.yaml base.values.yaml monitoring.values.yaml
 
 if [ "${1:-}" = "--check" ]; then
   status=0

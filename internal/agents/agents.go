@@ -34,6 +34,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
 	"github.com/ncecere/pi-durable-platform/internal/mcp"
+	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
@@ -76,6 +77,8 @@ type Service struct {
 	cfg        config.Agents
 	agentsURL  string // AGENTS_DATABASE_URL, with RuntimeDatabaseHost applied
 	hub        threadHub
+	// Metrics counts thread event streams and agents (nil: none).
+	Metrics *metrics.Metrics
 }
 
 // New returns a Service. pool is the platform database; agentsPool the

@@ -25,6 +25,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
 	"github.com/ncecere/pi-durable-platform/internal/mcp"
+	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/testutil"
 )
 
@@ -49,6 +50,8 @@ type testApp struct {
 	Origin string
 	// cfg is the configuration this app runs with (a replica uses the same).
 	cfg config.Config
+	// Metrics is what the app counts (what /metrics would serve).
+	Metrics *metrics.Metrics
 }
 
 // origin is what the Origin header of a state-changing request says.
@@ -158,7 +161,7 @@ func newTestAppWith(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 	go deps.Agents.RunThreadEvents(eventsCtx, log)
 
 	jar, _ := cookiejar.New(nil)
-	return &testApp{t: t, URL: srv.URL, GatewayURL: gw.URL, Pool: pool, Client: &http.Client{Jar: jar}, Agents: deps.Agents, Models: deps.Models, MCP: deps.MCP, Auth: deps.Auth, cfg: cfg}
+	return &testApp{t: t, URL: srv.URL, GatewayURL: gw.URL, Pool: pool, Client: &http.Client{Jar: jar}, Agents: deps.Agents, Models: deps.Models, MCP: deps.MCP, Auth: deps.Auth, Metrics: deps.Metrics, cfg: cfg}
 }
 
 func (a *testApp) do(method, path string, body any, headers map[string]string) (int, []byte) {

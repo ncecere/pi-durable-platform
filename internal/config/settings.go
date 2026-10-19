@@ -72,6 +72,17 @@ func list(dst func(*Config) *[]string, lower bool) func(*Config, string) error {
 	}
 }
 
+func ratio(dst func(*Config) *float64) func(*Config, string) error {
+	return func(c *Config, v string) error {
+		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		if err != nil || f < 0 || f > 1 {
+			return fmt.Errorf("must be a number from 0 to 1")
+		}
+		*dst(c) = f
+		return nil
+	}
+}
+
 func trustedProxies(c *Config, v string) error {
 	var out []netip.Prefix
 	for _, part := range strings.Split(v, ",") {
@@ -92,6 +103,13 @@ func trustedProxies(c *Config, v string) error {
 var settings = []setting{
 	{key: "APP_URL", apply: str(func(c *Config) *string { return &c.AppURL })},
 	{key: "LISTEN_ADDR", apply: str(func(c *Config) *string { return &c.ListenAddr })},
+	{key: "METRICS_ADDR", apply: str(func(c *Config) *string { return &c.MetricsAddr })},
+	{key: "OTEL_EXPORTER_OTLP_ENDPOINT", apply: str(func(c *Config) *string { return &c.Tracing.Endpoint })},
+	{key: "OTEL_SERVICE_NAME", apply: func(c *Config, v string) error {
+		c.Tracing.ServiceName = cmp.Or(strings.TrimSpace(v), "pi-durable-platform")
+		return nil
+	}},
+	{key: "OTEL_TRACES_SAMPLER_ARG", apply: ratio(func(c *Config) *float64 { return &c.Tracing.SampleRatio })},
 	{key: "DATABASE_URL", secret: true, apply: str(func(c *Config) *string { return &c.DatabaseURL })},
 	{key: "MIGRATE_ON_START", apply: boolean(func(c *Config) *bool { return &c.MigrateOnStart })},
 	{key: "INSTANCE_NAME", apply: func(c *Config, v string) error {

@@ -107,9 +107,34 @@ session and no shared disk ([docs/replicas.md](../docs/replicas.md) has the inve
 - **PostgreSQL** and its backups (see above).
 - The **ingress controller, TLS certificates** and DNS.
 - **Agent Sandbox's controller and CRDs** (for that launcher).
-- **Metrics**, dashboards and tracing (not built yet).
+- **Prometheus, Grafana and a tracing backend** (the chart ships what they need: see Monitoring).
 - **Direct-mode providers and MCP servers on private addresses**: agents may reach only the database, the gateway and
   DNS. Give them more with `networkPolicy.agents.extraEgress` (and the platform's with `networkPolicy.egress.extra`).
+
+## Monitoring
+
+The platform exports Prometheus metrics on a port of its own and, if you ask, OpenTelemetry traces (DESIGN.md,
+[Observability](../DESIGN.md#observability)).
+
+- **Metrics.** The chart enables them (`metrics.enabled`, port `metrics` 9090, a Service `<release>-metrics`). The port
+  has no authentication and is not behind the Ingress. Nothing may reach it until you allow your scraper with
+  `networkPolicy.metrics.from` (peers as in NetworkPolicy `from`).
+  - With the **Prometheus Operator**: `metrics.serviceMonitor.enabled=true` (set `metrics.serviceMonitor.labels` to
+    what your Prometheus selects by, and `namespace` if it only watches one).
+  - Without it (Grafana Alloy, a plain Prometheus): scrape the endpoints of the Service `<release>-metrics`, port
+    `metrics`, path `/metrics`; or use `kubernetes_sd` on the pods' container port named `metrics`. Annotation-based
+    discovery is not set up: nothing is annotated.
+  - Kustomize: `components/monitoring` (ServiceMonitor, the scraper's NetworkPolicy to patch, the dashboard).
+- **Dashboard.** `deploy/grafana/pi-durable-platform.json` (import it, or `metrics.dashboard.enabled=true` for a
+  ConfigMap labelled `grafana_dashboard: "1"`, which Grafana's dashboard sidecar loads; `metrics.dashboard.annotations`
+  can set the folder). Its data source is a variable: pick your Prometheus or Mimir.
+- **Alerts.** `deploy/grafana/alerts.yaml` is an example PrometheusRule (wake failures and slowness, 5xx ratio, model
+  proxy errors, database pool exhaustion, stalled loops, idle agents never reaped). For a Mimir or Prometheus rule file
+  take `spec.groups`: `yq '{"groups": .spec.groups}' deploy/grafana/alerts.yaml`.
+- **Traces.** Set `tracing.otlpEndpoint` to an OTLP/HTTP collector's base URL (for example
+  `http://tempo.observability.svc:4318`; HTTP only, not gRPC) and allow the egress in
+  `networkPolicy.egress.tracing.to`. `tracing.serviceName` and `tracing.sampleRatio` are optional; give the exporter
+  authentication headers through `extraEnv` (`OTEL_EXPORTER_OTLP_HEADERS`, from a Secret).
 
 ## Upgrading
 

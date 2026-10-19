@@ -87,6 +87,14 @@ spec:
         - { protocol: TCP, port: {{ . }} }
         {{- end }}
     {{- end }}
+    {{- with $np.egress.tracing.to }}
+    - to:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        {{- range $np.egress.tracing.ports }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
+    {{- end }}
     {{- with $np.egress.extra }}
     {{- toYaml . | nindent 4 }}
     {{- end }}

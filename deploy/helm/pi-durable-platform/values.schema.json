@@ -200,6 +200,46 @@
     "affinity": { "type": "object" },
     "topologySpreadConstraints": { "type": "array", "items": { "type": "object" } },
     "priorityClassName": { "type": "string" },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "port": { "type": "integer", "minimum": 1024, "maximum": 65535, "not": { "enum": [8098, 8099, 4100] } },
+        "serviceMonitor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "namespace": { "type": "string" },
+            "labels": { "type": "object", "additionalProperties": { "type": "string" } },
+            "interval": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
+            "scrapeTimeout": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
+            "relabelings": { "type": "array", "items": { "type": "object" } },
+            "metricRelabelings": { "type": "array", "items": { "type": "object" } }
+          }
+        },
+        "dashboard": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "namespace": { "type": "string" },
+            "labels": { "type": "object", "additionalProperties": { "type": "string" } },
+            "annotations": { "type": "object", "additionalProperties": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "tracing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "otlpEndpoint": { "type": "string", "pattern": "^(https?://[^\\s]+)?$", "description": "The OTLP/HTTP collector's base URL; empty: tracing off." },
+        "serviceName": { "type": "string" },
+        "sampleRatio": { "type": ["string", "number"], "description": "0 to 1." }
+      }
+    },
     "networkPolicy": {
       "type": "object",
       "additionalProperties": false,
@@ -239,6 +279,13 @@
             "from": { "type": "array", "items": { "type": "object" }, "minItems": 1 }
           }
         },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "from": { "type": "array", "items": { "type": "object" } }
+          }
+        },
         "egress": {
           "type": "object",
           "additionalProperties": false,
@@ -252,7 +299,15 @@
                 "except": { "type": "array", "items": { "type": "string" } }
               }
             },
-            "extra": { "type": "array", "items": { "type": "object" } }
+            "extra": { "type": "array", "items": { "type": "object" } },
+            "tracing": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "to": { "type": "array", "items": { "type": "object" } },
+                "ports": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 65535 }, "minItems": 1 }
+              }
+            }
           }
         },
         "agents": {

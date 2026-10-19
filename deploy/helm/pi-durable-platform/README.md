@@ -109,6 +109,10 @@ The database is yours.
 | `agentSandbox.*` | warm pool size, names, runtime resources |
 | `ingress.*` | class, host (default: `appUrl`'s), path, TLS, annotations |
 | `networkPolicy.*` | flavor (`standard` or `cilium`), `kubeApiServer.cidrs`, `database` (pod labels or CIDRs), `ingress.from`, public HTTPS egress, extra egress rules for the platform and for agents |
+| `metrics.*` | `enabled` (default on), `port` (9090), `serviceMonitor.*` (Prometheus Operator: namespace, labels, interval, relabelings), `dashboard.*` (the Grafana dashboard as a ConfigMap for the sidecar, off by default) |
+| `tracing.*` | `otlpEndpoint` (an OTLP/HTTP collector's base URL; empty: tracing off), `serviceName`, `sampleRatio` |
+| `networkPolicy.metrics.from` | who may reach the metrics port (peers as in NetworkPolicy `from`); nobody by default |
+| `networkPolicy.egress.tracing` | the in-cluster collector (`to`, `ports`) |
 | `resources`, `podSecurityContext`, `securityContext` | defaults are restricted: non-root, read-only root, no capabilities, seccomp |
 | `replicaCount` | 1 by default; 2 is the supported setup for staying up through drains and rollouts: it rolls one pod at a time with none missing and spreads pods over nodes and zones ([Replicas](../../README.md#replicas), `ci/replicas.yaml`) |
 | `podDisruptionBudget.*` | off by default (one replica: a budget of `minAvailable: 1` blocks node drains); turn it on with `replicaCount: 2`, `minAvailable: 1` |
@@ -128,6 +132,34 @@ The ConfigMap holds every non-secret setting; the pod restarts when it changes (
   denies by default, see [`deploy/examples/cloudnative-pg/network-policies.yaml`](../../examples/cloudnative-pg/network-policies.yaml).
 - The chart's policies select the platform's own pods in its namespace, and every pod in the agents namespace.
 - `networkPolicy.enabled: false` removes them all (agents are then not isolated).
+
+## Metrics and traces
+
+`metrics.enabled` (default) makes the platform serve `/metrics` on `metrics.port` and nothing else: a container port
+named `metrics`, a Service `<release>-metrics` (not the web Service) and no Ingress. The port has no authentication, so
+the chart creates no ingress rule for it until you name the scraper in `networkPolicy.metrics.from`:
+
+```yaml
+networkPolicy:
+  metrics:
+    from:
+      - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } }
+        podSelector: { matchLabels: { app.kubernetes.io/name: prometheus } }
+  egress:
+    tracing:   # lets the platform pods reach the collector
+      to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: observability } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: tempo } }
+metrics:
+  serviceMonitor: { enabled: true, labels: { release: kube-prometheus-stack } }   # Prometheus Operator only
+  dashboard: { enabled: true }                                                      # ConfigMap grafana_dashboard: "1"
+tracing:
+  otlpEndpoint: http://tempo.observability.svc:4318
+```
+
+`files/pi-durable-platform-dashboard.json` is a link to `deploy/grafana/pi-durable-platform.json` (Helm includes the
+file it points to when it lints, templates and packages). See [deploy/README.md](../../README.md#monitoring) and
+DESIGN.md, Observability.
 
 ## Development
 

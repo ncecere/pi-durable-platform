@@ -67,6 +67,8 @@ refuses "replicaCount" "${ok_values[@]}" --set replicaCount=0
 refuses "launcher" "${ok_values[@]}" --set agents.launcher=local
 refuses "flavor" "${ok_values[@]}" --set networkPolicy.flavor=calico
 refuses "digest" "${ok_values[@]}" --set images.platform.digest=latest
+refuses "metrics" "${ok_values[@]}" --set metrics.port=8098
+refuses "otlpEndpoint" "${ok_values[@]}" --set tracing.otlpEndpoint=tempo:4318
 
 step "chart: replicas"
 # One replica is replaced (Recreate) with nothing added; several roll one pod at a
@@ -85,7 +87,7 @@ render_deploy --set replicaCount=3 --set 'topologySpreadConstraints[0].maxSkew=2
 echo "ok: replicas"
 
 step "kustomize"
-for d in overlays/kubernetes overlays/agent-sandbox overlays/agent-sandbox-cold examples/production examples/cilium; do
+for d in overlays/kubernetes overlays/agent-sandbox overlays/agent-sandbox-cold examples/production examples/cilium examples/monitoring; do
   kubectl kustomize "$kz/$d" >"$tmp/kustomize-$(echo "$d" | tr / -).yaml" || fail "kustomize build $d"
   echo "ok: $d"
 done

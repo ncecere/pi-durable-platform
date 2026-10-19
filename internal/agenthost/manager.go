@@ -18,7 +18,12 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/ncecere/pi-durable-platform/internal/agenthost/launcher"
+	"github.com/ncecere/pi-durable-platform/internal/metrics"
+	"github.com/ncecere/pi-durable-platform/internal/tracing"
 )
 
 // Locker takes named locks shared by every platform replica (PostgreSQL
@@ -58,6 +63,9 @@ type Manager struct {
 	log      *slog.Logger
 	client   *http.Client
 	locker   Locker
+
+	// Metrics counts wakes, hibernations and the agents running (nil: none).
+	Metrics *metrics.Metrics
 
 	// Resolve returns an agent's current spec (used by the reaper to find a
 	// runtime's token after a platform restart). Optional.
@@ -100,14 +108,53 @@ func (m *Manager) SetLocker(l Locker) { m.locker = l }
 
 func (m *Manager) Launcher() launcher.Launcher { return m.launcher }
 
-// Wake starts the agent if needed and returns its endpoint.
+// Wake starts the agent if needed and returns its endpoint. The launcher's
+// mode, how the runtime was obtained and the result are counted and timed
+// (the fast path of an agent that is already running too: its start is
+// "running").
+func (m *Manager) Wake(ctx context.Context, spec launcher.Spec) (launcher.Endpoint, error) {
+	m.touch(spec.AgentID)
+	kind := m.launcher.Kind()
+	ctx, span := tracing.Start(ctx, "agent.wake", trace.SpanKindInternal,
+		attribute.String("pdp.launcher", metrics.LauncherMode(kind)), attribute.String("pdp.agent.id", spec.AgentID))
+	defer span.End()
+	ctx, outcome := launcher.WithOutcome(ctx)
+	began := time.Now()
+	ep, err := m.wake(ctx, spec)
+	start, result := outcome.Start(), wakeResult(err)
+	if start == "" {
+		start = launcher.StartRunning
+		if err != nil {
+			start = "unknown"
+		}
+	}
+	span.SetAttributes(attribute.String("pdp.wake.start", start), attribute.String("pdp.wake.result", result))
+	if err != nil {
+		tracing.Fail(span, result)
+	}
+	m.Metrics.Wake(kind, start, result, time.Since(began))
+	return ep, err
+}
+
+func wakeResult(err error) string {
+	switch {
+	case err == nil:
+		return "ok"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	}
+	return "error"
+}
+
+// wake is Wake without the instrumentation.
 //
 // A running agent costs one Lookup. Starting one happens under a database
 // lock per agent, so two replicas waking it at the same moment start one
 // runtime: the second waits, then finds it running. The launcher's Ensure is
 // idempotent and runs under the lock, which is the re-check.
-func (m *Manager) Wake(ctx context.Context, spec launcher.Spec) (launcher.Endpoint, error) {
-	m.touch(spec.AgentID)
+func (m *Manager) wake(ctx context.Context, spec launcher.Spec) (launcher.Endpoint, error) {
 	if m.locker == nil {
 		return m.launcher.Ensure(ctx, spec)
 	}
@@ -170,9 +217,12 @@ func (m *Manager) ungate(agentID string, g *startGate) {
 	}
 }
 
-// Hibernate stops the agent's runtime now.
+// Hibernate stops the agent's runtime now (on request: an explicit hibernate,
+// or a change to the agent that restarts it).
 func (m *Manager) Hibernate(ctx context.Context, agentID string) error {
-	return m.launcher.Stop(ctx, agentID)
+	err := m.launcher.Stop(ctx, agentID)
+	m.Metrics.Hibernation("request", err)
+	return err
 }
 
 // Remove stops the agent and deletes what its launcher keeps for it.
@@ -234,6 +284,13 @@ func (m *Manager) Proxy(w http.ResponseWriter, r *http.Request, spec launcher.Sp
 			m.mu.Unlock()
 		}()
 	}
+	// The relay to the runtime is a span of its own; its trace context goes
+	// to the runtime (traceparent), so a request can be followed from the
+	// API to the runtime if the runtime logs or continues it.
+	ctx, span := tracing.Start(r.Context(), "agent.runtime_request", trace.SpanKindClient,
+		attribute.String("http.request.method", metrics.Method(r.Method)), attribute.String("pdp.agent.id", spec.AgentID))
+	defer span.End()
+	r = r.WithContext(ctx)
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.Out.URL.Scheme = target.Scheme
@@ -248,9 +305,11 @@ func (m *Manager) Proxy(w http.ResponseWriter, r *http.Request, spec launcher.Sp
 				pr.Out.Header.Set("Content-Type", contentType)
 			}
 			pr.Out.Header.Set("Authorization", "Bearer "+ep.Token)
+			tracing.Inject(pr.Out.Context(), pr.Out.Header)
 		},
 		FlushInterval: -1,
 		ModifyResponse: func(resp *http.Response) error {
+			tracing.Status(span, resp.StatusCode, false)
 			for _, h := range []string{"Set-Cookie", "Server", "X-Powered-By"} {
 				resp.Header.Del(h)
 			}
@@ -261,6 +320,7 @@ func (m *Manager) Proxy(w http.ResponseWriter, r *http.Request, spec launcher.Sp
 				return
 			}
 			m.log.Warn("agent proxy failed", "agent", spec.AgentID, "err", err)
+			tracing.Fail(span, "runtime unreachable")
 			writeError(w, http.StatusBadGateway, "agent_unavailable", "The agent did not answer. Try again shortly.")
 		},
 	}
@@ -304,6 +364,7 @@ func (m *Manager) ReapOnce(ctx context.Context) {
 		defer release()
 	}
 	running := m.launcher.Running()
+	m.Metrics.SetAgentsRunning(len(running))
 	m.forgetStopped(running)
 	for agentID, ep := range running {
 		if ctx.Err() != nil {
@@ -345,7 +406,9 @@ func (m *Manager) ReapOnce(ctx context.Context) {
 			continue
 		}
 		m.log.Info("hibernating idle agent", "agent", agentID)
-		if err := m.launcher.Stop(ctx, agentID); err != nil {
+		err = m.launcher.Stop(ctx, agentID)
+		m.Metrics.Hibernation("idle", err)
+		if err != nil {
 			m.log.Warn("hibernate failed", "agent", agentID, "err", err)
 		}
 	}
@@ -371,7 +434,9 @@ func (m *Manager) ReapLoop(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			done := m.Metrics.Loop("reaper")
 			m.ReapOnce(ctx)
+			done(nil)
 		}
 	}
 }

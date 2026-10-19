@@ -14,6 +14,8 @@ import (
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/ncecere/pi-durable-platform/internal/tracing"
 )
 
 // AgentSandbox runs agents with Kubernetes Agent Sandbox
@@ -244,6 +246,7 @@ func (s *AgentSandbox) ensureSandbox(ctx context.Context, spec Spec) (Endpoint, 
 	}
 	switch {
 	case sb == nil:
+		report(ctx, StartCold)
 		if err := s.putSecret(ctx, name, spec); err != nil {
 			return Endpoint{}, err
 		}
@@ -253,6 +256,7 @@ func (s *AgentSandbox) ensureSandbox(ctx context.Context, spec Spec) (Endpoint, 
 	case sb.Metadata.DeletionTimestamp != nil:
 		return Endpoint{}, errors.New("agent sandbox is being deleted")
 	case sb.Spec.OperatingMode == "Suspended":
+		report(ctx, StartCold)
 		// The Secret is refreshed in case the agent's settings changed while it slept.
 		if err := s.putSecret(ctx, name, spec); err != nil {
 			return Endpoint{}, err
@@ -262,8 +266,10 @@ func (s *AgentSandbox) ensureSandbox(ctx context.Context, spec Spec) (Endpoint, 
 		}
 	default:
 		if ip, ok := sb.ready(); ok {
+			report(ctx, StartRunning)
 			return Endpoint{BaseURL: s.runtimeURL(ip), Token: spec.Token}, nil
 		}
+		report(ctx, StartCold) // starting already
 	}
 	for {
 		sb, err := s.getSandbox(ctx, name)
@@ -315,12 +321,16 @@ func (s *AgentSandbox) getSandbox(ctx context.Context, name string) (*sandbox, e
 
 func (s *AgentSandbox) ensureClaimed(ctx context.Context, spec Spec) (Endpoint, error) {
 	name := podName(spec.AgentID)
+	// waited: this call made the claim or saw it not ready yet, so a runtime
+	// is being obtained, not just found running.
+	waited := false
 	for {
 		c, err := s.getClaim(ctx, name)
 		if err != nil {
 			return Endpoint{}, err
 		}
 		if c == nil {
+			waited = true
 			if err := s.createClaim(ctx, name, spec); err != nil && !errors.Is(err, errConflict) {
 				return Endpoint{}, err
 			}
@@ -329,6 +339,7 @@ func (s *AgentSandbox) ensureClaimed(ctx context.Context, spec Spec) (Endpoint, 
 				ep := Endpoint{BaseURL: s.runtimeURL(ip), Token: spec.Token}
 				err := s.activate(ctx, ep.BaseURL, spec)
 				if err == nil {
+					report(ctx, c.start(name, waited))
 					return ep, nil
 				}
 				if !errors.Is(err, ErrOwnedElsewhere) && !errors.Is(err, errNotYet) {
@@ -340,6 +351,7 @@ func (s *AgentSandbox) ensureClaimed(ctx context.Context, spec Spec) (Endpoint, 
 		}
 		// Otherwise: a released claim still being deleted, or a claim waiting
 		// for its runtime.
+		waited = true
 		if err := sleep(ctx, 250*time.Millisecond); err != nil {
 			return Endpoint{}, fmt.Errorf("agent runtime not ready: %w", err)
 		}
@@ -392,6 +404,7 @@ func (s *AgentSandbox) activate(ctx context.Context, base string, spec Spec) err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
+	tracing.Inject(ctx, req.Header)
 	resp, err := s.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %v", errNotYet, err)
@@ -482,6 +495,21 @@ type sandboxClaim struct {
 			PodIPs []string `json:"podIPs"`
 		} `json:"sandbox"`
 	} `json:"status"`
+}
+
+// start says how a ready claim got its runtime: running when this call did
+// not wait for it, else warm when the pool lent a standby sandbox (named by
+// the pool) and pool_miss when the sandbox was created for the claim (the
+// controller names it after the claim).
+func (c *sandboxClaim) start(claimName string, waited bool) string {
+	switch {
+	case !waited:
+		return StartRunning
+	case c.Status.Sandbox.Name != "" && c.Status.Sandbox.Name != claimName:
+		return StartWarm
+	default:
+		return StartPoolMiss
+	}
 }
 
 func (c *sandboxClaim) ready() (string, bool) {

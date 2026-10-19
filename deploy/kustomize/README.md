@@ -12,9 +12,11 @@ The same objects as the [Helm chart](../helm/pi-durable-platform/README.md), for
 | `components/cilium/` | the Kubernetes API egress as a `CiliumNetworkPolicy` (the `kube-apiserver` entity) instead of the base's NetworkPolicy |
 | `components/ingress/` | an Ingress (patch the class and host) |
 | `components/replicas/` | two platform replicas: rolling updates with none missing, spread over nodes and zones (hand-written; the parity check compares it with the chart at `replicaCount: 2`) |
+| `components/monitoring/` | a ServiceMonitor for the metrics Service (needs the Prometheus Operator's CRDs), the NetworkPolicy that lets your scraper reach the metrics port (patch its `from`; the base allows nobody) and the Grafana dashboard as a ConfigMap |
 | `components/pod-disruption-budget/`, `components/resourcequota/` | a PodDisruptionBudget (use it with `components/replicas`); a quota for the agents namespace |
 | `examples/production/` | Agent Sandbox + ingress with TLS + two replicas with a PodDisruptionBudget + quota, images by digest, single sign-on settings |
 | `examples/cilium/` | the `kubernetes` launcher on Cilium |
+| `examples/monitoring/` | the `kubernetes` launcher with `components/monitoring` |
 | `generate/` | the Helm values the generated files come from (do not edit the generated files: edit the chart and run `deploy/scripts/generate-kustomize.sh`) |
 
 ## Use

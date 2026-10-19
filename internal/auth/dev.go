@@ -92,6 +92,7 @@ func (s *Service) DevLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	var in apitypes.DevLoginRequest
 	if !httpx.Decode(w, r, &in) {
+		s.metrics.SignIn("dev", "failure", "invalid")
 		return
 	}
 	var acct *apitypes.DevAccount
@@ -102,6 +103,7 @@ func (s *Service) DevLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if acct == nil {
+		s.metrics.SignIn("dev", "failure", "invalid")
 		httpx.Error(w, http.StatusBadRequest, "unknown_account", "Unknown development account")
 		return
 	}
@@ -114,11 +116,14 @@ func (s *Service) DevLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := s.completeLogin(r.Context(), w, r, li); err != nil {
 		if errors.Is(err, errSuspended) {
+			s.metrics.SignIn("dev", "failure", "denied")
 			httpx.Error(w, http.StatusForbidden, "user_suspended", "This account is suspended")
 			return
 		}
+		s.metrics.SignIn("dev", "failure", "error")
 		httpx.Internal(w, r, err)
 		return
 	}
+	s.metrics.SignIn("dev", "success", "")
 	httpx.JSON(w, http.StatusOK, apitypes.Ok{Ok: true})
 }

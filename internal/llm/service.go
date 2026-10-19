@@ -19,6 +19,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/apperr"
 	"github.com/ncecere/pi-durable-platform/internal/audit"
 	"github.com/ncecere/pi-durable-platform/internal/authz"
+	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
@@ -64,6 +65,8 @@ type Service struct {
 	team *teamnet.Guard
 	// settingsChanged run after the model settings change.
 	settingsChanged []func()
+	// Metrics counts the model proxy's requests and tokens (nil: none).
+	Metrics *metrics.Metrics
 }
 
 // New returns a Service. Team providers are reached through the address

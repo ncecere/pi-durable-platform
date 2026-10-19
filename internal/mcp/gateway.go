@@ -12,10 +12,15 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
+	"github.com/ncecere/pi-durable-platform/internal/httpx"
+	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/netguard"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
+	"github.com/ncecere/pi-durable-platform/internal/tracing"
 )
 
 // Agent is an authenticated agent, as the gateway needs it.
@@ -192,6 +197,9 @@ type target struct {
 	client     bool
 	// team: a team's own server, reached through the address guard.
 	team bool
+	// metric is the server's label in the metrics and traces: the slug of
+	// a platform server, metrics.ServerTeam or metrics.ServerApp.
+	metric string
 }
 
 func (s *Service) resolveTarget(ctx context.Context, ag Agent, kind string, id uuid.UUID) (target, bool, error) {
@@ -207,7 +215,7 @@ func (s *Service) resolveTarget(ctx context.Context, ag Agent, kind string, id u
 			return target{}, false, nil
 		}
 		headers, err := s.open(r.HeadersEnc, threadAD(r.ID))
-		return target{url: r.URL, headers: headers, serverName: clientServerName(r.Name), client: true}, true, err
+		return target{url: r.URL, headers: headers, serverName: clientServerName(r.Name), client: true, metric: metrics.ServerApp}, true, err
 	}
 	vm, err := s.q.GetTemplateVersionMCP(ctx, dbgen.GetTemplateVersionMCPParams{TemplateID: ag.TemplateID, Version: ag.Version, ServerID: id})
 	if errors.Is(store.NotFound(err), store.ErrNotFound) {
@@ -224,7 +232,10 @@ func (s *Service) resolveTarget(ctx context.Context, ag Agent, kind string, id u
 		return target{}, false, err
 	}
 	headers, err := s.open(m.HeadersEnc, serverAD(m.ID))
-	t := target{url: m.URL, headers: headers, serverID: uuid.NullUUID{UUID: m.ID, Valid: true}, serverName: m.Name, team: m.TeamID.Valid}
+	t := target{url: m.URL, headers: headers, serverID: uuid.NullUUID{UUID: m.ID, Valid: true}, serverName: m.Name, team: m.TeamID.Valid, metric: m.Slug}
+	if m.TeamID.Valid {
+		t.metric = metrics.ServerTeam
+	}
 	if vm.Tools != nil {
 		t.allowed = map[string]bool{}
 		for _, name := range vm.Tools {
@@ -244,7 +255,16 @@ type rpcCall struct {
 	} `json:"params"`
 }
 
+// proxy counts and times the request (by server once it is known).
 func (s *Service) proxy(w http.ResponseWriter, r *http.Request, ag Agent, kind string, log *slog.Logger) {
+	began := time.Now()
+	sw := httpx.NewStatusWriter(w)
+	server := ""
+	defer func() { s.Metrics.MCPRequest(server, sw.Status(), time.Since(began)) }()
+	s.relay(sw, r, ag, kind, log, func(label string) { server = label })
+}
+
+func (s *Service) relay(w http.ResponseWriter, r *http.Request, ag Agent, kind string, log *slog.Logger, known func(server string)) {
 	ctx := r.Context()
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
@@ -261,6 +281,7 @@ func (s *Service) proxy(w http.ResponseWriter, r *http.Request, ag Agent, kind s
 		gatewayError(w, http.StatusForbidden, "mcp_server_not_allowed", "This agent may not use that MCP server")
 		return
 	}
+	known(t.metric)
 	var body []byte
 	var calls []string
 	if r.Method == http.MethodPost {
@@ -286,6 +307,7 @@ func (s *Service) proxy(w http.ResponseWriter, r *http.Request, ag Agent, kind s
 				continue
 			}
 			if t.allowed != nil && !t.allowed[m.Params.Name] {
+				s.Metrics.MCPToolCalls(t.metric, "denied", 1)
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": m.ID,
 					"error": map[string]any{"code": -32602, "message": "This agent may not use the tool " + m.Params.Name}})
@@ -315,8 +337,20 @@ func (s *Service) proxy(w http.ResponseWriter, r *http.Request, ag Agent, kind s
 	if t.team {
 		client = s.team.Client()
 	}
+	// The upstream call is a span of its own (the server's label and the
+	// names of the tools called, never arguments, headers or the URL), and
+	// carries the trace context to the server.
+	spanAttrs := []attribute.KeyValue{attribute.String("pdp.mcp.server", t.metric), attribute.Int("pdp.mcp.tool_calls", len(calls))}
+	if len(calls) > 0 {
+		spanAttrs = append(spanAttrs, attribute.StringSlice("pdp.mcp.tools", spanTools(calls)))
+	}
+	uctx, span := tracing.Start(ctx, "mcp.upstream", trace.SpanKindClient, spanAttrs...)
+	defer span.End()
+	up = up.WithContext(uctx)
+	tracing.Inject(uctx, up.Header)
 	resp, err := client.Do(up)
 	if err != nil {
+		tracing.Fail(span, "upstream unreachable")
 		if errors.Is(err, netguard.ErrBlockedAddress) {
 			// A team server's host now resolves outside what teams may reach.
 			log.Warn("mcp proxy: team server address not allowed", "server", t.serverName, "err", errors.Unwrap(err))
@@ -332,6 +366,7 @@ func (s *Service) proxy(w http.ResponseWriter, r *http.Request, ag Agent, kind s
 		return
 	}
 	defer resp.Body.Close()
+	tracing.Status(span, resp.StatusCode, false)
 	for k, vs := range resp.Header {
 		switch strings.ToLower(k) {
 		case "content-length", "content-encoding", "set-cookie", "connection", "keep-alive", "transfer-encoding", "trailer", "upgrade":
@@ -365,6 +400,11 @@ func (s *Service) logCalls(ag Agent, t target, calls []string, ok bool, started 
 	if len(calls) == 0 {
 		return
 	}
+	result := "ok"
+	if !ok {
+		result = "error"
+	}
+	s.Metrics.MCPToolCalls(t.metric, result, len(calls))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for _, tool := range calls {
@@ -374,4 +414,13 @@ func (s *Service) logCalls(ag Agent, t target, calls []string, ok bool, started 
 			log.Warn("mcp proxy: log call", "err", err)
 		}
 	}
+}
+
+// spanTools are the tool names of a call for a span: truncated, and at most 16.
+func spanTools(calls []string) []string {
+	out := make([]string, 0, min(len(calls), 16))
+	for _, c := range calls[:min(len(calls), 16)] {
+		out = append(out, truncate(c, 128))
+	}
+	return out
 }

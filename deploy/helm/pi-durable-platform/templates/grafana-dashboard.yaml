@@ -1,0 +1,22 @@
+{{- if .Values.metrics.dashboard.enabled }}
+{{- $d := .Values.metrics.dashboard }}
+# The dashboard (deploy/grafana/pi-durable-platform.json, linked into the chart
+# as files/pi-durable-platform-dashboard.json) for Grafana's dashboard sidecar.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pdp.fullname" . }}-dashboard
+  namespace: {{ default .Release.Namespace $d.namespace }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+    {{- with $d.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $d.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  pi-durable-platform.json: |-
+    {{- .Files.Get "files/pi-durable-platform-dashboard.json" | trim | nindent 4 }}
+{{- end }}

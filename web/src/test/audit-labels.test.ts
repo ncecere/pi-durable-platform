@@ -22,7 +22,13 @@ const sources = goSources(internal).map((f) => readFileSync(f, "utf8"));
 const matches = (re: RegExp) => [...new Set(sources.flatMap((src) => [...src.matchAll(re)].map((m) => m[1]!)))].sort();
 
 /** Dotted string literals in the Go code that aren't audit actions. */
-const notActions = new Set(["ca.crt", "index.html"]);
+const notActions = new Set([
+  "ca.crt",
+  "index.html",
+  // Telemetry (internal/tracing, internal/metrics): span and attribute names, not audit actions.
+  "agent.runtime_request", "agent.wake", "mcp.upstream", "model.upstream",
+  "http.route", "pdp.launcher", "pdp.listener", "pdp.model", "pdp.request_id", "service.name", "service.version",
+]);
 /** Every action recorded at v0.1.0 (the scan must find at least these: a floor for the scan itself). */
 const knownActions = [
   "agent.create", "agent.delete", "agent.update",

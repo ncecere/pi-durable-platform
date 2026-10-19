@@ -173,7 +173,12 @@ func (s *Service) RunGroupRecheck(ctx context.Context) {
 	t := time.NewTicker(tick)
 	defer t.Stop()
 	for {
-		if _, err := s.RecheckGroups(ctx); err != nil && ctx.Err() == nil {
+		done := s.metrics.Loop("group_recheck")
+		_, err := s.RecheckGroups(ctx)
+		if ctx.Err() == nil {
+			done(err)
+		}
+		if err != nil && ctx.Err() == nil {
 			s.log.Warn("group re-check failed", "err", err)
 		}
 		select {
