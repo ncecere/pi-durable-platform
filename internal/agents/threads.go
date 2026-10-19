@@ -729,11 +729,89 @@ func (s *Service) announce(ctx context.Context, t Thread) {
 type threadHub struct {
 	mu   sync.Mutex
 	subs map[chan ThreadEvent]struct{}
+	// recheck is how often an open stream checks its person's access again
+	// (0: DefaultStreamRecheck).
+	recheck time.Duration
+}
+
+// DefaultStreamRecheck is how often an open event stream checks again that
+// its person may still read it.
+const DefaultStreamRecheck = 30 * time.Second
+
+// SetStreamRecheck sets how often an open event stream checks its person's
+// access again (non-positive: DefaultStreamRecheck). Call it before streams
+// open.
+func (s *Service) SetStreamRecheck(d time.Duration) { s.hub.recheck = d }
+
+func (s *Service) streamRecheck() time.Duration {
+	if s.hub.recheck > 0 {
+		return s.hub.recheck
+	}
+	return DefaultStreamRecheck
+}
+
+// streamAllowed re-checks a stream's access: the person is still active (not
+// suspended, not denied by the group re-check; gone counts as not) and, for a
+// stream of one agent, may still use it (team membership and role). A check
+// that fails for any other reason (the database) keeps the stream: the next
+// tick asks again. Service accounts are checked for the agent only (their
+// role and team are those of their key at connect time).
+func (s *Service) streamAllowed(ctx context.Context, a authz.Actor, only *uuid.UUID) bool {
+	if a.Service == nil && a.UserID != uuid.Nil {
+		u, err := s.q.GetUser(ctx, a.UserID)
+		if errors.Is(store.NotFound(err), store.ErrNotFound) {
+			return false
+		} else if err == nil && !store.IsUserActive(u) {
+			return false
+		}
+	}
+	if only != nil {
+		if _, err := s.usable(ctx, a, *only); err != nil {
+			if ae, ok := apperr.As(err); ok && ae.Status < 500 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// WatchStreamAccess runs until ctx ends, calling stop (once) when the actor
+// may no longer follow a thread's event stream: they are no longer active
+// (suspended, or denied by the group re-check), may no longer use the agent
+// (removed from its team, a lower role, the agent gone), or the thread is
+// another's private one. It checks every StreamRecheck; use it for streams the
+// platform only relays (a thread's events come from the agent's runtime).
+func (s *Service) WatchStreamAccess(ctx context.Context, a authz.Actor, agentID uuid.UUID, threadID string, stop func()) {
+	tick := time.NewTicker(s.streamRecheck())
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		ok := s.streamAllowed(ctx, a, &agentID)
+		if ok {
+			if err := s.ThreadAccess(ctx, a, agentID, threadID); err != nil {
+				if ae, isApp := apperr.As(err); isApp && ae.Status < 500 {
+					ok = false
+				}
+			}
+		}
+		if !ok {
+			stop()
+			return
+		}
+	}
 }
 
 // SubscribeThreads returns changes to threads of agents the actor may use (or
 // one of them, with only), until ctx ends: shared threads and the actor's
-// own private ones.
+// own private ones. Access is decided when the stream opens and checked
+// again every StreamRecheck (SetStreamRecheck): the channel is closed when the
+// person is no longer active or, for a stream of one agent, may no longer use
+// it; a stream of all their agents stops carrying an agent's threads when they
+// can no longer use it.
 func (s *Service) SubscribeThreads(ctx context.Context, a authz.Actor, only *uuid.UUID) <-chan ThreadEvent {
 	raw := make(chan ThreadEvent, 64)
 	s.hub.mu.Lock()
@@ -749,11 +827,18 @@ func (s *Service) SubscribeThreads(ctx context.Context, a authz.Actor, only *uui
 			s.hub.mu.Unlock()
 			s.Metrics.ThreadSubscribers(-1)
 		}()
-		allowed := map[uuid.UUID]bool{} // per agent, decided once per stream
+		allowed := map[uuid.UUID]bool{} // per agent, decided again after every tick
+		tick := time.NewTicker(s.streamRecheck())
+		defer tick.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
+			case <-tick.C:
+				if !s.streamAllowed(ctx, a, only) {
+					return
+				}
+				clear(allowed)
 			case ev := <-raw:
 				if only != nil && ev.AgentID != *only {
 					continue

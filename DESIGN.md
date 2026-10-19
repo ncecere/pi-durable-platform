@@ -108,8 +108,8 @@ again, with no credentials of its own to the IdP and no SCIM:
   (`store.IsUserActive`: sessions, personal API keys, app access tokens, refresh and authorization, the OAuth
   consent page, the last-admin guard). Denying also deletes their sessions, revokes their connected apps (grants
   and tokens; reason `access_denied`) and forgets the kept refresh token; their API keys are not revoked (they stop
-  working while denied), and their data, team memberships and agents stay. An event stream already open is not closed
-  (as with a suspension): every new request is refused.
+  working while denied), and their data, team memberships and agents stay. An event stream already open ends at its
+  next access check (every 30 s, see Threads), like one of a suspended person; every new request is refused.
 - *Coming back.* Signing in applies the rule afresh; when it passes, the denial is cleared (`user.group_restored`)
   and API keys work again (apps must be connected again). A person who is still outside the group can't sign in
   (403 `group_denied`) and nothing changes. Removing `OIDC_ALLOWED_GROUPS` lifts every denial at the next start.
@@ -348,6 +348,15 @@ on `GET /v1/agents/events`.
   delete, the thread's MCP servers), in listings and in event streams, another's private thread reads as not found
   (404 `thread_not_found`, the same as a missing one). A thread the runtime has but the platform has no record of
   (older threads) is shared. Personal workspaces' threads default to shared too: only the owner reaches the agent.
+- **Open streams are re-checked.** Access to an event stream (`GET /v1/agents/events`, with or without `agentId`,
+  and a thread's `…/events`, which relays the runtime's conversation) is decided when it opens and checked again
+  every 30 s (`agents.DefaultStreamRecheck`; one indexed read of the person per stream, plus the agent's team role
+  for a stream of one agent): the stream ends when the person is suspended, denied by the group re-check or deleted,
+  or may no longer use the agent (removed from its team, a lower role), or the thread is another's private one. A
+  stream of all their agents stays open but stops carrying an agent's threads once they can't use it. The reconnect is
+  refused like any request. Without this, titles and participant names would keep flowing for as long as the stream
+  stayed open. Not re-checked: a revoked personal API key, connected app grant or service account key (and its
+  team) behind a stream that is already open; those end with the stream.
 - **Recorded before relaying.** On a thread's first message the platform writes its record (creator, visibility)
   before relaying, so a private thread is never briefly shared; a message the runtime refuses (4xx), or that couldn't
   wake the agent (503), removes the record again unless the runtime has reported the thread since. Other failures

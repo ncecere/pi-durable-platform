@@ -1366,7 +1366,7 @@ export interface paths {
         };
         /**
          * Server-sent events for the threads of every agent the caller may use
-         * @description `event: ready` first, then `event: thread` (an AgentThreadEvent) whenever a thread is created, renamed, starts or finishes a reply, or is deleted. One stream follows every conversation, so a client need not open one per thread (shared threads and the caller's own private ones). `agentId` limits it to one agent; `once=true` sends `ready` and ends. A keep-alive comment comes every 15 seconds; reconnect when the stream ends (it does when the platform restarts).
+         * @description `event: ready` first, then `event: thread` (an AgentThreadEvent) whenever a thread is created, renamed, starts or finishes a reply, or is deleted. One stream follows every conversation, so a client need not open one per thread (shared threads and the caller's own private ones). `agentId` limits it to one agent; `once=true` sends `ready` and ends. A keep-alive comment comes every 15 seconds; reconnect when the stream ends (it does when the platform restarts). Access is checked again every 30 seconds: the stream ends for a caller who is no longer active (suspended, or denied by the group re-check) or, with `agentId`, no longer allowed to use the agent (the reconnect is then refused); a stream of all agents stops carrying the threads of an agent the caller can no longer use.
          */
         get: operations["streamAgentEvents"];
         put?: never;
@@ -1681,7 +1681,9 @@ export interface paths {
         };
         /**
          * Server-sent events with the conversation's view after every change
-         * @description Each `view` event's data is a ChatView (JSON). The stream keeps the agent awake while open.
+         * @description Each `view` event's data is a ChatView (JSON). The stream keeps the agent awake while open. Access is checked
+         *     again every 30 seconds: the stream ends when the caller is no longer active (suspended, or denied by the
+         *     group re-check), may no longer use the agent, or the thread is another's private one.
          */
         get: operations["streamAgentThread"];
         put?: never;

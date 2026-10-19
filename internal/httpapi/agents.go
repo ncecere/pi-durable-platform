@@ -194,6 +194,14 @@ func (a *api) agentProxy(suffix string) http.HandlerFunc {
 		} else if failed(w, r, a.Agents.ThreadAccess(r.Context(), a.actor(r), id, r.PathValue("threadId"))) {
 			return
 		}
+		if suffix == "/events" && r.Method == http.MethodGet {
+			// An open stream is cut when its person's access ends (denied, suspended,
+			// removed from the team): access was decided once, above.
+			ctx, cancel := context.WithCancel(r.Context())
+			defer cancel()
+			go a.Agents.WatchStreamAccess(ctx, a.actor(r), id, r.PathValue("threadId"), cancel)
+			r = r.WithContext(ctx)
+		}
 		rec := &statusRecorder{ResponseWriter: w}
 		a.Agents.Host().Proxy(rec, r, spec, path)
 		// Keep the platform's record of the thread (agent_threads) in step.
