@@ -1,0 +1,124 @@
+# Example alerts for Pi Durable Platform, as a PrometheusRule (Prometheus
+# Operator). Copy it, change the namespace and the labels your Prometheus
+# selects rules by, and tune the thresholds to your load. Every metric is one
+# the platform exports (DESIGN.md, Observability); a test in internal/metrics
+# checks the names and labels here and in the dashboard.
+#
+# For a Mimir ruler, load `spec.groups` with mimirtool (`mimirtool rules load`).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pi-durable-platform
+  namespace: pi-durable-platform
+  labels:
+    app.kubernetes.io/name: pi-durable-platform
+    # release: kube-prometheus-stack   # the label your Prometheus selects rules by
+spec:
+  groups:
+    - name: pi-durable-platform
+      rules:
+        - alert: PdpMetricsMissing
+          expr: absent(pdp_build_info)
+          for: 10m
+          labels: { severity: critical }
+          annotations:
+            summary: No Pi Durable Platform metrics
+            description: Nothing scrapes the platform's metrics port, or no replica is up.
+
+        - alert: PdpAgentWakeFailures
+          expr: |
+            sum(rate(pdp_agent_wakes_total{result=~"error|timeout"}[10m]))
+              / sum(rate(pdp_agent_wakes_total[10m])) > 0.1
+            and sum(rate(pdp_agent_wakes_total{result=~"error|timeout"}[10m])) > 0.01
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: Agents fail to start
+            description: More than 10% of the calls that make sure an agent has a runtime fail or time out (the launcher, an image pull, a quota, the agents database).
+
+        - alert: PdpAgentWakesSlow
+          expr: |
+            histogram_quantile(0.95, sum by (le) (rate(pdp_agent_wake_duration_seconds_bucket{start!="running",result="ok"}[15m]))) > 30
+          for: 15m
+          labels: { severity: warning }
+          annotations:
+            summary: Agent starts are slow
+            description: The 95th percentile of starting an agent's runtime is over 30 seconds. With a warm pool, check its hit ratio on the dashboard.
+
+        - alert: PdpWarmPoolMissing
+          expr: |
+            sum(rate(pdp_warm_pool_claims_total{result="miss"}[30m]))
+              / sum(rate(pdp_warm_pool_claims_total[30m])) > 0.5
+            and sum(rate(pdp_warm_pool_claims_total[30m])) > 0.002
+          for: 30m
+          labels: { severity: info }
+          annotations:
+            summary: The warm pool is mostly empty
+            description: Over half the claims on the Agent Sandbox warm pool had to create a runtime. Grow agentSandbox.warmPool.size.
+
+        - alert: PdpHighServerErrorRatio
+          expr: |
+            sum(rate(pdp_http_requests_total{listener="api",code="5xx"}[10m]))
+              / sum(rate(pdp_http_requests_total{listener="api"}[10m])) > 0.05
+            and sum(rate(pdp_http_requests_total{listener="api",code="5xx"}[10m])) > 0.05
+          for: 10m
+          labels: { severity: critical }
+          annotations:
+            summary: The API answers 5xx
+            description: More than 5% of API requests failed on the server side.
+
+        - alert: PdpModelProxyErrors
+          expr: |
+            sum(rate(pdp_model_proxy_requests_total{code="5xx"}[10m]))
+              / sum(rate(pdp_model_proxy_requests_total[10m])) > 0.1
+            and sum(rate(pdp_model_proxy_requests_total{code="5xx"}[10m])) > 0.02
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: Model providers fail through the proxy
+            description: More than 10% of model proxy requests ended in 5xx (a provider is down or unreachable).
+
+        - alert: PdpDatabasePoolExhausted
+          expr: |
+            max by (pool) (pdp_db_pool_acquired_connections / pdp_db_pool_max_connections) > 0.9
+            and on (pool) sum by (pool) (rate(pdp_db_pool_acquires_waited_total[5m])) > 0
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: A database connection pool is exhausted
+            description: The {{ $labels.pool }} pool is over 90% in use and checkouts are waiting for a connection.
+
+        - alert: PdpBackgroundLoopStalled
+          expr: |
+            time() - max by (loop) (pdp_background_last_success_timestamp_seconds{loop=~"reaper|agent_count"}) > 300
+            or time() - max by (loop) (pdp_background_last_success_timestamp_seconds{loop="cleanup"}) > 3600
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: A background loop has stopped succeeding
+            description: The {{ $labels.loop }} loop has not completed a run lately.
+
+        - alert: PdpIdleAgentsNotReaped
+          expr: |
+            max(pdp_agents_running) > 20
+            and sum(increase(pdp_agent_hibernations_total{reason="idle",result="ok"}[6h])) == 0
+          for: 1h
+          labels: { severity: warning }
+          annotations:
+            summary: Many agents run and none has been hibernated for hours
+            description: More than 20 agents have a runtime and the reaper has hibernated none in six hours. Either they are all busy, or the reaper cannot reach them (agents.idleTimeout, the NetworkPolicy to port 4100).
+
+        - alert: PdpRefreshTokenReuse
+          expr: sum(increase(pdp_oauth_refresh_reuse_revocations_total[1h])) > 5
+          labels: { severity: info }
+          annotations:
+            summary: Connected apps' refresh tokens are being reused
+            description: Several grants were revoked because a refresh token that was already rotated came back (a stolen copy, or an app that loses its tokens).
+
+        - alert: PdpRateLimiting
+          expr: sum by (limiter) (rate(pdp_rate_limit_rejections_total[10m])) > 1
+          for: 15m
+          labels: { severity: info }
+          annotations:
+            summary: Requests are being rate limited
+            description: The {{ $labels.limiter }} limiter has been refusing more than one request per second.
