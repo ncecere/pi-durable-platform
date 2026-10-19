@@ -35,21 +35,26 @@ type Config struct {
 	// service desk request). Optional.
 	TeamRequestURL string
 
+	// DevAuth turns on the development sign-in personas (loopback APP_URL
+	// only).
 	DevAuth    bool
 	OIDC       OIDC
 	SessionTTL time.Duration
 
 	// EncryptionKey (32 bytes, base64) encrypts secrets stored in the
-	// database (internal/secrets). EncryptionKeyPrevious is
-	// the key being rotated away from: values sealed with it still decrypt.
+	// database (internal/secrets): model provider keys and headers, MCP
+	// server headers, and each agent's database password and runtime token.
+	// EncryptionKeyPrevious is the key being rotated away from: values sealed
+	// with it still decrypt, until `pi-durable-platform rekey` has re-sealed
+	// them all under EncryptionKey (`doctor` reports what is left).
 	EncryptionKey         string
 	EncryptionKeyPrevious string
 
-	// APIKeyPepper (32 bytes, base64) keys the HMAC under which personal
-	// API keys are stored; the keys themselves never are.
-	// APIKeyPepperPrevious is the pepper being rotated away from: keys and
-	// service account keys digested with it are still accepted (keys are
-	// re-digested on use).
+	// APIKeyPepper (32 bytes, base64) keys the HMAC under which personal API
+	// keys, service account keys, and OAuth Connect tokens and codes are
+	// stored; the credentials themselves never are.
+	// APIKeyPepperPrevious is the pepper being rotated away from: all of
+	// them digested with it are still accepted (and re-digested on use).
 	APIKeyPepper         string
 	APIKeyPepperPrevious string
 
@@ -61,8 +66,11 @@ type Config struct {
 	// Both are counted in PostgreSQL, shared by every replica.
 	RequestsPerMinute      int
 	LoginAttemptsPerMinute int
-	ShutdownDelay          time.Duration
-	ShutdownTimeout        time.Duration
+	// ShutdownDelay is how long the process stays up, failing readiness,
+	// before it stops accepting requests; ShutdownTimeout is how long
+	// in-flight requests then get to finish.
+	ShutdownDelay   time.Duration
+	ShutdownTimeout time.Duration
 
 	// Agents configures where agents keep their state and how their
 	// runtimes are started.
@@ -103,8 +111,9 @@ type Agents struct {
 	ImagePullSecret string
 	// Agent Sandbox launcher: claim runtimes from this SandboxWarmPool (in
 	// Namespace) and activate them with the pool's RUNTIME_ACTIVATION_TOKEN:
-	// given here, or kept in a Secret in Namespace that the platform creates
-	// if missing. Without a pool, each agent is its own Sandbox.
+	// given as SandboxActivationToken, or kept in the Secret named by
+	// SandboxActivationSecret (in Namespace), which the platform creates if
+	// missing; not both. Without a pool, each agent is its own Sandbox.
 	SandboxWarmPool         string
 	SandboxActivationToken  string
 	SandboxActivationSecret string
@@ -118,7 +127,9 @@ type Agents struct {
 	ClientMCPHosts string
 	ClientMCPMode  string
 	IdleTimeout    time.Duration
-	// Model every agent uses: demo (scripted, no key) or openai-compatible.
+	// The platform's default model, for agents whose template version and
+	// team choose none from the model catalog: demo (scripted, no key) or
+	// openai-compatible. ModelReasoning marks the latter as a reasoning model.
 	ModelProvider  string
 	ModelBaseURL   string
 	ModelAPIKey    string

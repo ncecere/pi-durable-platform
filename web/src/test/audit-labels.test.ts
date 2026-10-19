@@ -33,7 +33,7 @@ const knownActions = [
   "model.create", "model.delete", "model.update",
   "model_provider.create", "model_provider.delete", "model_provider.update",
   "oauth.client_register", "oauth.consent", "oauth.revoke", "oauth.token_issue", "oauth.trusted_clients_update",
-  "platform.bootstrap_role", "platform.model_settings", "platform.personal_settings", "platform.user_reactivate", "platform.user_role_change", "platform.user_suspend", "platform.user_update",
+  "platform.bootstrap_role", "platform.model_settings", "platform.personal_settings", "platform.secrets_rekey", "platform.user_reactivate", "platform.user_role_change", "platform.user_suspend", "platform.user_update",
   "service_account.create", "service_account.delete", "service_account.update",
   "service_account_key.create", "service_account_key.pepper_rehash", "service_account_key.revoke",
   "team.archive", "team.create", "team.invite_accept", "team.invite_create", "team.invite_revoke", "team.member_add", "team.member_leave", "team.member_remove", "team.member_role_change", "team.owner_assign", "team.personal_create", "team.personal_limits", "team.unarchive", "team.update",

@@ -1,9 +1,9 @@
 // Package doctor implements `pi-durable-platform doctor`: the configuration
 // and production safety checks, then PostgreSQL connectivity and the
-// migration state, with timings, then API key pepper rotation: keys still
-// on another pepper, then the agents database (AGENTS_DATABASE_URL): that
-// it answers, that its role may provision agents, and which agent roles
-// belong to no agent. It changes nothing.
+// migration state, with timings, then key rotation (API keys still on another
+// pepper, stored secrets still sealed with the previous encryption key), then
+// the agents database (AGENTS_DATABASE_URL): that it answers, that its role may
+// provision agents, and which agent roles belong to no agent. It changes nothing.
 package doctor
 
 import (
@@ -21,6 +21,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/agenthost/provision"
 	"github.com/ncecere/pi-durable-platform/internal/buildinfo"
 	"github.com/ncecere/pi-durable-platform/internal/config"
+	"github.com/ncecere/pi-durable-platform/internal/rekey"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
@@ -32,6 +33,7 @@ type Status string
 const (
 	OK   Status = "ok"
 	Info Status = "info" // worth knowing
+	Warn Status = "warn" // something to do, but the platform works: doctor still exits zero
 	Fail Status = "fail" // broken: doctor exits non-zero
 )
 
@@ -163,6 +165,7 @@ func (r *runner) postgres(ctx context.Context) *pgxpool.Pool {
 	r.add(c)
 	if r.migrations(cctx, pool) {
 		r.keys(cctx, pool)
+		r.encryption(cctx, pool)
 	}
 	return pool
 }
@@ -350,6 +353,63 @@ func (r *runner) keys(ctx context.Context, pool *pgxpool.Pool) {
 	r.add(c)
 }
 
+// encryption reports the stored secrets by the key they are sealed with
+// (from their key ids; nothing is opened): values still under
+// ENCRYPTION_KEY_PREVIOUS need `rekey`, values under no configured key
+// cannot be read at all.
+func (r *runner) encryption(ctx context.Context, pool *pgxpool.Pool) {
+	cur, err := secrets.ParseKey(r.cfg.EncryptionKey)
+	if err != nil {
+		return // reported by the configuration checks
+	}
+	var prev [][]byte
+	if r.cfg.EncryptionKeyPrevious != "" {
+		p, err := secrets.ParseKey(r.cfg.EncryptionKeyPrevious)
+		if err != nil {
+			return // likewise
+		}
+		prev = append(prev, p)
+	}
+	box, err := secrets.New(cur, prev...)
+	if err != nil {
+		return
+	}
+	start := time.Now()
+	counts, err := rekey.Count(ctx, pool, box)
+	c := Check{Group: "keys", Name: "encryption", Status: OK, DurationMs: millis(time.Since(start))}
+	var current, previous, unreadable int
+	var onPrevious, onNone []string
+	for _, n := range counts {
+		current += n.Current
+		previous += n.Previous
+		unreadable += n.Unreadable
+		if n.Previous > 0 {
+			onPrevious = append(onPrevious, fmt.Sprintf("%s %d", n.Label(), n.Previous))
+		}
+		if n.Unreadable > 0 {
+			onNone = append(onNone, fmt.Sprintf("%s %d", n.Label(), n.Unreadable))
+		}
+	}
+	switch {
+	case err != nil:
+		c.Status, c.Detail = Fail, err.Error()
+	case unreadable > 0:
+		c.Status = Fail
+		c.Detail = fmt.Sprintf("%d stored secret(s) are sealed with neither ENCRYPTION_KEY nor ENCRYPTION_KEY_PREVIOUS and can't be read (%s)", unreadable, strings.Join(onNone, ", "))
+		c.Fix = "Set ENCRYPTION_KEY_PREVIOUS to the key they were sealed with and run pi-durable-platform rekey, or enter those secrets again"
+	case previous > 0:
+		c.Status = Warn
+		c.Detail = fmt.Sprintf("%d stored secret(s) are still sealed with ENCRYPTION_KEY_PREVIOUS (%s)", previous, strings.Join(onPrevious, ", "))
+		c.Fix = "Run pi-durable-platform rekey, then remove ENCRYPTION_KEY_PREVIOUS"
+	case box.HasPrevious():
+		c.Status = Info
+		c.Detail = fmt.Sprintf("no stored secret is sealed with ENCRYPTION_KEY_PREVIOUS (%d under ENCRYPTION_KEY): it can be removed", current)
+	default:
+		c.Detail = fmt.Sprintf("every stored secret (%d) is sealed with ENCRYPTION_KEY", current)
+	}
+	r.add(c)
+}
+
 // migrations reports the migration state; ok when the schema is current.
 func (r *runner) migrations(ctx context.Context, pool *pgxpool.Pool) bool {
 	st, err := store.Migrations(ctx, pool)
@@ -390,7 +450,7 @@ func millis(d time.Duration) float64 {
 	return float64(d.Round(10*time.Microsecond)) / float64(time.Millisecond)
 }
 
-var symbols = map[Status]string{OK: "ok  ", Info: "info", Fail: "FAIL"}
+var symbols = map[Status]string{OK: "ok  ", Info: "info", Warn: "warn", Fail: "FAIL"}
 
 // WriteJSON writes the report as indented JSON.
 func (rep Report) WriteJSON(w io.Writer) error {
@@ -420,7 +480,7 @@ func (rep Report) WriteText(w io.Writer) error {
 	if !rep.OK {
 		verdict = "FAILED"
 	}
-	fmt.Fprintf(&b, "\n%d checks: %d ok, %d info, %d failed. %s\n", len(rep.Checks), counts[OK], counts[Info], counts[Fail], verdict)
+	fmt.Fprintf(&b, "\n%d checks: %d ok, %d info, %d warning, %d failed. %s\n", len(rep.Checks), counts[OK], counts[Info], counts[Warn], counts[Fail], verdict)
 	_, err := io.WriteString(w, b.String())
 	return err
 }

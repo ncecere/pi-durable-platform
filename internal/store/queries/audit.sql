@@ -60,7 +60,8 @@ CROSS JOIN LATERAL (
         WHEN 'model' THEN (SELECT m.name FROM models m WHERE m.id = ids.target_uuid)
         WHEN 'mcp_server' THEN (SELECT s.name FROM mcp_servers s WHERE s.id = ids.target_uuid)
         WHEN 'platform' THEN CASE a.target_id WHEN 'personal-workspaces' THEN 'Personal workspace settings'
-                                              WHEN 'models' THEN 'Model settings' END
+                                              WHEN 'models' THEN 'Model settings'
+                                              WHEN 'secrets' THEN 'Stored secrets' END
         WHEN 'service_account_key' THEN (SELECT sa.name || ' · ' || k.name FROM service_account_keys k
                                          JOIN service_accounts sa ON sa.id = k.service_account_id WHERE k.id = ids.target_uuid)
         WHEN 'oauth_grant' THEN (SELECT og.client_name || ' · ' || COALESCE(NULLIF(gu.display_name, ''), gu.email::text)

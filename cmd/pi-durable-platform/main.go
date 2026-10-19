@@ -4,8 +4,8 @@
 //	pi-durable-platform serve     HTTP API, embedded UI and background loops
 //	pi-durable-platform migrate   apply database migrations and exit
 //	pi-durable-platform doctor    check the configuration, Postgres, migrations and the agents database
-//	pi-durable-platform prune-agent-storage   remove agent storage no agent owns
 //	pi-durable-platform prune-roles           drop agent database roles no agent owns
+//	pi-durable-platform rekey     re-seal every stored secret under the current ENCRYPTION_KEY
 //	pi-durable-platform version   print the version
 package main
 
@@ -25,6 +25,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/buildinfo"
 	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/doctor"
+	"github.com/ncecere/pi-durable-platform/internal/rekey"
 )
 
 const usage = `usage: pi-durable-platform <command>
@@ -39,6 +40,8 @@ commands:
   prune-roles
             drop agent database roles no agent owns, left by a dropped
             agents database (--dry-run, --help)
+  rekey     re-seal every stored secret under the current ENCRYPTION_KEY
+            (--dry-run, --batch, --help)
   version   print the version
 
 Configuration comes from environment variables and the optional YAML file
@@ -73,6 +76,8 @@ func run(args []string) error {
 		return runPrune(args[1:], os.Stdout)
 	case "prune-roles":
 		return runPruneRoles(args[1:], os.Stdout)
+	case "rekey":
+		return runRekey(args[1:], os.Stdout)
 	case app.ModeServe, app.ModeMigrate:
 	default:
 		fmt.Fprint(os.Stderr, usage)
@@ -227,4 +232,72 @@ func runPruneRoles(args []string, stdout io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "%s %d orphaned agent role(s), kept %d\n", verb, len(dropped), len(skipped))
 	return nil
+}
+
+// runRekey implements `pi-durable-platform rekey [--dry-run] [--batch N]`.
+func runRekey(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("rekey", flag.ContinueOnError)
+	dryRun := fs.Bool("dry-run", false, "count the values under each key and check they open, without changing anything")
+	batch := fs.Int("batch", rekey.DefaultBatch, "rows re-sealed per transaction")
+	fs.Usage = func() {
+		fmt.Fprint(fs.Output(), "usage: pi-durable-platform rekey [--dry-run] [--batch N]\n\n"+
+			"Re-seals every stored secret (model provider keys and headers, MCP server and\n"+
+			"thread MCP server headers, each agent's database password and runtime token)\n"+
+			"under ENCRYPTION_KEY, so that ENCRYPTION_KEY_PREVIOUS can be removed. Rotation:\n"+
+			"set the new key as ENCRYPTION_KEY and the old one as ENCRYPTION_KEY_PREVIOUS,\n"+
+			"restart, run this, check `doctor` reports nothing under the previous key.\n\n"+
+			"Safe while the platform is serving, and to repeat or resume after an interrupt.\n"+
+			"If a value opens with neither key, nothing is changed. Writes one audit entry.\n\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); errors.Is(err, flag.ErrHelp) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("rekey takes no arguments (got %q)", fs.Arg(0))
+	}
+	if *batch < 1 || *batch > rekey.MaxBatch {
+		return fmt.Errorf("--batch must be from 1 to %d", rekey.MaxBatch)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("configuration:\n%w", err)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	res, err := app.Rekey(ctx, cfg, rekey.Options{DryRun: *dryRun, Batch: *batch})
+	writeRekey(stdout, res)
+	return err
+}
+
+// writeRekey prints the per-column counts: what is under each key, and what
+// a run did.
+func writeRekey(w io.Writer, res rekey.Result) {
+	if len(res.Columns) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "%-34s %8s %9s %11s", "column", "current", "previous", "unreadable")
+	if !res.DryRun {
+		fmt.Fprintf(w, " %10s %8s", "re-sealed", "changed")
+	}
+	fmt.Fprintln(w)
+	for _, c := range res.Columns {
+		fmt.Fprintf(w, "%-34s %8d %9d %11d", c.Label(), c.Current, c.Previous, c.Unreadable)
+		if !res.DryRun {
+			fmt.Fprintf(w, " %10d %8d", c.Resealed, c.Changed)
+		}
+		fmt.Fprintln(w)
+	}
+	current, previous, unreadable, resealed, changed := res.Totals()
+	switch {
+	case res.DryRun:
+		fmt.Fprintf(w, "\ndry run: %d value(s) under ENCRYPTION_KEY, %d under the previous key (a run would re-seal them), %d unreadable\n", current, previous, unreadable)
+	default:
+		fmt.Fprintf(w, "\nre-sealed %d value(s) under ENCRYPTION_KEY\n", resealed)
+		if changed > 0 {
+			fmt.Fprintf(w, "%d more were saved by someone else meanwhile and left as they saved them: run again to check\n", changed)
+		}
+	}
 }

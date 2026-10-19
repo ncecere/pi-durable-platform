@@ -22,7 +22,7 @@ make web-dev                     # optional: Vite with hot reload on :5176, prox
 - Open http://localhost:8098 and choose a development persona (`admin@localhost` is a platform admin). Development sign-in is refused unless `APP_URL` is a loopback address. Never expose it.
 - Agents use the scripted `demo` model until you configure a model (Admin › Models, or `AGENTS_MODEL_*`).
 - `make deps-down` stops Postgres and keeps its data. `make help` lists every target.
-- Settings come from environment variables (optionally layered over a YAML file named by `PDP_CONFIG_FILE`); [`.env.example`](.env.example) describes the common ones, and `internal/config/settings.go` lists them all.
+- Settings come from environment variables (optionally layered over a YAML file named by `PDP_CONFIG_FILE`); [`.env.example`](.env.example) lists every one (`internal/config` has a test that fails when a setting is read but missing there), and `internal/config/settings.go` is the table.
 - Never commit `.env` or anything else that holds a secret.
 
 ## Tests
