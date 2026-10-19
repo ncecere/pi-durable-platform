@@ -620,6 +620,31 @@ func (s *Service) PruneStorage(ctx context.Context, dryRun bool) ([]string, erro
 	return out, nil
 }
 
+// agentIDStrings lists every agent's ID (the platform's, not the agents database's).
+func (s *Service) agentIDStrings(ctx context.Context) ([]string, error) {
+	ids, err := s.q.AgentIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = id.String()
+	}
+	return out, nil
+}
+
+// PruneRoles drops the agent roles that belong to no agent and have no schema
+// in the agents database (roles are server-wide, so a dropped agents database
+// leaves them behind). With dryRun it lists them. Roles that look like agent
+// roles but aren't safe to drop are returned as skipped, with the reason.
+func (s *Service) PruneRoles(ctx context.Context, dryRun bool) (dropped []string, skipped []provision.SkippedRole, err error) {
+	ids, err := s.agentIDStrings(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return s.prov.PruneRoles(ctx, ids, dryRun)
+}
+
 // DeleteAllStorage removes every agent's storage (tests, before dropping the
 // agents database: database roles outlive it).
 func (s *Service) DeleteAllStorage(ctx context.Context) error { return s.prov.DeleteAll(ctx) }

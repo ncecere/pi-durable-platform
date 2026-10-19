@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ncecere/pi-durable-platform/internal/agenthost/provision"
 	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/doctor"
 	"github.com/ncecere/pi-durable-platform/internal/testutil"
@@ -124,6 +126,70 @@ func TestDoctorAgentsDatabase(t *testing.T) {
 	}
 	if _, ok := find(rep, "agents", "provisioning"); ok {
 		t.Error("provisioning checked without an agents database")
+	}
+}
+
+// Agent roles are server-wide, so a dropped agents database leaves them behind:
+// doctor lists the ones that belong to no agent and no schema, and says how to
+// remove them. The provisioning role is not a superuser, so only roles it made
+// are considered (the server's other roles named like agents' are left alone).
+func TestDoctorOrphanedAgentRoles(t *testing.T) {
+	pool, dbURL := testutil.NewDB(t)
+	ctx := context.Background()
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	role, password := "pdp_doctor_prov_"+suffix, "doctor-test-"+suffix
+	u, _ := url.Parse(dbURL)
+	db := strings.TrimPrefix(u.Path, "/")
+	for _, stmt := range []string{
+		fmt.Sprintf("CREATE ROLE %s LOGIN CREATEROLE PASSWORD '%s'", role, password),
+		fmt.Sprintf("GRANT CREATE ON DATABASE %s TO %s", db, role),
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	agentID := "99999999-aaaa-bbbb-cccc-" + fmt.Sprintf("%012d", time.Now().UnixNano()%1e12)
+	orphan, _ := provision.NameFor(agentID)
+	t.Cleanup(func() {
+		c, err := pgx.Connect(context.Background(), testutil.DatabaseURL())
+		if err != nil {
+			return
+		}
+		defer c.Close(context.Background())
+		_, _ = c.Exec(context.Background(), "DROP ROLE IF EXISTS "+orphan)
+		_, _ = c.Exec(context.Background(), "DROP ROLE IF EXISTS "+role)
+	})
+	u.User = url.UserPassword(role, password)
+	cfg := devConfig(dbURL)
+	cfg.Agents.DatabaseURL = u.String()
+
+	// An agent's storage whose schema is gone (the agents database was recreated) and that no agent has.
+	agents, err := pgxpool.New(ctx, u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agents.Close()
+	if _, err := provision.New(agents).Create(ctx, agentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "DROP SCHEMA "+orphan+" CASCADE"); err != nil {
+		t.Fatal(err)
+	}
+	rep := doctor.Run(ctx, cfg, doctor.Options{})
+	c, ok := find(rep, "agents", "roles")
+	if !ok || !rep.OK || c.Status != doctor.Info || !strings.Contains(c.Detail, orphan) || !strings.Contains(c.Fix, "prune-roles") {
+		t.Fatalf("orphaned role not reported: %+v (ok %v, report ok %v)", c, ok, rep.OK)
+	}
+	if strings.Contains(fmt.Sprintf("%+v", rep), password) {
+		t.Error("the report shows the agents database password")
+	}
+
+	// Pruned: no longer listed.
+	if _, _, err := provision.New(agents).PruneRoles(ctx, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := find(doctor.Run(ctx, cfg, doctor.Options{}), "agents", "roles"); strings.Contains(c.Detail, orphan) {
+		t.Errorf("pruned role still listed: %+v", c)
 	}
 }
 

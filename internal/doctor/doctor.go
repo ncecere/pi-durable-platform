@@ -2,7 +2,8 @@
 // and production safety checks, then PostgreSQL connectivity and the
 // migration state, with timings, then API key pepper rotation: keys still
 // on another pepper, then the agents database (AGENTS_DATABASE_URL): that
-// it answers and that its role may provision agents. It changes nothing.
+// it answers, that its role may provision agents, and which agent roles
+// belong to no agent. It changes nothing.
 package doctor
 
 import (
@@ -17,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ncecere/pi-durable-platform/internal/agenthost/provision"
 	"github.com/ncecere/pi-durable-platform/internal/buildinfo"
 	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
@@ -78,10 +80,11 @@ func Run(ctx context.Context, cfg config.Config, opts Options) Report {
 	}
 	r := &runner{cfg: cfg, opts: opts}
 	r.configuration()
-	if pool := r.postgres(ctx); pool != nil {
-		pool.Close()
+	pool := r.postgres(ctx)
+	if pool != nil {
+		defer pool.Close()
 	}
-	r.agentsDatabase(ctx)
+	r.agentsDatabase(ctx, pool)
 	return r.report()
 }
 
@@ -175,8 +178,9 @@ const provisionMinVersion = 160000
 // schema (or a superuser), on PostgreSQL 16 or later. It reads the role's
 // attributes and privileges; nothing is created. Without
 // AGENTS_DATABASE_URL the checks are skipped (the configuration checks say
-// whether the mode needs it).
-func (r *runner) agentsDatabase(ctx context.Context) {
+// whether the mode needs it). platform is the platform database's pool (nil
+// when unavailable), for the agents whose roles are expected.
+func (r *runner) agentsDatabase(ctx context.Context, platform *pgxpool.Pool) {
 	if r.cfg.Agents.DatabaseURL == "" {
 		r.add(Check{Group: "agents", Name: "database", Status: Info, Detail: "skipped: AGENTS_DATABASE_URL is not set, so agents can't be deployed"})
 		return
@@ -243,6 +247,69 @@ func (r *runner) agentsDatabase(ctx context.Context) {
 		p.Detail = fmt.Sprintf("%s has CREATEROLE and CREATE on %s", role, db)
 	}
 	r.add(p)
+	if p.Status != Fail {
+		r.orphanRoles(ctx, platform, pool)
+	}
+}
+
+// orphanRoles lists agent roles that belong to no agent of the platform and
+// have no schema in the agents database. Roles are server-wide, so a dropped
+// or recreated agents database leaves them behind; prune-roles drops them.
+func (r *runner) orphanRoles(ctx context.Context, platform, agents *pgxpool.Pool) {
+	ctx, cancel := context.WithTimeout(ctx, r.opts.Timeout)
+	defer cancel()
+	c := Check{Group: "agents", Name: "roles", Status: OK}
+	if platform == nil {
+		c.Status, c.Detail = Info, "skipped: the platform database is unavailable, so the agents' roles are unknown"
+		r.add(c)
+		return
+	}
+	start := time.Now()
+	ids, err := dbgen.New(platform).AgentIDs(ctx)
+	if err != nil {
+		c.Status, c.Detail = Info, "skipped: the platform's agents can't be listed (migrations pending?)"
+		r.add(c)
+		return
+	}
+	known := make([]string, len(ids))
+	for i, id := range ids {
+		known[i] = id.String()
+	}
+	orphans, skipped, err := provision.New(agents).OrphanRoles(ctx, known)
+	c.DurationMs = millis(time.Since(start))
+	switch {
+	case err != nil:
+		c.Status, c.Detail = Fail, "agent roles: "+err.Error()
+	case len(orphans) > 0:
+		c.Status = Info
+		c.Detail = fmt.Sprintf("%d agent role(s) belong to no agent and have no schema here: %s", len(orphans), listNames(orphans))
+		if len(skipped) > 0 {
+			c.Detail += fmt.Sprintf("; %d more look like agent roles but prune-roles would leave them alone", len(skipped))
+		}
+		c.Fix = "Run pi-durable-platform prune-roles --dry-run, then prune-roles"
+	case len(skipped) > 0:
+		c.Status = Info
+		c.Detail = fmt.Sprintf("no droppable orphaned agent roles; %d role(s) named like agent roles are left alone: %s", len(skipped), listNames(skippedNames(skipped)))
+	default:
+		c.Detail = "every agent role belongs to an agent or to a schema in the agents database"
+	}
+	r.add(c)
+}
+
+func skippedNames(s []provision.SkippedRole) []string {
+	out := make([]string, len(s))
+	for i, x := range s {
+		out[i] = x.Name
+	}
+	return out
+}
+
+// listNames joins up to five names, then counts the rest.
+func listNames(names []string) string {
+	if len(names) <= 5 {
+		return strings.Join(names, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(names[:5], ", "), len(names)-5)
 }
 
 // missingDatabase reports whether a connection failed because the database
