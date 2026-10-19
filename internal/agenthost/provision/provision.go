@@ -123,10 +123,11 @@ func (p *Provisioner) Create(ctx context.Context, agentID string) (Credentials, 
 	// since DDL cannot take bind parameters. Two connections: the runtime holds
 	// one; a replacement may briefly connect while the old one is closing. An
 	// existing role only gets a new password (a CREATEROLE role may not
-	// restate attributes it doesn't hold itself, such as NOCREATEDB).
+	// restate attributes it doesn't hold itself, such as NOCREATEDB) and its
+	// login back: a deletion that failed half-way leaves it NOLOGIN.
 	statement := "CREATE ROLE %I LOGIN NOINHERIT NOCREATEDB NOCREATEROLE CONNECTION LIMIT 2 PASSWORD %L"
 	if exists {
-		statement = "ALTER ROLE %I PASSWORD %L"
+		statement = "ALTER ROLE %I LOGIN PASSWORD %L"
 	}
 	var ddl string
 	if err := tx.QueryRow(ctx, "SELECT format($3::text, $1::text, $2::text)", name, password, statement).Scan(&ddl); err != nil {
@@ -160,7 +161,9 @@ func (p *Provisioner) Create(ctx context.Context, agentID string) (Credentials, 
 	return Credentials{Schema: name, Role: name, Password: password}, nil
 }
 
-// Delete disconnects the agent and removes its schema (all its data) and role.
+// Delete disconnects the agent and removes its schema (all its data), whatever
+// else its role owns in the agents database, and the role. It can be repeated:
+// after a failure the next call finishes the job.
 func (p *Provisioner) Delete(ctx context.Context, agentID string) error {
 	name, err := NameFor(agentID)
 	if err != nil {
@@ -214,15 +217,62 @@ func (p *Provisioner) DeleteName(ctx context.Context, name string) error {
 	return p.deleteName(ctx, name)
 }
 
+// deleteName removes an agent's storage. The agent's code is not trusted and
+// may be running until the last step, so the role is first made unable to log
+// in and its sessions are ended; then everything it owns in the agents
+// database goes (its schema, and whatever else it managed to create: large
+// objects, tables in a schema it was given, ...) so the role can be dropped.
+// Every step is idempotent and a failure leaves the rest to a retry.
 func (p *Provisioner) deleteName(ctx context.Context, name string) error {
-	if _, err := p.admin.Exec(ctx, "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = $1", name); err != nil {
+	q := quoteIdent(name)
+	var exists bool
+	if err := p.admin.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)", name).Scan(&exists); err != nil {
+		return fmt.Errorf("look up agent role: %w", err)
+	}
+	if exists {
+		// No new session can start (the agent's credentials are still known
+		// to its runtime), then the open ones end.
+		if _, err := p.admin.Exec(ctx, "ALTER ROLE "+q+" NOLOGIN"); err != nil {
+			return fmt.Errorf("stop agent role logging in: %w", err)
+		}
+	}
+	if err := p.terminateSessions(ctx, name); err != nil {
 		return err
 	}
-	if _, err := p.admin.Exec(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", quoteIdent(name))); err != nil {
+	if _, err := p.admin.Exec(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", q)); err != nil {
 		return fmt.Errorf("drop agent schema: %w", err)
 	}
-	if _, err := p.admin.Exec(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s", quoteIdent(name))); err != nil {
+	if exists {
+		if err := p.dropOwned(ctx, name); err != nil {
+			return err
+		}
+	}
+	if _, err := p.admin.Exec(ctx, "DROP ROLE IF EXISTS "+q); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "2BP01" { // dependent_objects_still_exist
+			return fmt.Errorf("drop agent role: it still owns objects or holds privileges the provisioning role can't remove, in another database of the server or granted by someone else (remove them and retry): %w", err)
+		}
 		return fmt.Errorf("drop agent role: %w", err)
+	}
+	return nil
+}
+
+// terminateSessions ends the role's sessions in every database of the server.
+func (p *Provisioner) terminateSessions(ctx context.Context, name string) error {
+	if _, err := p.admin.Exec(ctx, "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = $1", name); err != nil {
+		return fmt.Errorf("end agent sessions: %w", err)
+	}
+	return nil
+}
+
+// dropOwned drops what the role owns in the agents database (and its
+// privileges here): its schema, large objects and anything else it created.
+// CASCADE takes what depends on those objects with them, as the schema's
+// drop does. Other databases of the server are untouched: the role may still
+// own something there, which DROP ROLE then refuses.
+func (p *Provisioner) dropOwned(ctx context.Context, name string) error {
+	if _, err := p.admin.Exec(ctx, fmt.Sprintf("DROP OWNED BY %s CASCADE", quoteIdent(name))); err != nil {
+		return fmt.Errorf("drop what the agent role owns: %w", err)
 	}
 	return nil
 }
@@ -254,15 +304,17 @@ type SkippedRole struct {
 // since roles are server-wide. agentIDs are the platform's agents; a role of
 // one of them is never listed, nor is any role with a schema here.
 //
-// Only roles that are what Create makes are listed: a plain login role with
-// no privileged attributes, no memberships of its own, managed by this
+// Only roles that are what Create makes are listed: a plain role (one that
+// can log in, or that a half-finished deletion made NOLOGIN) with no
+// privileged attributes, no memberships of its own, managed by this
 // connection's role (it is a member, as Create grants), not marked for
 // another agents database, and without open sessions. Anything else named like
-// an agent role is returned as skipped with the reason. The server decides the
-// rest when the role is dropped: DROP ROLE refuses a role that still owns
-// objects or holds privileges in any database of the server, which is how
-// another installation's live agents (their roles own their schemas there) stay
-// safe.
+// an agent role is returned as skipped with the reason. Pruning drops what such
+// a role still owns in this agents database (left over: it has no schema here),
+// and the server decides the rest when the role is dropped: DROP ROLE refuses a
+// role that still owns objects or holds privileges in any other database of the
+// server, which is how another installation's live agents (their roles own
+// their schemas there) stay safe.
 func (p *Provisioner) OrphanRoles(ctx context.Context, agentIDs []string) (orphans []string, skipped []SkippedRole, err error) {
 	known := map[string]bool{}
 	for _, id := range agentIDs {
@@ -290,9 +342,10 @@ func (p *Provisioner) OrphanRoles(ctx context.Context, agentIDs []string) (orpha
 }
 
 // PruneRoles drops the orphaned roles (see OrphanRoles); with dryRun it only
-// lists them. A role the server refuses to drop (it still owns objects or has
-// privileges somewhere on the server) is skipped, never forced: there is no
-// DROP OWNED or CASCADE here. Returns the roles dropped (or that would be).
+// lists them. What a role owns in this agents database goes with it (DROP OWNED
+// in this database only); a role the server still refuses to drop (it owns
+// objects or has privileges in another database of the server) is skipped, never
+// forced. Returns the roles dropped (or that would be).
 func (p *Provisioner) PruneRoles(ctx context.Context, agentIDs []string, dryRun bool) (dropped []string, skipped []SkippedRole, err error) {
 	orphans, skipped, err := p.OrphanRoles(ctx, agentIDs)
 	if err != nil || dryRun {
@@ -330,6 +383,13 @@ func (p *Provisioner) dropOrphanRole(ctx context.Context, name string) (string, 
 	case rows[0].refusal() != "":
 		return rows[0].refusal(), nil
 	}
+	// The role has no schema and no session here, so whatever it still owns in
+	// this database is left over (a large object, a table in a schema it was
+	// given): it goes with the role. Other databases are not touched, and
+	// DROP ROLE still refuses a role that owns something there.
+	if err := p.dropOwned(ctx, name); err != nil {
+		return "", err
+	}
 	if _, err := p.admin.Exec(ctx, "DROP ROLE "+quoteIdent(name)); err != nil {
 		var pgErr *pgconn.PgError
 		switch {
@@ -345,7 +405,7 @@ func (p *Provisioner) dropOrphanRole(ctx context.Context, name string) (string, 
 
 type roleRow struct {
 	name          string
-	plain         bool // a login role without privileged attributes
+	plain         bool // a role without privileged attributes (it may not log in: a deletion that stopped half-way)
 	memberOfOther bool
 	managed       bool // this connection's role is a member
 	foreignMark   bool // its comment says it isn't an agent role of this agents database
@@ -358,7 +418,7 @@ type roleRow struct {
 func (r roleRow) refusal() string {
 	switch {
 	case !r.plain:
-		return "has attributes an agent role doesn't have (superuser, CREATEDB, CREATEROLE, REPLICATION, BYPASSRLS) or can't log in"
+		return "has attributes an agent role doesn't have (superuser, CREATEDB, CREATEROLE, REPLICATION, BYPASSRLS)"
 	case r.memberOfOther:
 		return "is a member of other roles"
 	case !r.managed:
@@ -373,7 +433,7 @@ func (r roleRow) refusal() string {
 
 func (p *Provisioner) roleRows(ctx context.Context, only string) ([]roleRow, error) {
 	rows, err := p.admin.Query(ctx, `SELECT r.rolname,
-		r.rolcanlogin AND NOT (r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication OR r.rolbypassrls),
+		NOT (r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication OR r.rolbypassrls),
 		EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member = r.oid),
 		pg_has_role(current_user, r.oid, 'MEMBER'),
 		coalesce(shobj_description(r.oid, 'pg_authid'), ''),

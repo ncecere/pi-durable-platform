@@ -425,11 +425,21 @@ agent has been restarted on the new image) it can be removed.
 provisioner marks each role it creates with a comment naming its agents database. `pi-durable-platform doctor` lists the
 roles named like agents' (`agent_...`) that belong to no agent in the platform database and to no schema in the agents
 database; `pi-durable-platform prune-roles [--dry-run]` drops them. It only drops a role that is what the provisioner
-makes (a login role without privileged attributes, member of nothing, one the provisioning role manages, not marked for
-another agents database) and has no open sessions, and it never forces: no `DROP OWNED` and no `CASCADE`, so if the
-server finds the role still owns objects or has privileges in any database (another installation's live agent on a
-shared server owns its schema there), the role is kept and reported with the reason. Anything else is listed as left
-alone. Roles made before the comment existed carry no mark and are still considered; only those that own nothing can go.
+makes (a role without privileged attributes, member of nothing, one the provisioning role manages, not marked for
+another agents database; it may be NOLOGIN, which a half-finished deletion leaves) and has no open sessions. It drops
+what the role still owns in the agents database (`DROP OWNED`: a large object or a table the role created is left over,
+since the role has no schema here), and nothing in any other database: if the server finds the role still owns objects
+or has privileges there (another installation's live agent on a shared server owns its schema there), the role is kept
+and reported with the reason. Anything else is listed as left alone. Roles made before the comment existed carry no
+mark and are still considered; only those that own nothing in other databases can go.
+
+**Deleting an agent** must work however hostile the agent's code was, so its role is dealt with in an order that a retry
+can resume: `ALTER ROLE … NOLOGIN` (the runtime still knows the password), end its sessions, drop its schema, `DROP OWNED
+BY` the role in the agents database (large objects and anything else it created: `lo_create` makes an object the schema
+drop doesn't take, and `DROP ROLE` refuses a role that owns one), then `DROP ROLE`. Each step is idempotent and the agent
+row is deleted only after all of them, so a failure (for example a role that owns something in another database of the
+server, or privileges granted by someone else) leaves the agent in place with an error, and deleting again finishes. A
+role left `NOLOGIN` by a failed deletion gets its login back when the agent's storage is next provisioned.
 
 ## Launchers
 

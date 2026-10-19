@@ -71,6 +71,21 @@ func (e *env) exec(stmt string) {
 	}
 }
 
+// dbExec runs stmt as the superuser in database db.
+func (e *env) dbExec(db, stmt string) {
+	e.t.Helper()
+	u, _ := url.Parse(e.adminURL)
+	u.Path = "/" + db
+	c, err := pgx.Connect(context.Background(), u.String())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer c.Close(context.Background())
+	if _, err := c.Exec(context.Background(), stmt); err != nil {
+		e.t.Fatalf("%s: %v", stmt, err)
+	}
+}
+
 func (e *env) createDatabase(db string) {
 	e.t.Helper()
 	e.exec(fmt.Sprintf("CREATE DATABASE %s OWNER %s", db, e.role))
@@ -450,5 +465,228 @@ func TestPrepareWithSeveralReplicas(t *testing.T) {
 	}
 	if open {
 		t.Fatal("PUBLIC may still create temporary tables")
+	}
+}
+
+// loExists reports whether the large object exists in db (superuser view).
+func (e *env) loExists(db string, oid uint32) bool {
+	e.t.Helper()
+	u, _ := url.Parse(e.adminURL)
+	u.Path = "/" + db
+	c, err := pgx.Connect(context.Background(), u.String())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer c.Close(context.Background())
+	var n int
+	if err := c.QueryRow(context.Background(), "SELECT count(*) FROM pg_largeobject_metadata WHERE oid = $1", oid).Scan(&n); err != nil {
+		e.t.Fatal(err)
+	}
+	return n == 1
+}
+
+func (e *env) ownedBy(db, role string) int {
+	e.t.Helper()
+	u, _ := url.Parse(e.adminURL)
+	u.Path = "/" + db
+	c, err := pgx.Connect(context.Background(), u.String())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer c.Close(context.Background())
+	var n int
+	if err := c.QueryRow(context.Background(), `SELECT
+		(SELECT count(*) FROM pg_class WHERE relowner = r.oid) + (SELECT count(*) FROM pg_namespace WHERE nspowner = r.oid) +
+		(SELECT count(*) FROM pg_largeobject_metadata WHERE lomowner = r.oid)
+		FROM pg_roles r WHERE r.rolname = $1`, role).Scan(&n); err != nil {
+		if err == pgx.ErrNoRows {
+			return 0
+		}
+		e.t.Fatal(err)
+	}
+	return n
+}
+
+// An agent's role can create objects the schema drop doesn't take (a large
+// object is owned by the role, and a role that was given CREATE somewhere owns
+// what it makes there): deleting the agent must still work, and leave nothing
+// of the role. A compromised runtime must not make an agent undeletable.
+func TestDeleteRemovesWhatTheRoleCreated(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	e := newEnv(t)
+	const agentID = "aaaaaaaa-0000-0000-0000-000000000001"
+	name := e.track(agentID)
+	p, _ := e.provisioner(ctx)
+	if err := p.Prepare(ctx); err != nil {
+		t.Fatal(err)
+	}
+	creds, err := p.Create(ctx, agentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A schema the role was given (by a mistake, or by what it exploited) besides its own and public.
+	e.dbExec(e.db, fmt.Sprintf("CREATE SCHEMA shared_%s AUTHORIZATION %s", name, e.role))
+	e.dbExec(e.db, fmt.Sprintf("GRANT CREATE, USAGE ON SCHEMA shared_%s, public TO %s", name, name))
+
+	conn := connect(ctx, t, e.url(e.db), creds)
+	defer conn.Close(ctx)
+	var lo uint32
+	if err := conn.QueryRow(ctx, "SELECT lo_create(0)").Scan(&lo); err != nil {
+		t.Fatalf("the agent creates a large object: %v", err)
+	}
+	for _, stmt := range []string{
+		fmt.Sprintf("CREATE TABLE %s.notes (body text)", name),
+		"CREATE TABLE public.leftover (x int)",
+		fmt.Sprintf("CREATE TABLE shared_%s.leftover (x int)", name),
+		"CREATE SEQUENCE public.leftover_seq",
+	} {
+		if _, err := conn.Exec(ctx, stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	if !e.loExists(e.db, lo) || e.ownedBy(e.db, name) < 6 {
+		t.Fatalf("setup: the role owns %d objects", e.ownedBy(e.db, name))
+	}
+
+	if err := p.Delete(ctx, agentID); err != nil {
+		t.Fatalf("delete an agent whose role owns a large object and tables: %v", err)
+	}
+	if e.roleExists(name) {
+		t.Fatal("the role is still there")
+	}
+	if e.loExists(e.db, lo) {
+		t.Error("the large object is still there")
+	}
+	for _, rel := range []string{"public.leftover", "public.leftover_seq", fmt.Sprintf("shared_%s.leftover", name)} {
+		var exists bool
+		u, _ := url.Parse(e.adminURL)
+		u.Path = "/" + e.db
+		c, err := pgx.Connect(ctx, u.String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", rel).Scan(&exists); err != nil {
+			t.Fatal(err)
+		}
+		_ = c.Close(ctx)
+		if exists {
+			t.Errorf("%s is still there", rel)
+		}
+	}
+	if err := conn.Ping(ctx); err == nil {
+		t.Error("the agent's session survived the deletion")
+	}
+	if names, err := p.Names(ctx); err != nil || len(names) != 0 {
+		t.Errorf("schemas left: %v %v", names, err)
+	}
+	// Repeating it is harmless.
+	if err := p.Delete(ctx, agentID); err != nil {
+		t.Errorf("delete again: %v", err)
+	}
+}
+
+// A deletion that can't finish (the role still owns something in another
+// database of the server) leaves the role unable to log in, ends its sessions,
+// reports the problem, and a retry finishes once that is removed. Creating the
+// agent's storage again (a failed deletion keeps the agent) gives the login back.
+func TestDeleteIsRetrySafe(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	e := newEnv(t)
+	const agentID = "aaaaaaaa-0000-0000-0000-000000000002"
+	name := e.track(agentID)
+	p, _ := e.provisioner(ctx)
+	if err := p.Prepare(ctx); err != nil {
+		t.Fatal(err)
+	}
+	creds, err := p.Create(ctx, agentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := "pdp_prov_other_" + fmt.Sprint(time.Now().UnixNano())
+	e.dbs = append(e.dbs, other)
+	e.exec("CREATE DATABASE " + other)
+	e.dbExec(other, fmt.Sprintf("CREATE SCHEMA %s AUTHORIZATION %s", name, name))
+	conn := connect(ctx, t, e.url(e.db), creds)
+	defer conn.Close(ctx)
+
+	err = p.Delete(ctx, agentID)
+	if err == nil || !strings.Contains(err.Error(), "another database") {
+		t.Fatalf("delete with an object in another database: %v", err)
+	}
+	if strings.Contains(err.Error(), creds.Password) {
+		t.Fatal("the error holds the password")
+	}
+	if err := conn.Ping(ctx); err == nil {
+		t.Error("the agent's session survived the failed deletion")
+	}
+	dsn, _ := creds.DSN(e.url(e.db), "")
+	if c, err := pgx.Connect(ctx, dsn); err == nil {
+		_ = c.Close(ctx)
+		t.Fatal("the role can still log in after a failed deletion")
+	}
+	// The agent is kept; its storage is made again and works.
+	if creds, err = p.Create(ctx, agentID); err != nil {
+		t.Fatalf("create again: %v", err)
+	}
+	connect(ctx, t, e.url(e.db), creds).Close(ctx)
+	// Once the other database's object is gone, the retry deletes it all.
+	e.dbExec(other, fmt.Sprintf("DROP SCHEMA %s", name))
+	for range 2 {
+		if err := p.Delete(ctx, agentID); err != nil {
+			t.Fatalf("retry: %v", err)
+		}
+	}
+	if e.roleExists(name) {
+		t.Fatal("the role is still there")
+	}
+}
+
+// prune-roles drops what a left-over role (no agent, no schema here) still owns
+// in the agents database, so a large object doesn't make it permanent; it
+// leaves alone one that owns something in another database.
+func TestPruneRolesDropsLeftoversInTheAgentsDatabase(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	e := newEnv(t)
+	const agentID, nologinID = "aaaaaaaa-0000-0000-0000-000000000003", "aaaaaaaa-0000-0000-0000-000000000004"
+	name, nologin := e.track(agentID), e.track(nologinID)
+	p, _ := e.provisioner(ctx)
+	if err := p.Prepare(ctx); err != nil {
+		t.Fatal(err)
+	}
+	creds, err := p.Create(ctx, agentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := connect(ctx, t, e.url(e.db), creds)
+	var lo uint32
+	if err := conn.QueryRow(ctx, "SELECT lo_create(0)").Scan(&lo); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close(ctx)
+	// The schema is gone (an old failed deletion, or the agent was removed by hand); the role and its large object are not.
+	e.dbExec(e.db, fmt.Sprintf("DROP SCHEMA %s CASCADE", name))
+	// A role a half-finished deletion made NOLOGIN.
+	if _, err := p.Create(ctx, nologinID); err != nil {
+		t.Fatal(err)
+	}
+	e.dbExec(e.db, fmt.Sprintf("DROP SCHEMA %s CASCADE", nologin))
+	e.exec(fmt.Sprintf("ALTER ROLE %s NOLOGIN", nologin))
+
+	orphans, _, err := p.OrphanRoles(ctx, nil)
+	if err != nil || !slices.Contains(orphans, name) || !slices.Contains(orphans, nologin) {
+		t.Fatalf("orphans %v, %v", orphans, err)
+	}
+	dropped, skipped, err := p.PruneRoles(ctx, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(dropped, name) || !slices.Contains(dropped, nologin) || e.roleExists(name) || e.roleExists(nologin) {
+		t.Fatalf("dropped %v, skipped %v", dropped, skipped)
+	}
+	if e.loExists(e.db, lo) {
+		t.Error("the large object is still there")
 	}
 }
