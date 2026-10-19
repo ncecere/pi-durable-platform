@@ -11,8 +11,21 @@
 #             NetworkPolicy), provisions an agent through the API and checks the
 #             isolation rules (deploy/scripts/smoke-kind.sh)
 #
-# The smoke test pulls the released images the chart's appVersion names, so it
-# tests the chart, not the code of the pull request.
+# The smoke test installs the images of the commit under test: images.yml pushes
+# sha-<first 12 characters of the commit> for every branch push, and the job waits
+# (up to 20 minutes) for both and pins them by digest
+# (deploy/scripts/wait-for-images.sh). So it tests the code of the commit, and a
+# release commit (whose appVersion names images that are only published after
+# the tag) passes. The commit is the head of the pull request (not the merge
+# commit: nothing builds that) or the pushed commit. The chart and the scripts
+# are those of the checkout (for a pull request, the merge with its base).
+#   - Pull requests from forks: no images are pushed (no secrets), so the smoke
+#     job says so and does nothing; validate still runs.
+#   - workflow_dispatch: images = release (the default) installs the chart's own
+#     v<appVersion> images, as before; images = sha the images of the commit the
+#     run is on (a branch); tag = any tag of the images, which wins over images.
+#   - If the images workflow failed or never ran for the commit, the job fails
+#     and points at its run.
 #
 # Every action is pinned by commit SHA; the comment gives the version. The tools
 # (helm, kubeconform, yq, kind) are installed by deploy/scripts/install-tools.sh at
@@ -31,6 +44,16 @@ on:
       - ".github/workflows/deploy.yml"
       - "internal/buildinfo/buildinfo.go"
   workflow_dispatch:
+    inputs:
+      images:
+        description: "Smoke test images: release (the chart's v<appVersion>) or sha (built for this commit)"
+        type: choice
+        options: [release, sha]
+        default: release
+      tag:
+        description: "Any image tag to smoke test (for example v0.1.2 or main); used instead of the choice above when set"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -64,14 +87,97 @@ jobs:
   smoke:
     name: smoke (kind)
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # Up to 20 minutes for the images, then the smoke test itself.
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      # Only to name the images workflow's run in an error (the registry is read
+      # anonymously: the images are public).
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Choose the images
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_SHA: ${{ github.sha }}
+          REF_TYPE: ${{ github.ref_type }}
+          INPUT_IMAGES: ${{ inputs.images }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          run=true mode=sha sha="" tag="" wait=1200
+          case "$EVENT" in
+            pull_request)
+              if [ "$HEAD_REPO" != "$REPOSITORY" ]; then
+                run=false
+                msg="Pull request from a fork ('${HEAD_REPO:-deleted repository}'): images are not built for forks (no registry credentials), so the kind smoke test is skipped. The validate job ran the render and lint checks; a maintainer can push the branch to $REPOSITORY, or run this workflow by hand, to smoke test it."
+              fi
+              sha=$PR_HEAD_SHA ;;
+            push)
+              sha=$PUSH_SHA ;;
+            workflow_dispatch)
+              if [ -n "$INPUT_TAG" ]; then
+                [[ "$INPUT_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || { echo "::error::'$INPUT_TAG' is not an image tag"; exit 1; }
+                mode=tag tag=$INPUT_TAG wait=0
+              elif [ "$INPUT_IMAGES" = sha ]; then
+                [ "$REF_TYPE" = branch ] || { echo "::error::images = sha needs a branch: images.yml builds sha-<12> images for branch pushes only, not for tags. Run it on a branch, or use images = release or a tag."; exit 1; }
+                sha=$PUSH_SHA
+              else
+                mode=release
+              fi ;;
+            *)
+              echo "::error::unexpected event $EVENT"; exit 1 ;;
+          esac
+          if [ "$mode" = sha ]; then tag="sha-${sha:0:12}"; fi
+          if [ "$run" = false ]; then
+            echo "::notice title=Smoke test skipped::$msg"
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            echo "run=$run"
+            echo "mode=$mode"
+            echo "sha=$sha"
+            echo "tag=$tag"
+            echo "wait=$wait"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Install the tools
+        if: steps.plan.outputs.run == 'true'
         run: |
           deploy/scripts/install-tools.sh helm kind
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # Sets PLATFORM_IMAGE and RUNTIME_IMAGE (repository:tag@digest) for the
+      # next step. With mode release nothing is set: the chart's own images.
+      - name: Wait for the images of ${{ steps.plan.outputs.tag }}
+        if: steps.plan.outputs.run == 'true' && steps.plan.outputs.tag != ''
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+          MODE: ${{ steps.plan.outputs.mode }}
+          COMMIT_SHA: ${{ steps.plan.outputs.sha }}
+          WAIT_TIMEOUT: ${{ steps.plan.outputs.wait }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export IMAGES_REGISTRY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
+          out=$(deploy/scripts/wait-for-images.sh "$TAG")
+          echo "$out" >> "$GITHUB_ENV"
+          {
+            echo "Smoke test images ($MODE):"
+            echo
+            bt=$'\x60'
+            while IFS= read -r line; do
+              [ -n "$line" ] && printf -- '- %s%s%s\n' "$bt" "${line#*=}" "$bt"
+            done <<<"$out"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Install the chart into kind and check isolation
+        if: steps.plan.outputs.run == 'true'
         run: deploy/scripts/smoke-kind.sh
