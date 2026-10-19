@@ -8,6 +8,17 @@ the entry says how to adapt. The design is in [DESIGN.md](DESIGN.md), and each r
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-19
+
+### Fixed
+
+- A connecting app's logo now shows on the approval screen, in Account › Connected apps and on a person's admin page.
+  The platform fetches the logo itself (public addresses only, https only, no redirects, at most 256 KiB, PNG, JPEG,
+  GIF or WebP checked by their bytes, never SVG), caches it for an hour and serves it from its own origin
+  (`GET /v1/oauth/client-logo`), so the console's Content-Security-Policy stays closed to third-party images (#25).
+- The agent page's status badge follows wake and hibernate without a reload, including a wake from another session
+  or app (#27).
+
 ## [0.1.1] - 2026-10-18
 
 ### Added
@@ -82,6 +93,7 @@ runtime).
   version, the non-root user and the read-only root filesystem, scans them with Trivy, publishes a multi-arch index,
   signs it, and creates the GitHub Release with SBOMs and checksums.
 
-[Unreleased]: https://github.com/ncecere/pi-durable-platform/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/ncecere/pi-durable-platform/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/ncecere/pi-durable-platform/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/ncecere/pi-durable-platform/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ncecere/pi-durable-platform/releases/tag/v0.1.0
