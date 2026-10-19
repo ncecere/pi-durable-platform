@@ -7,8 +7,14 @@
 # OAuth Connect resource. Plain http is accepted only on a loopback host.
 appUrl: ""
 
-# One replica only, for now: the idle reaper and the open event streams are
-# tracked in the process (roadmap item B, issue #2). The schema refuses more.
+# Platform replicas. 1 (replaced, not rolled: a short outage on every change) or
+# more: 2 is the supported setup for staying up through node drains and
+# rollouts (docs/replicas.md). Replicas share everything through PostgreSQL and
+# the runtimes, so they need no leader and no sticky sessions. With more than
+# one: updates roll one pod at a time, and pods are spread over nodes and zones
+# (preferred, never blocking) unless you set affinity or topologySpreadConstraints
+# yourself. Needs a launcher shared by replicas: kubernetes or agent-sandbox
+# (the chart has no other). Pair it with podDisruptionBudget below.
 replicaCount: 1
 
 nameOverride: ""
@@ -204,6 +210,8 @@ securityContext:
 terminationGracePeriodSeconds: 30
 
 # Off by default: with one replica a budget of minAvailable 1 blocks node drains.
+# With replicaCount 2 or more, turn it on (minAvailable 1: a drain evicts one
+# replica at a time and waits for it to be replaced).
 podDisruptionBudget:
   enabled: false
   minAvailable: 1
@@ -224,7 +232,9 @@ podAnnotations: {}
 podLabels: {}
 nodeSelector: {}
 tolerations: []
+# Replaces the defaults for replicaCount > 1 (see there) when set.
 affinity: {}
+topologySpreadConstraints: []
 priorityClassName: ""
 
 # NetworkPolicies: the platform pods take web traffic from your ingress and

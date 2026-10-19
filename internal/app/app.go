@@ -119,6 +119,11 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	}
 	loopCtx, stopLoops := context.WithCancel(ctx)
 	defer stopLoops()
+	// With several replicas every replica runs every loop: the clean-ups
+	// delete idempotently, the group re-check claims people with SKIP LOCKED,
+	// each replica's thread events listener feeds its own subscribers, and the
+	// reaper passes are taken one at a time through a database lock
+	// (docs/replicas.md).
 	go cleanupLoop(loopCtx, deps.Auth, deps.OAuth, deps.Agents, log)
 	go deps.Auth.RunGroupRecheck(loopCtx)
 	go rateCounterLoop(loopCtx, deps.RateStore, log)
@@ -177,9 +182,23 @@ func rateCounterLoop(ctx context.Context, st ratelimit.Store, log *slog.Logger) 
 	}
 }
 
+// Option adjusts what NewDeps builds (tests).
+type Option func(*options)
+
+type options struct{ launcher launcher.Launcher }
+
+// WithLauncher runs agents with l instead of the configured launcher: a test
+// of several replicas gives each the one backend they would share in a
+// cluster (the Kubernetes API).
+func WithLauncher(l launcher.Launcher) Option { return func(o *options) { o.launcher = l } }
+
 // NewDeps builds the services the HTTP API needs (Health and Web are left
 // to the caller). The configuration must be valid for serve.
-func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (httpapi.Deps, error) {
+func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger, opts ...Option) (httpapi.Deps, error) {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
 	box, err := secretBox(cfg)
 	if err != nil {
 		return httpapi.Deps{}, err
@@ -219,7 +238,7 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (httpapi.D
 	// the connections kept to them.
 	servers.SetTeamNetwork(teamnet.Config{DevAllowance: cfg.DevAuth && cfg.LoopbackAppURL()})
 	models.OnSettingsChanged(servers.CloseTeamConnections)
-	agentSvc, err := newAgents(cfg, pool, box, models, servers, log)
+	agentSvc, err := newAgents(cfg, pool, box, models, servers, log, o.launcher)
 	if err != nil {
 		return httpapi.Deps{}, err
 	}
@@ -342,7 +361,7 @@ func shutdown(cfg config.Config, log *slog.Logger, health *httpapi.Health, serve
 
 // newAgents builds the agents service: a lazily connected pool on the agents
 // database, the provisioner, the configured launcher and the runtime manager.
-func newAgents(cfg config.Config, pool *pgxpool.Pool, box *secrets.Box, models *llm.Service, servers *mcp.Service, log *slog.Logger) (*agents.Service, error) {
+func newAgents(cfg config.Config, pool *pgxpool.Pool, box *secrets.Box, models *llm.Service, servers *mcp.Service, log *slog.Logger, override launcher.Launcher) (*agents.Service, error) {
 	pcfg, err := pgxpool.ParseConfig(cfg.Agents.DatabaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("AGENTS_DATABASE_URL: %w", err)
@@ -352,9 +371,10 @@ func newAgents(cfg config.Config, pool *pgxpool.Pool, box *secrets.Box, models *
 	if err != nil {
 		return nil, fmt.Errorf("AGENTS_DATABASE_URL: %w", err)
 	}
-	var l launcher.Launcher
-	switch cfg.Agents.Launcher {
-	case config.LauncherKubernetes:
+	l := override
+	switch {
+	case l != nil:
+	case cfg.Agents.Launcher == config.LauncherKubernetes:
 		k, err := launcher.NewInCluster(cfg.Agents.Namespace, cfg.Agents.Image, log.With("component", "launcher"))
 		if err != nil {
 			agentsPool.Close()
@@ -362,7 +382,7 @@ func newAgents(cfg config.Config, pool *pgxpool.Pool, box *secrets.Box, models *
 		}
 		k.RuntimeClassName, k.ImagePullSecret = cfg.Agents.RuntimeClass, cfg.Agents.ImagePullSecret
 		l = k
-	case config.LauncherAgentSandbox:
+	case cfg.Agents.Launcher == config.LauncherAgentSandbox:
 		k, err := launcher.NewInCluster(cfg.Agents.Namespace, cfg.Agents.Image, log.With("component", "launcher"))
 		if err != nil {
 			agentsPool.Close()
@@ -386,6 +406,9 @@ func newAgents(cfg config.Config, pool *pgxpool.Pool, box *secrets.Box, models *
 		l = launcher.NewLocal(dir, log.With("component", "launcher"))
 	}
 	host := agenthost.New(l, cfg.Agents.IdleTimeout, log.With("component", "agenthost"))
+	// Replicas agree through the database on who starts an agent and who
+	// reaps idle ones.
+	host.SetLocker(store.Locks{Pool: pool})
 	return agents.New(pool, agentsPool, box, host, models, servers, cfg.Agents), nil
 }
 
@@ -397,6 +420,13 @@ func ensureAgentsDatabase(ctx context.Context, pool *pgxpool.Pool, agentsURL str
 		return fmt.Errorf("AGENTS_DATABASE_URL: %w", err)
 	}
 	name := pcfg.ConnConfig.Database
+	// Replicas starting together would both copy the template database, and
+	// the second would fail: one at a time.
+	unlock, err := store.AdvisoryLockText(ctx, pool, "pdp.create-agents-database")
+	if err != nil {
+		return fmt.Errorf("lock to create the agents database: %w", err)
+	}
+	defer unlock()
 	var exists bool
 	if err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)", name).Scan(&exists); err != nil {
 		return err
@@ -423,7 +453,7 @@ func PruneAgentStorage(ctx context.Context, cfg config.Config, log *slog.Logger,
 	if err != nil {
 		return nil, err
 	}
-	svc, err := newAgents(cfg, pool, box, llm.New(pool, box), mcp.New(pool, box, mcp.ClientPolicy{}), log)
+	svc, err := newAgents(cfg, pool, box, llm.New(pool, box), mcp.New(pool, box, mcp.ClientPolicy{}), log, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -444,7 +474,7 @@ func PruneRoles(ctx context.Context, cfg config.Config, log *slog.Logger, dryRun
 	if err != nil {
 		return nil, nil, err
 	}
-	svc, err := newAgents(cfg, pool, box, llm.New(pool, box), mcp.New(pool, box, mcp.ClientPolicy{}), log)
+	svc, err := newAgents(cfg, pool, box, llm.New(pool, box), mcp.New(pool, box, mcp.ClientPolicy{}), log, nil)
 	if err != nil {
 		return nil, nil, err
 	}

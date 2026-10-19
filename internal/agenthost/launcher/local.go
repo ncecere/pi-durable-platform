@@ -85,6 +85,14 @@ func (l *Local) Ensure(ctx context.Context, spec Spec) (Endpoint, error) {
 	}
 }
 
+// Lookup returns the endpoint of a runtime this process started and that
+// has not exited. A runtime another platform process started is not known:
+// the local backend is for one process.
+func (l *Local) Lookup(_ context.Context, spec Spec) (Endpoint, bool, error) {
+	ep, ok := l.Running()[spec.AgentID]
+	return ep, ok, nil
+}
+
 func (l *Local) forget(id string, a *localAgent) {
 	l.mu.Lock()
 	if l.agents[id] == a {

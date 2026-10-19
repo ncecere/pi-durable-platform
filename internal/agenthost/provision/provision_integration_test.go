@@ -422,3 +422,33 @@ func TestOrphanRolesAndPrune(t *testing.T) {
 		t.Errorf("second run: %v, %v", again, err)
 	}
 }
+
+// Replicas hardening the agents database as they start (Prepare is
+// idempotent, and concurrent calls neither fail nor leave it open).
+func TestPrepareWithSeveralReplicas(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	e := newEnv(t)
+	var provs []*provision.Provisioner
+	for range 8 {
+		p, _ := e.provisioner(ctx)
+		provs = append(provs, p)
+	}
+	errs := make(chan error, len(provs))
+	for _, p := range provs {
+		go func() { errs <- p.Prepare(ctx) }()
+	}
+	for range provs {
+		if err := <-errs; err != nil {
+			t.Errorf("Prepare: %v", err)
+		}
+	}
+	var open bool // PUBLIC (grantee 0) may still create temporary tables
+	if err := e.su.QueryRow(ctx, `SELECT coalesce(bool_or(a.grantee = 0 AND a.privilege_type = 'TEMPORARY'), false)
+		FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname = $1`, e.db).Scan(&open); err != nil {
+		t.Fatal(err)
+	}
+	if open {
+		t.Fatal("PUBLIC may still create temporary tables")
+	}
+}

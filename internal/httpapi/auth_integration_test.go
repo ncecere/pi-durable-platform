@@ -43,6 +43,20 @@ type testApp struct {
 	MCP *mcp.Service
 	// Auth is sign-in and sessions (the group re-check).
 	Auth *auth.Service
+	// Origin is the origin of the browser's requests when it isn't URL: a
+	// replica is reached at its own address while people know the platform
+	// by APP_URL (the first app's URL).
+	Origin string
+	// cfg is the configuration this app runs with (a replica uses the same).
+	cfg config.Config
+}
+
+// origin is what the Origin header of a state-changing request says.
+func (a *testApp) origin() string {
+	if a.Origin != "" {
+		return a.Origin
+	}
+	return a.URL
 }
 
 // Test keys (32 bytes, base64): the encryption key and the API key pepper.
@@ -144,7 +158,7 @@ func newTestAppWith(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 	go deps.Agents.RunThreadEvents(eventsCtx, log)
 
 	jar, _ := cookiejar.New(nil)
-	return &testApp{t: t, URL: srv.URL, GatewayURL: gw.URL, Pool: pool, Client: &http.Client{Jar: jar}, Agents: deps.Agents, Models: deps.Models, MCP: deps.MCP, Auth: deps.Auth}
+	return &testApp{t: t, URL: srv.URL, GatewayURL: gw.URL, Pool: pool, Client: &http.Client{Jar: jar}, Agents: deps.Agents, Models: deps.Models, MCP: deps.MCP, Auth: deps.Auth, cfg: cfg}
 }
 
 func (a *testApp) do(method, path string, body any, headers map[string]string) (int, []byte) {
@@ -159,7 +173,7 @@ func (a *testApp) do(method, path string, body any, headers map[string]string) (
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if method != http.MethodGet {
-		req.Header.Set("Origin", a.URL)
+		req.Header.Set("Origin", a.origin())
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)

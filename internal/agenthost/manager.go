@@ -21,20 +21,53 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/agenthost/launcher"
 )
 
+// Locker takes named locks shared by every platform replica (PostgreSQL
+// advisory locks; store.Locks). Held locks end with their holder: a replica
+// that dies releases them.
+type Locker interface {
+	// Lock waits for the lock until ctx ends.
+	Lock(ctx context.Context, key string) (release func(), err error)
+	// TryLock takes the lock when nobody holds it.
+	TryLock(ctx context.Context, key string) (release func(), ok bool, err error)
+}
+
+const (
+	// wakeLockPrefix + the agent's ID names the lock that serialises starting
+	// that agent across replicas.
+	wakeLockPrefix = "pdp.agent-wake:"
+	// reapLockKey names the lock of the replica that reaps idle agents now.
+	reapLockKey = "pdp.agent-reaper"
+	// startLockWait bounds how long a wake waits for another replica's start
+	// of the same agent (longer than a launcher's own start timeouts).
+	startLockWait = 3 * time.Minute
+)
+
 // Manager wakes, proxies to and hibernates agent runtimes.
+//
+// Several platform replicas may run one Manager each against the same
+// launcher backend (the Kubernetes API) and database. Nothing a Manager
+// keeps decides anything the others could contradict: starting an agent is
+// serialised by a database lock and re-checked under it, and the reaper asks
+// the runtime itself whether the agent is idle (its work, its open streams
+// and its last request, wherever they came from) instead of trusting what
+// this replica has seen. The in-process records below are only hints that
+// save calls.
 type Manager struct {
 	launcher launcher.Launcher
 	idle     time.Duration
 	log      *slog.Logger
 	client   *http.Client
+	locker   Locker
 
 	// Resolve returns an agent's current spec (used by the reaper to find a
 	// runtime's token after a platform restart). Optional.
 	Resolve func(ctx context.Context, agentID string) (launcher.Spec, error)
 
-	mu       sync.Mutex
-	streams  map[string]int       // open event streams per agent
-	lastUsed map[string]time.Time // last proxied request per agent
+	mu        sync.Mutex
+	streams   map[string]int       // open event streams per agent (on this replica)
+	lastUsed  map[string]time.Time // last request proxied by this replica, per agent
+	skipUntil map[string]time.Time // the reaper need not ask the runtime again before this
+	starting  map[string]*startGate
 
 	// closing ends every open event stream when the platform shuts down
 	// (clients reconnect to another replica, or after the restart).
@@ -54,17 +87,87 @@ func New(l launcher.Launcher, idle time.Duration, log *slog.Logger) *Manager {
 	return &Manager{
 		launcher: l, idle: idle, log: log,
 		client:  &http.Client{Timeout: 10 * time.Second},
-		streams: map[string]int{}, lastUsed: map[string]time.Time{},
-		closing: make(chan struct{}),
+		streams: map[string]int{}, lastUsed: map[string]time.Time{}, skipUntil: map[string]time.Time{},
+		starting: map[string]*startGate{},
+		closing:  make(chan struct{}),
 	}
 }
+
+// SetLocker makes starts and reaping safe with several replicas. Without a
+// locker (tests, a single process that wants none) starts and reaping are
+// not coordinated with other processes.
+func (m *Manager) SetLocker(l Locker) { m.locker = l }
 
 func (m *Manager) Launcher() launcher.Launcher { return m.launcher }
 
 // Wake starts the agent if needed and returns its endpoint.
+//
+// A running agent costs one Lookup. Starting one happens under a database
+// lock per agent, so two replicas waking it at the same moment start one
+// runtime: the second waits, then finds it running. The launcher's Ensure is
+// idempotent and runs under the lock, which is the re-check.
 func (m *Manager) Wake(ctx context.Context, spec launcher.Spec) (launcher.Endpoint, error) {
 	m.touch(spec.AgentID)
+	if m.locker == nil {
+		return m.launcher.Ensure(ctx, spec)
+	}
+	if ep, ok := m.lookup(ctx, spec); ok {
+		return ep, nil
+	}
+	// Requests of this replica for the same agent queue here, so that only
+	// one of them waits on the database lock.
+	gate := m.gate(spec.AgentID)
+	defer m.ungate(spec.AgentID, gate)
+	select {
+	case gate.ch <- struct{}{}:
+		defer func() { <-gate.ch }()
+	case <-ctx.Done():
+		return launcher.Endpoint{}, ctx.Err()
+	}
+	if ep, ok := m.lookup(ctx, spec); ok { // a request ahead of us started it
+		return ep, nil
+	}
+	lctx, cancel := context.WithTimeout(ctx, startLockWait)
+	defer cancel()
+	release, err := m.locker.Lock(lctx, wakeLockPrefix+spec.AgentID)
+	if err != nil {
+		return launcher.Endpoint{}, fmt.Errorf("wait to start the agent: %w", err)
+	}
+	defer release()
 	return m.launcher.Ensure(ctx, spec)
+}
+
+// lookup is the launcher's cheap check; an error counts as "not running" and
+// is left to Ensure to report.
+func (m *Manager) lookup(ctx context.Context, spec launcher.Spec) (launcher.Endpoint, bool) {
+	ep, ok, err := m.launcher.Lookup(ctx, spec)
+	return ep, ok && err == nil
+}
+
+// startGate lets one request at a time of this process start an agent.
+type startGate struct {
+	ch   chan struct{}
+	refs int
+}
+
+func (m *Manager) gate(agentID string) *startGate {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	g := m.starting[agentID]
+	if g == nil {
+		g = &startGate{ch: make(chan struct{}, 1)}
+		m.starting[agentID] = g
+	}
+	g.refs++
+	return g
+}
+
+func (m *Manager) ungate(agentID string, g *startGate) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if g.refs--; g.refs == 0 {
+		delete(m.starting, agentID)
+	}
 }
 
 // Hibernate stops the agent's runtime now.
@@ -77,6 +180,7 @@ func (m *Manager) Remove(ctx context.Context, agentID string) error {
 	m.mu.Lock()
 	delete(m.lastUsed, agentID)
 	delete(m.streams, agentID)
+	delete(m.skipUntil, agentID)
 	m.mu.Unlock()
 	return m.launcher.Remove(ctx, agentID)
 }
@@ -167,19 +271,48 @@ func isEventStream(path string) bool {
 	return len(path) > len("/events") && path[len(path)-len("/events"):] == "/events"
 }
 
+// runtimeStatus is what a runtime reports at /status. OpenStreams is nil for
+// a runtime that predates it (an agent started before the platform was
+// upgraded): the reaper then goes by this replica's streams alone.
 type runtimeStatus struct {
 	BusyThreads    int   `json:"busyThreads"`
+	OpenStreams    *int  `json:"openStreams"`
 	LastActivityAt int64 `json:"lastActivityAt"`
 }
 
 // ReapOnce hibernates every running agent that has been idle for longer than
 // the idle timeout: no work in progress, no open streams, no recent requests.
+//
+// Only one replica reaps at a time (a database lock taken for the pass; the
+// others skip it). The decision rests on the runtime's own report, which
+// covers requests and streams that went through any replica, so which
+// replica is elected does not matter and a replica that has seen nothing of
+// an agent does not hibernate it by mistake. What this replica has seen only
+// saves calls.
 func (m *Manager) ReapOnce(ctx context.Context) {
-	for agentID, ep := range m.launcher.Running() {
+	if m.locker != nil {
+		release, ok, err := m.locker.TryLock(ctx, reapLockKey)
+		if err != nil {
+			if ctx.Err() == nil {
+				m.log.Warn("reaper: take the lock", "err", err)
+			}
+			return
+		}
+		if !ok {
+			return // another replica is reaping
+		}
+		defer release()
+	}
+	running := m.launcher.Running()
+	m.forgetStopped(running)
+	for agentID, ep := range running {
+		if ctx.Err() != nil {
+			return
+		}
 		m.mu.Lock()
-		streams, last := m.streams[agentID], m.lastUsed[agentID]
+		streams, last, skip := m.streams[agentID], m.lastUsed[agentID], m.skipUntil[agentID]
 		m.mu.Unlock()
-		if streams > 0 || time.Since(last) < m.idle {
+		if streams > 0 || time.Since(last) < m.idle || time.Now().Before(skip) {
 			continue
 		}
 		if ep.Token == "" && m.Resolve != nil {
@@ -195,12 +328,36 @@ func (m *Manager) ReapOnce(ctx context.Context) {
 			m.log.Debug("agent status failed", "agent", agentID, "err", err)
 			continue
 		}
-		if st.BusyThreads > 0 || time.Since(time.UnixMilli(st.LastActivityAt)) < m.idle {
+		lastActive := time.UnixMilli(st.LastActivityAt)
+		open := st.OpenStreams != nil && *st.OpenStreams > 0
+		if st.BusyThreads > 0 || open || time.Since(lastActive) < m.idle {
+			// Not before the agent could be idle (its last activity plus the
+			// timeout), and while it works or is watched, not for half a
+			// timeout: it counts as active until it stops, and then the
+			// timeout starts.
+			wait := m.idle - time.Since(lastActive)
+			if st.BusyThreads > 0 || open {
+				wait = m.idle / 2
+			}
+			m.mu.Lock()
+			m.skipUntil[agentID] = time.Now().Add(max(wait, 0))
+			m.mu.Unlock()
 			continue
 		}
 		m.log.Info("hibernating idle agent", "agent", agentID)
 		if err := m.launcher.Stop(ctx, agentID); err != nil {
 			m.log.Warn("hibernate failed", "agent", agentID, "err", err)
+		}
+	}
+}
+
+// forgetStopped drops the reaper's hints about agents no longer running.
+func (m *Manager) forgetStopped(running map[string]launcher.Endpoint) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id := range m.skipUntil {
+		if _, ok := running[id]; !ok {
+			delete(m.skipUntil, id)
 		}
 	}
 }

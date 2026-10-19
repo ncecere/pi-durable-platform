@@ -33,11 +33,19 @@ type Endpoint struct {
 }
 
 // Launcher runs agent runtimes. Implementations are safe for concurrent use
-// and start at most one runtime per agent.
+// and start at most one runtime per agent in this process; the manager
+// (agenthost) serialises starts across platform replicas with a database
+// lock around Ensure, so a launcher need not.
 type Launcher interface {
 	// Ensure starts the agent if it is not running and returns its endpoint
-	// once it answers its health check.
+	// once it answers its health check. It is idempotent: called again for an
+	// agent that another replica just started, it returns that runtime.
 	Ensure(ctx context.Context, spec Spec) (Endpoint, error)
+	// Lookup returns the endpoint of the agent's runtime when it is running
+	// and ready, and false when it is not, without starting anything. It is
+	// the fast path of every request, so it must be as cheap as one read of
+	// the launcher's own state (an API call for the Kubernetes backends).
+	Lookup(ctx context.Context, spec Spec) (Endpoint, bool, error)
 	// Stop hibernates the agent: the runtime shuts down gracefully; work in
 	// flight stays in storage and resumes on the next start.
 	Stop(ctx context.Context, agentID string) error

@@ -12,8 +12,7 @@
     "replicaCount": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 1,
-      "description": "One replica only for now: the idle reaper and the open event streams are tracked in the process (issue #2)."
+      "description": "Platform replicas: 1 (replaced on change) or more (rolled one at a time, spread over nodes and zones). 2 is the tested setup; replicas share everything through PostgreSQL (docs/replicas.md)."
     },
     "nameOverride": { "type": "string" },
     "fullnameOverride": { "type": "string" },
@@ -199,6 +198,7 @@
     "nodeSelector": { "type": "object" },
     "tolerations": { "type": "array", "items": { "type": "object" } },
     "affinity": { "type": "object" },
+    "topologySpreadConstraints": { "type": "array", "items": { "type": "object" } },
     "priorityClassName": { "type": "string" },
     "networkPolicy": {
       "type": "object",

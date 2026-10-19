@@ -1,6 +1,6 @@
 # An example installation: Agent Sandbox with a warm pool, images pinned by
-# digest, single sign-on, an Ingress with TLS, a PodDisruptionBudget and a
-# quota for the agents namespace. Copy this directory, replace the example
+# digest, single sign-on, an Ingress with TLS, two platform replicas with a
+# PodDisruptionBudget, and a quota for the agents namespace. Copy this directory, replace the example
 # values (example.com names, the digests, the API server's address) and build
 # it with `kubectl kustomize` or `kubectl apply -k`.
 #
@@ -16,6 +16,7 @@ resources:
 components:
   - ../../components/ingress
   - ../../components/pod-disruption-budget
+  - ../../components/replicas
   - ../../components/resourcequota
 
 # Images by digest (the release notes list them). The tag is kept for people;

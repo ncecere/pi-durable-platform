@@ -1,0 +1,17 @@
+# Two platform replicas with a PodDisruptionBudget: the setup that stays up
+# through node drains and rollouts (docs/replicas.md). The kubernetes launcher
+# (or agent-sandbox): replicas share the agents' pods through the Kubernetes API.
+appUrl: https://agents.example.com
+replicaCount: 2
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+oidc:
+  issuer: https://idp.example.com/application/o/pi-durable-platform/
+  clientId: pi-durable-platform
+networkPolicy:
+  kubeApiServer:
+    cidrs: [192.0.2.10/32]
+  database:
+    podLabels:
+      cnpg.io/cluster: pdp-db

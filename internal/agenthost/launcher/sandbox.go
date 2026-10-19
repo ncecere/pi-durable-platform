@@ -144,6 +144,40 @@ func (s *AgentSandbox) Ensure(ctx context.Context, spec Spec) (Endpoint, error) 
 	return s.ensureSandbox(ctx, spec)
 }
 
+// Lookup is Ensure's fast path: a ready sandbox, or in warm mode a ready
+// claim whose runtime is (still) activated as the agent. Anything else is
+// "not running" and goes through Ensure.
+func (s *AgentSandbox) Lookup(ctx context.Context, spec Spec) (Endpoint, bool, error) {
+	name := podName(spec.AgentID)
+	if s.WarmPool == "" {
+		sb, err := s.getSandbox(ctx, name)
+		if err != nil || sb == nil {
+			return Endpoint{}, false, err
+		}
+		ip, ok := sb.ready()
+		if !ok {
+			return Endpoint{}, false, nil
+		}
+		return Endpoint{BaseURL: s.runtimeURL(ip), Token: spec.Token}, true, nil
+	}
+	c, err := s.getClaim(ctx, name)
+	if err != nil || c == nil {
+		return Endpoint{}, false, err
+	}
+	ip, ok := c.ready()
+	if !ok {
+		return Endpoint{}, false, nil
+	}
+	ep := Endpoint{BaseURL: s.runtimeURL(ip), Token: spec.Token}
+	if err := s.activate(ctx, ep.BaseURL, spec); err != nil {
+		if errors.Is(err, ErrOwnedElsewhere) || errors.Is(err, errNotYet) {
+			return Endpoint{}, false, nil // Ensure retries until it is
+		}
+		return Endpoint{}, false, err
+	}
+	return ep, true, nil
+}
+
 func (s *AgentSandbox) Stop(ctx context.Context, agentID string) error {
 	name := podName(agentID)
 	if s.WarmPool != "" {

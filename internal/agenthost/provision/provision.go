@@ -26,6 +26,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/ncecere/pi-durable-platform/internal/store"
 )
 
 // Credentials are what an agent runtime needs to open its storage.
@@ -72,7 +74,16 @@ func New(admin *pgxpool.Pool) *Provisioner { return &Provisioner{admin: admin} }
 
 // Prepare hardens the agents database once: PUBLIC loses CREATE and USAGE on
 // schema public and TEMP on the database. Idempotent.
+//
+// Platform replicas prepare the database as they start, and concurrent
+// REVOKEs on the same object fail ("tuple concurrently updated"): one at a
+// time, through an advisory lock in the agents database.
 func (p *Provisioner) Prepare(ctx context.Context) error {
+	unlock, err := store.AdvisoryLockText(ctx, p.admin, "pdp.prepare-agents-database")
+	if err != nil {
+		return fmt.Errorf("prepare agents database: %w", err)
+	}
+	defer unlock()
 	var db string
 	if err := p.admin.QueryRow(ctx, "SELECT current_database()").Scan(&db); err != nil {
 		return err

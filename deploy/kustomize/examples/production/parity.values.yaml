@@ -1,6 +1,7 @@
 # The Helm values that match this directory's kustomization (see
 # deploy/scripts/check-parity.sh). Keep the two in step.
 appUrl: https://agents.example.org
+replicaCount: 2
 rolloutOnConfigChange: false
 agents:
   keepNamespace: false

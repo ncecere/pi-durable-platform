@@ -61,9 +61,15 @@ func TestAgentLifecycle(t *testing.T) {
 	l := launcher.NewLocal(runtimeDir, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	defer l.StopAll(context.Background())
 
+	if _, ok, err := l.Lookup(ctx, spec); ok || err != nil {
+		t.Fatalf("Lookup before the agent runs = %v %v", ok, err)
+	}
 	ep, err := l.Ensure(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got, ok, err := l.Lookup(ctx, spec); !ok || err != nil || got != ep {
+		t.Fatalf("Lookup = %+v %v %v, want %+v", got, ok, err, ep)
 	}
 	// Concurrent Ensure returns the same runtime.
 	if ep2, err := l.Ensure(ctx, spec); err != nil || ep2.BaseURL != ep.BaseURL {
@@ -75,6 +81,9 @@ func TestAgentLifecycle(t *testing.T) {
 	// Hibernate, then wake: a new process, same conversation.
 	if err := l.Stop(ctx, agentID); err != nil {
 		t.Fatal(err)
+	}
+	if _, ok, _ := l.Lookup(ctx, spec); ok {
+		t.Fatal("Lookup finds the agent after Stop")
 	}
 	if len(l.Running()) != 0 {
 		t.Fatal("agent still running after Stop")

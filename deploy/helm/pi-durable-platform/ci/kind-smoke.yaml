@@ -2,6 +2,12 @@
 # loopback APP_URL, a test PostgreSQL in the release namespace, the demo model.
 # The script adds appUrl, the API server's address and the image tags.
 devAuth: true
+# Two replicas with a PodDisruptionBudget, as a production install would run
+# (the script checks that a session, an agent and its conversation are shared).
+replicaCount: 2
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
 logFormat: text
 config:
   AGENTS_CREATE_DATABASE: "true"
