@@ -38,6 +38,9 @@ export function createRuntimeServer(options: RuntimeOptions): {
 	const touch = () => {
 		lastActivity = Date.now();
 	};
+	// Open event streams. The platform's replicas don't share what each one has seen, so the runtime, which serves every
+	// stream, says how many are open (/status): whichever replica reaps idle agents asks here, never its own records.
+	let openStreams = 0;
 
 	const authorized = (request: IncomingMessage) => {
 		const header = Buffer.from(request.headers.authorization ?? "");
@@ -73,7 +76,7 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		if (method === "GET" && url.pathname === "/status") {
 			const busy = await busyThreads();
 			if (busy > 0) touch();
-			return json(response, 200, { ...options.info, busyThreads: busy, lastActivityAt: lastActivity });
+			return json(response, 200, { ...options.info, busyThreads: busy, openStreams, lastActivityAt: lastActivity });
 		}
 		if (method === "GET" && url.pathname === "/threads") return json(response, 200, await threads.list());
 
@@ -137,6 +140,7 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		if (conversation === undefined) return fail(response, 404, "thread_not_found", "Thread not found");
 		const watch = await conversation.watch(ctx);
 		response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
+		touch();
 		const send = (value: typeof watch.value) => {
 			response.write(`event: view\ndata: ${JSON.stringify(buildView(value.entries, value.docs["pi.live"] as never))}\n\n`);
 		};
@@ -158,10 +162,17 @@ export function createRuntimeServer(options: RuntimeOptions): {
 			}, 100);
 		});
 		const keepAlive = setInterval(() => response.write(": keep-alive\n\n"), 15_000);
+		openStreams++;
+		let ended = false;
 		const end = () => {
 			clearInterval(keepAlive);
 			if (timer !== undefined) clearTimeout(timer);
 			void watch.stop();
+			if (ended) return;
+			ended = true;
+			openStreams--;
+			// Someone was watching until now: the idle clock starts here.
+			touch();
 		};
 		request.on("close", end);
 		void watch.closed.then(() => {
