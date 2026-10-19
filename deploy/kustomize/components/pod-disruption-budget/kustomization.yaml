@@ -1,0 +1,6 @@
+# A PodDisruptionBudget (maxUnavailable 1): a node drain may evict the single
+# replica. Use minAvailable 1 to block drains instead.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - pdb.yaml

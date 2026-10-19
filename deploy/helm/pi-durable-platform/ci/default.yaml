@@ -1,0 +1,12 @@
+# The smallest working configuration: the kubernetes launcher, single sign-on,
+# PostgreSQL run by CloudNativePG (deploy/examples/cloudnative-pg).
+appUrl: https://agents.example.com
+oidc:
+  issuer: https://idp.example.com/application/o/pi-durable-platform/
+  clientId: pi-durable-platform
+networkPolicy:
+  kubeApiServer:
+    cidrs: [192.0.2.10/32]
+  database:
+    podLabels:
+      cnpg.io/cluster: pdp-db

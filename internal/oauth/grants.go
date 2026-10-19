@@ -20,6 +20,9 @@ const (
 	ReasonAdmin  = "admin"
 	ReasonClient = "client"
 	ReasonReuse  = "refresh_reuse"
+	// ReasonDenied: the person lost access to the platform (the IdP group
+	// rule, internal/auth).
+	ReasonDenied = "access_denied"
 )
 
 // Grant is a connected app: a person's consent for a client.
@@ -92,6 +95,37 @@ func (s *Service) revokeGrant(ctx context.Context, q *dbgen.Queries, a authz.Act
 	e.Metadata["reason"] = reason
 	e.Before = grantSnapshot(g)
 	return audit.Record(ctx, q, e)
+}
+
+// RevokeUserGrants revokes every connected app of a person, deleting their
+// codes and tokens, and audits oauth.revoke for each (by the system, with the
+// reason) in the transaction q belongs to. It returns how many it revoked.
+func RevokeUserGrants(ctx context.Context, q *dbgen.Queries, userID uuid.UUID, reason, requestID string) (int, error) {
+	grants, err := q.ListUserOAuthGrants(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, g := range grants {
+		if rows, err := q.RevokeOAuthGrant(ctx, dbgen.RevokeOAuthGrantParams{ID: g.ID, Reason: &reason}); err != nil {
+			return n, err
+		} else if rows == 0 {
+			continue
+		}
+		if err := q.DeleteOAuthGrantCodes(ctx, g.ID); err != nil {
+			return n, err
+		}
+		if err := q.DeleteOAuthGrantTokens(ctx, g.ID); err != nil {
+			return n, err
+		}
+		n++
+		if err := audit.Record(ctx, q, audit.Entry{ActorKind: audit.ActorSystem, Action: "oauth.revoke", TargetType: "oauth_grant",
+			TargetID: g.ID.String(), Before: grantSnapshot(g), RequestID: requestID,
+			Metadata: map[string]any{"reason": reason, "name": g.ClientName, "clientId": g.ClientID}}); err != nil {
+			return n, err
+		}
+	}
+	return n, nil
 }
 
 // GrantClient is the client of a grant as it was when consent was given.

@@ -1,0 +1,42 @@
+# Cilium, Agent Sandbox with a warm pool, ingress with TLS, image digests,
+# restricted ingress to the controller's namespace.
+appUrl: https://agents.example.com
+images:
+  platform:
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000001
+  runtime:
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000002
+oidc:
+  issuer: https://idp.example.com/application/o/pi-durable-platform/
+  clientId: pi-durable-platform
+  allowedGroups: [pi-durable-users, pi-durable-admins]
+  bootstrapAdminSubject: admin-subject
+trustedProxies: [10.244.0.0/16]
+agents:
+  launcher: agent-sandbox
+  clientMcpHosts: ["*.example.com"]
+  resourceQuota:
+    enabled: true
+agentSandbox:
+  warmPool:
+    size: 3
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+  tls:
+    - secretName: pdp-tls
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+networkPolicy:
+  flavor: cilium
+  database:
+    podLabels:
+      cnpg.io/cluster: pdp-db
+  ingress:
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: ingress-nginx

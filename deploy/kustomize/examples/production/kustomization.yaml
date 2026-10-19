@@ -1,0 +1,82 @@
+# An example installation: Agent Sandbox with a warm pool, images pinned by
+# digest, single sign-on, an Ingress with TLS, a PodDisruptionBudget and a
+# quota for the agents namespace. Copy this directory, replace the example
+# values (example.com names, the digests, the API server's address) and build
+# it with `kubectl kustomize` or `kubectl apply -k`.
+#
+# The Secrets are not here: create them yourself (../../secrets.example.yaml
+# lists the names and keys) before applying.
+#
+# deploy/scripts/check-parity.sh renders this directory and the Helm chart with
+# parity/production.values.yaml (the same settings) and compares the objects.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../overlays/agent-sandbox
+components:
+  - ../../components/ingress
+  - ../../components/pod-disruption-budget
+  - ../../components/resourcequota
+
+# Images by digest (the release notes list them). The tag is kept for people;
+# the digest is what is pulled. The `images` transformer reaches the Deployment;
+# images-config.yaml teaches it the SandboxTemplate's container too.
+configurations:
+  - images-config.yaml
+images:
+  - name: ghcr.io/ncecere/pi-durable-platform
+    newTag: v0.1.2@sha256:0000000000000000000000000000000000000000000000000000000000000001
+  - name: ghcr.io/ncecere/pi-durable-platform-runtime
+    newTag: v0.1.2@sha256:0000000000000000000000000000000000000000000000000000000000000002
+
+patches:
+  # Settings (the ConfigMap): after changing them, `kubectl rollout restart`
+  # the Deployment.
+  - target: { kind: ConfigMap, name: pi-durable-platform }
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: pi-durable-platform
+      data:
+        APP_URL: https://agents.example.org
+        OIDC_ISSUER: https://idp.example.org/application/o/pi-durable-platform/
+        OIDC_CLIENT_ID: pi-durable-platform
+        OIDC_ALLOWED_GROUPS: pi-durable-users,pi-durable-admins
+        BOOTSTRAP_ADMIN_SUBJECT: admin-subject
+        TRUSTED_PROXIES: 10.244.0.0/16
+        AGENTS_CLIENT_MCP_HOSTS: "*.example.org"
+  # The API server's addresses: `kubectl get endpoints kubernetes`.
+  - target: { kind: NetworkPolicy, name: pi-durable-platform-egress-kube-api }
+    patch: |-
+      - op: replace
+        path: /spec/egress/0/to/0/ipBlock/cidr
+        value: 192.0.2.20/32
+  # Web traffic from the ingress controller's namespace only.
+  - target: { kind: NetworkPolicy, name: pi-durable-platform-ingress-web }
+    patch: |-
+      - op: replace
+        path: /spec/ingress/0/from
+        value:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: ingress-nginx
+  - target: { kind: Ingress, name: pi-durable-platform }
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: agents.example.org
+      - op: add
+        path: /spec/tls
+        value:
+          - secretName: pdp-tls
+            hosts: [agents.example.org]
+      - op: add
+        path: /metadata/annotations
+        value:
+          nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+  - target: { kind: SandboxWarmPool, name: pdp-runtimes }
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3

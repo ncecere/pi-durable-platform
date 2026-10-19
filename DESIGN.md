@@ -25,7 +25,7 @@ Later: teams build and upload their own agents (self-service). That requires str
 | 2 | Pi Durable runs in a separate **Node runtime** (`runtime/`), one process per agent. | Pi Durable is TypeScript. |
 | 3 | **Agent state in PostgreSQL**, not SQLite. Pi's own `SqliteStorage` runs unchanged on a small SQL facade over one dedicated pg connection (`runtime/src/storage`). | Stateless agent pods: an agent can wake on any node, no node-pinned volumes. |
 | 4 | **One schema and one database role per agent**, in a database separate from platform metadata. | Database-enforced isolation between agents; easy delete. |
-| 5 | **Single owner per agent** via a session advisory lock on the agent's only connection, never re-established. | A stale pod that loses its connection loses its ability to write at the same moment its lock is released. |
+| 5 | **Single owner per agent** through an ownership record in the agent's own schema, naming the database session that owns it, on the agent's only connection, never re-established. See [Agent storage and ownership](#agent-storage-and-ownership). | A stale pod that loses its connection loses its ability to write at the same moment its ownership ends. No other agent's role can write, lock or take over the record. |
 | 6 | **One runtime per active agent; idle agents hibernate** (no pod, no connection). Requests wake them. | Thousands of per-user agents cannot all hold pods. |
 | 7 | Clients reach agents **only through the platform API**, which authenticates, authorizes and proxies. Runtimes require a per-agent bearer token. | One enforcement point; runtimes are never exposed. |
 | 8 | Agents come from **templates** (instructions, a model and MCP tools; no code) that platform admins or team admins write, running the platform's own runtime. Self-service upload of agent code is later and gated on sandboxed runtimes (gVisor/Kata). | The runtime's code is trusted; uploaded code is not. |
@@ -60,7 +60,60 @@ running at once, a monthly cost budget that is recorded but not enforced yet) an
 workspace. Models and MCP servers have a `personal` flag: whether personal workspaces may use them (shared teams follow
 their visibility). Platform admins and auditors audit personal workspaces: they see the workspace, its agents, usage
 and audit log, but not conversations (platform admins may open one with a stated reason, which the workspace's owner
-sees: see Threads). Sign-in can be limited to IdP groups (`OIDC_ALLOWED_GROUPS`).
+sees: see Threads). Sign-in can be limited to IdP groups (`OIDC_ALLOWED_GROUPS`), which the platform keeps
+re-checking while people are signed in (Sign-in and group membership).
+
+## Sign-in and group membership
+
+People sign in with OIDC (any provider; PKCE, state and nonce; the ID token's claims fill the profile) or, for
+development only, with fixed personas (`DEV_AUTH`, loopback `APP_URL`). `OIDC_ALLOWED_EMAIL_DOMAINS` and
+`OIDC_ALLOWED_GROUPS` (against the `OIDC_GROUPS_CLAIM` claim of the ID token) decide who may sign in; the bootstrap
+admin (`BOOTSTRAP_ADMIN_SUBJECT`) is exempt from the group rule so the platform can't lock out its first admin. A
+session lasts `SESSION_TTL`.
+
+**Re-checking groups (v0.2).** The group rule used to apply at sign-in only: removing someone from the IdP group left
+their session (up to `SESSION_TTL`), personal API keys and connected apps working. The platform now asks the IdP
+again, with no credentials of its own to the IdP and no SCIM:
+
+- *Mechanism.* At sign-in the platform keeps the **refresh token** the IdP issued (`user_idp_tokens`, sealed with
+  `ENCRYPTION_KEY`; only with `OIDC_ALLOWED_GROUPS`, a re-check interval and an IdP that issues one: scope
+  `offline_access` in `OIDC_SCOPES`, and the provider must allow it for this client; with authentik 2024.2 and later
+  the provider needs the `offline_access` scope mapping). Every `OIDC_GROUP_RECHECK_INTERVAL` (default 15m; 0 turns
+  it off) the platform exchanges it at the token endpoint for fresh claims, takes the groups from the new ID token
+  (else from the userinfo endpoint with the new access token) and applies the same rule, `OIDC_ALLOWED_GROUPS`
+  against `OIDC_GROUPS_CLAIM`. The refresh token the IdP rotates replaces the kept one. A background loop (every
+  replica runs it; people are claimed with `FOR UPDATE SKIP LOCKED`) checks people who are *recently active* (a
+  sign-in, a live session, or an API key or connected app used in the last 30 days), so a removal takes effect
+  within the interval plus up to a minute. Not chosen: userinfo with the sign-in's access token (it expires in
+  minutes, so it needs the refresh token anyway); checking on every request or at session first use (puts the IdP
+  on the request path and makes its outage everyone's outage; the loop bounds the window instead).
+- *Outcome by answer.* The IdP lists an allowed group: access continues (the person's stored groups are updated).
+  It lists none: **denied**, `not_in_group`. It refuses the refresh token (`invalid_grant`, `access_denied` and the
+  like: the person was disabled, the grant revoked or expired): denied, `idp_refused`. It can't be asked
+  (unreachable, 5xx, an unexpected answer, or neither the ID token nor userinfo has the groups claim): nothing
+  changes and the platform logs a warning, until `OIDC_GROUP_RECHECK_GRACE` (default 24h) has passed since the IdP
+  last vouched for the person: then denied, `idp_unreachable`. So an IdP outage costs nobody access for a day, and
+  a person the IdP no longer answers for loses it after one.
+- *Denied is a separate state.* `users.group_denied_at`/`group_denied_reason`, apart from `users.status`, which only
+  admins change (`suspended`): an admin's suspension and the group rule never overwrite each other. A person
+  counts as inactive while either says so, in every check that a person may use the platform
+  (`store.IsUserActive`: sessions, personal API keys, app access tokens, refresh and authorization, the OAuth
+  consent page, the last-admin guard). Denying also deletes their sessions, revokes their connected apps (grants
+  and tokens; reason `access_denied`) and forgets the kept refresh token; their API keys are not revoked (they stop
+  working while denied), and their data, team memberships and agents stay. An event stream already open is not closed
+  (as with a suspension): every new request is refused.
+- *Coming back.* Signing in applies the rule afresh; when it passes, the denial is cleared (`user.group_restored`)
+  and API keys work again (apps must be connected again). A person who is still outside the group can't sign in
+  (403 `group_denied`) and nothing changes. Removing `OIDC_ALLOWED_GROUPS` lifts every denial at the next start.
+- *Not covered.* The bootstrap admin and development personas are never re-checked (no refresh token is kept for
+  them). People who signed in before the upgrade, or when the IdP issued no refresh token, have nothing to check
+  with: their groups apply at their next sign-in (the platform warns at start when `OIDC_SCOPES` lacks
+  `offline_access`). Refresh tokens that an IdP lets expire for good (an absolute lifetime) end in
+  `idp_refused`: the person signs in again.
+- *Audit.* `user.group_denied` (system; target the person; the reason in words, its code and how many connected
+  apps were revoked, each also `oauth.revoke` with reason `access_denied`) and `user.group_restored` (the person
+  signing in, or the system when the rule was removed). Admin › People shows "Group access ended" with the reason
+  (`accessDeniedAt` and `accessDeniedReason` on the user).
 
 ## OAuth Connect
 
@@ -93,7 +146,7 @@ is the platform itself: `APP_URL`.
    (`code_challenge`, `code_challenge_method=S256`, required), optional `scope=agents` (the only scope; omitted means
    agents) and optional `resource=<APP_URL>` (anything else is `invalid_target`). Loopback redirect URIs match on any
    port (RFC 8252). The person signs in with the platform's normal sign-in (so `OIDC_ALLOWED_GROUPS` and suspension
-   apply; their personal workspace exists from then on), and sees the consent page (`/connect/consent` in the web
+   apply, and a person the group re-check denied can't connect an app; their personal workspace exists from then on), and sees the consent page (`/connect/consent` in the web
    app). Errors before the client and redirect URI are known good (unknown client, unregistered redirect URI, a
    repeated parameter) are shown as a page and never redirected; later ones go back to the app. The redirect carries
    `code`, `state` and `iss` (RFC 9207).
@@ -112,7 +165,7 @@ thread MCP servers), template listings, a team's models, usage, limits and MCP s
 they are about a person. Everything else (administration, members, invites, keys, service accounts, connected apps,
 consent) takes browser sessions only. Agents with an external key (`PUT …/agents/by-key/…`) stay service-account
 only: an app acting as a person creates ordinary agents (for example in the person's personal workspace). Every
-request re-checks the token, its connection and the person (suspended: refused) and is rate-limited as the person.
+request re-checks the token, its connection and the person (suspended, or denied by the group re-check: refused) and is rate-limited as the person.
 Tokens and codes are stored as HMAC-SHA256 digests (label `oauth:`) under `API_KEY_PEPPER`, and
 `API_KEY_PEPPER_PREVIOUS` is accepted during a rotation; they are never logged.
 
@@ -242,12 +295,41 @@ team's audit log.
 
 ## Threads
 
-A conversation with an agent is a thread, named by the client (`/v1/agents/{id}/threads/{threadId}`). The runtime
-keeps the conversation; the platform keeps a record of each thread (`agent_threads`) so listing doesn't wake the
-agent, and announces changes on `GET /v1/agents/events`.
+A conversation with an agent is a thread (`/v1/agents/{id}/threads/{threadId}`). The runtime keeps the conversation;
+the platform keeps a record of each thread (`agent_threads`) so listing doesn't wake the agent, and announces changes
+on `GET /v1/agents/events`.
 
-- **Shared or private.** The first message chooses (`visibility`, default `shared`; it never changes: a different
-  value later is 409 `visibility_fixed`). A shared thread is seen by everyone who may use the agent. A private one is
+- **Thread IDs.** `POST /v1/agents/{id}/threads` starts a thread under an ID the platform chooses (`t_` and 128
+  random bits, base64url) and returns it; anyone who may use the (turned-on) agent may, as for sending a message. The
+  body is optional: `visibility` and `title`. Clients may keep choosing IDs (`[A-Za-z0-9_-]{1,64}`), and the
+  first message under an unused ID starts the thread as before, but only a platform-chosen ID can't be guessed: whoever
+  uses an ID first starts that thread, and anyone allowed on the agent who learns a shared thread's ID may join it.
+  This supersedes the v0.1.0 limitation "Thread IDs are chosen by clients" (the
+  [release notes](docs/releases/v0.1.0.md) keep describing v0.1.0).
+- **A thread has a creator before it has servers.** A thread starts (its record is written, the caller is its
+  creator) with its first message, with `POST …/threads`, or when someone sets its MCP servers: `PUT …/mcp-servers`
+  on an ID with no record, and a message's `mcpServers`, start the thread under that ID like its first message
+  would (`visibility` is part of the PUT body, default `shared`). Servers are never kept for a thread without a
+  record: `thread_mcp_servers` references `agent_threads` (deleting a thread deletes its servers), and the migration
+  dropped the servers of unrecorded threads (the v0.1.x pre-seeding hole: A sets servers on an ID, B's later private
+  thread with that ID inherited them). Now whoever uses the ID later gets the normal rules of the thread they find:
+  shared (they may join it, and see that it is someone's and which servers it has: names and URLs, never headers) or
+  private (404 `thread_not_found` on every route, 409 `visibility_fixed` for a conflicting `visibility`). Reading
+  and changing a thread's servers takes the same access as reading the thread: the creator for a private one, anyone
+  who may use the agent for a shared one. An empty list on an unknown ID starts nothing; bad servers (host, template
+  without `clientMcp`) start nothing.
+  *Why claim rather than refuse.* Refusing servers for unrecorded threads (404) would break apps that set servers
+  before the first message (the documented flow) and would need a second, identical step; claiming keeps that flow
+  working and still binds the servers to a known creator. Platform-chosen IDs make the attack impossible rather
+  than merely handled, and apps that want private threads with servers set up front can use them.
+- **Reserved threads.** A thread started without a message (by `POST …/threads` or by its servers being set) is
+  *reserved*: listed and announced to its creator only (anyone allowed on the agent may still use a shared one by its
+  ID), titled "New chat" until its first message names it (a title given at creation stays), kept when the
+  runtime lists the threads it has (it knows none of them), and deleted after 30 days without a message (with its
+  servers; `agents.Cleanup`, which also prunes expired thread servers). The first accepted message ends the
+  reservation.
+- **Shared or private.** The first message (or `POST …/threads`, or the servers `PUT`) chooses (`visibility`, default
+  `shared`; it never changes: a different value later is 409 `visibility_fixed`). A shared thread is seen by everyone who may use the agent. A private one is
   listed and read only by the person or service account that started it: not other members, not the team's owners
   or admins, not another person's test chat in the console. On every thread route (read, send, stop, events, rename,
   delete, the thread's MCP servers), in listings and in event streams, another's private thread reads as not found
@@ -280,6 +362,74 @@ agent, and announces changes on `GET /v1/agents/events`.
   workspaces', so Admin › Teams › a team lists them and links to each agent's page. Read-only: they don't talk to,
   change or hibernate an agent of a team they aren't on (platform admins may delete one).
 
+## Agent storage and ownership
+
+Each agent has a schema and a login role of the same name (`agent_<uuid without dashes>`) in the agents database. The
+provisioner (`internal/agenthost/provision`, run by a CREATEROLE role that is not a superuser) creates the role
+(`LOGIN NOINHERIT NOCREATEDB NOCREATEROLE CONNECTION LIMIT 2`) and the schema it owns; PUBLIC has no access to schema
+`public` or `TEMP`. The role owns every table in its schema and nothing else, so another agent's role gets "permission
+denied" on all of it. The role's own tables are created by the runtime at start (pi-durable's by `SqliteStorage.open`,
+the ownership record below), which is why the agents database has no migrations of its own.
+
+**What ownership has to guarantee.** One process at a time writes for an agent; a replacement takes over as soon as the
+owner is gone (a crash, a lost connection, a termination), so an agent never waits on a timer; and a stale owner can't
+write after its replacement started. The runtime exits when its connection is lost, so the supervisor starts a new one.
+
+**Design: an ownership record in the agent's own schema.** The runtime keeps a one-row table, `pdp_ownership`, in the
+agent's schema. It holds the owner's database session (backend pid and start time), when it took over and a generation
+counter. To take ownership the runtime, in one transaction: locks the row (`SELECT ... FOR UPDATE`), then looks at
+`pg_stat_activity`. If the recorded session still exists, it fails with `AgentOwnedElsewhereError` (the platform retries,
+as before). If not (the process exited, the connection dropped, the backend was terminated), it records itself and
+continues. A session is identified by pid and start time, so a reused pid doesn't count. `pg_stat_activity` is read only
+after the row lock is held (its snapshot lasts the transaction; one taken earlier could miss a session that started while
+waiting). A clean stop clears the record before disconnecting, so a hibernated agent's next start never waits.
+
+This keeps what the session advisory lock gave: ownership is bound to the one connection that also writes, so it ends
+exactly when the ability to write ends, with no lease, heartbeat or expiry to wait out or to get wrong (a stalled but
+connected owner stays the owner, as before; `Evict` ends its sessions). It also removes what the lock couldn't: the
+decision rests on a table only the agent's role can write and on the agent's own role's sessions, so no other role can
+influence it. The runtime refuses to start when its own session isn't visible in `pg_stat_activity` (`track_activities`
+off), since a live owner could then look dead.
+
+**What another agent's role can do** (`runtime/test/ownership.test.ts`, `internal/agenthost/provision`):
+
+| Attack | Session advisory lock (v0.1.x) | Ownership record |
+|---|---|---|
+| Take a free agent's key while it is hibernated, and hold it | Blocks that agent's start for as long as it is held | Can't take ownership (permission denied on the schema and table); the key it holds is ignored by the runtime (`cannot block A's start by holding A's legacy lock key`, `cannot take ownership of an agent's storage`) |
+| Observe `pg_locks` for the key, grab it when the owner stops | Same | Same; B sees that some session holds an advisory lock, nothing it can act on |
+| Write, lock, drop or read the record; plant objects in the schema | n/a (no record) | Permission denied (`cannot write, lock, drop or read A's ownership record`) |
+| End the owner's session (`pg_terminate_backend`, `pg_cancel_backend`) to force a restart | Refused | Refused |
+| Use up the agent's connections | Per-role limit of 2 | Same (`TestAnotherAgentCannotInterfereWithOwnership`) |
+
+What is left: any role can see which sessions of other roles exist (`pg_stat_activity` shows the user name and pid),
+and agents share the server's connection and CPU capacity, so a hostile agent can still be a noisy neighbour. Per-role
+quotas are the database's, not this design's. An agent's own role can of course tamper with its own record and data.
+
+**Upgrading agents made by v0.1.x, and rolling upgrades.** There is nothing to migrate in the platform database or by the
+provisioner. The runtime creates the table with the agent's own role (`CREATE TABLE IF NOT EXISTS`, retried if two
+processes of one agent race) the first time a new runtime starts that agent: agents upgrade as they next wake, with no
+downtime beyond that restart. Rolling back to a v0.1.x runtime works; it ignores the table.
+
+Runtimes before and after the change may run side by side while pods are replaced (an old pod still running, or an agent
+woken with the old image). The new runtime therefore also takes the v0.1.x session advisory lock
+(`pg_try_advisory_lock(hashtextextended('pdp-agent:<schema>', 0))`) on its connection. If a session of this agent's own
+role holds it, that is a v0.1.x runtime of the same agent and the new one refuses (`AgentOwnedElsewhereError`); while the
+new runtime runs, it holds the lock, so a v0.1.x runtime refuses. A holder running as any other role is ignored: that is
+the attack above. The one gap is a v0.1.x runtime started while another role holds the key and releases it again, which
+needs untrusted code in the agents database during the upgrade; self-service agent code is not available before this
+change. The runtime option `legacyLock: false` turns the compatibility lock off; once no v0.1.x runtime is left (every
+agent has been restarted on the new image) it can be removed.
+
+**Orphaned roles.** Roles are server-wide, so a dropped or recreated agents database leaves its agents' roles behind. The
+provisioner marks each role it creates with a comment naming its agents database. `pi-durable-platform doctor` lists the
+roles named like agents' (`agent_...`) that belong to no agent in the platform database and to no schema in the agents
+database; `pi-durable-platform prune-roles [--dry-run]` drops them. It only drops a role that is what the provisioner
+makes (a login role without privileged attributes, member of nothing, one the provisioning role manages, not marked for
+another agents database) and has no open sessions, and it never forces: no `DROP OWNED` and no `CASCADE`, so if the
+server finds the role still owns objects or has privileges in any database (another installation's live agent on a
+shared server owns its schema there), the role is kept and reported with the reason. Anything else is listed as left
+alone. Roles made before the comment existed carry no mark and are still considered; only those that own nothing can go.
+
 ## Launchers
 
 | `AGENTS_LAUNCHER` | Runtime per active agent | Hibernate | Wake |
@@ -303,12 +453,62 @@ it with a random token if missing, and the pool's pods read it), or given to the
 platform alone, so one agent cannot activate another runtime. To rotate it, delete the Secret and the pool's unclaimed
 sandboxes.
 
+## Secrets and key rotation
+
+Two keys protect what the database holds:
+
+- **`ENCRYPTION_KEY`** seals secrets the platform must use again, with AES-256-GCM (`internal/secrets`): model provider
+  keys and headers, MCP server headers, thread MCP server headers, and each agent's database password and runtime
+  token. A sealed value is `version | key id | nonce | ciphertext+tag`, where the key id is the first 8 bytes of the
+  key's SHA-256 and the associated data (the row it belongs to) stops a value being moved to another row. Because a value
+  names its key, "which values are still on the old key" is answered from the stored bytes, in SQL, with no marker
+  column and no migration.
+- **`API_KEY_PEPPER`** keys the HMAC digests of personal API keys, service account keys and OAuth Connect tokens and
+  codes, which are never stored. Digests are not reversible, so they move to a new pepper when they are used
+  (`API_KEY_PEPPER_PREVIOUS` is accepted meanwhile; `doctor` counts what is left).
+
+**Rotating `ENCRYPTION_KEY`**
+
+1. Generate a key (`openssl rand -base64 32`). Set it as `ENCRYPTION_KEY` and the old one as `ENCRYPTION_KEY_PREVIOUS`;
+   restart. New and changed secrets are sealed under the new key, old ones still open.
+2. `pi-durable-platform rekey --dry-run` counts, per sealed column, the values under each key and checks they open.
+3. `pi-durable-platform rekey` re-seals the values under the previous key. It works column by column, in batches (a
+   transaction each, `--batch`, default 200), and replaces a value only if the row still holds the ciphertext it read,
+   so a secret someone saves meanwhile is never overwritten with its old value: it is safe while the platform serves.
+   It does not change a row's revision or `updated_at`, is idempotent, and resumes after an interrupt by running again.
+   Before writing anything it opens every value to be re-sealed: if one opens with neither key (a missing
+   `ENCRYPTION_KEY_PREVIOUS`, a third key, damage) it stops, names the columns and rows (never values) and changes
+   nothing. It records one audit entry (`platform.secrets_rekey`: counts per column).
+4. `pi-durable-platform doctor` (check `keys encryption`) warns while any value is still under the previous key, and
+   fails for values under no configured key. When it reports none, remove `ENCRYPTION_KEY_PREVIOUS`.
+
+## Deployment
+
+`deploy/` ships a Helm chart and a Kustomize base with overlays ([deploy/README.md](deploy/README.md)); the chart is the
+source and the Kustomize resources are generated from it, with a parity check in CI. What they deploy follows from the
+launchers above:
+
+- **RBAC in the agents namespace only.** The platform's ServiceAccount gets a Role there, with the verbs its launcher
+  uses and no more (`kubernetes`: pods and secrets; `agent-sandbox` with a warm pool: sandbox claims, and the
+  activation Secret; without: sandboxes, pods get and secrets). Nothing is cluster-wide.
+- **Agent isolation is NetworkPolicy.** The agents namespace denies everything; an agent pod takes traffic from the
+  platform pods (port 4100) and reaches only PostgreSQL, the platform's gateway (8099) and DNS. The platform pods take
+  web traffic from the ingress peers and the gateway port from agent pods, and reach DNS, PostgreSQL, the agents, the
+  Kubernetes API (an address list for standard policies, the `kube-apiserver` entity for Cilium) and public HTTPS. The
+  policies need a CNI that enforces them; `deploy/scripts/smoke-kind.sh` (run in CI) checks the rules on kind.
+- **Pod Security `restricted`** for the agents namespace; the platform pod meets it too.
+- One platform replica (above, and roadmap item B); the chart's schema refuses more.
+
 ## Verified so far
 
 - `runtime/test/conformance.test.ts`: pi-durable 1.3.0's own storage conformance suite (24 cases) passes on PostgreSQL.
 - Ownership: a second opener is refused; an owner whose backend is terminated can no longer read or write, and the
-  next owner opens (`ownership.test.ts`).
-- Isolation: an agent role cannot read another agent's schema (`ownership.test.ts`).
+  next owner opens within a bounded time; concurrent openers never produce two owners; an agent without the ownership
+  table is upgraded in place (`ownership.test.ts`).
+- Isolation: an agent role cannot read another agent's schema, and cannot take, block, steal, lock or observe-and-grab
+  another agent's ownership (`ownership.test.ts`, `provision_integration_test.go`).
+- Orphaned agent roles are listed by `doctor` and dropped by `prune-roles` without touching live ones
+  (`provision_integration_test.go`, `doctor_integration_test.go`, `prune_roles_integration_test.go`).
 - A real Harness keeps its conversation and deduplicates retried requests across a process restart
   (`harness.test.ts`); a manual `kill -9` mid-reply resumed and completed the reply.
 
@@ -317,11 +517,11 @@ sandboxes.
 The [v0.1.0 release notes](docs/releases/v0.1.0.md#known-limitations) list the product limits (one replica, no budget
 enforcement, text-only messages, no paging, …). The design-level ones:
 
-- Database roles are server-wide: agent roles outlive a dropped agents database (tests remove theirs);
-  `prune-agent-storage` only considers schemas in its own database.
-- **Advisory locks are database-wide**: any role in the agents database can take another agent's lock key and block
-  it from starting. Acceptable for trusted templates; uploaded agents must not get direct database credentials (a
-  storage proxy instead).
+- Agent roles still share the server's connection and CPU capacity (no per-role quotas), and any role can see that
+  other roles' sessions exist. Cross-agent ownership interference is closed (see Agent storage and ownership), but
+  uploaded agent code (#28, #29) still needs hostile-code isolation of the pod and a decision on whether it gets direct
+  database credentials at all (a storage proxy is the alternative).
+- The v0.1.x compatibility advisory lock stays until no v0.1.x runtime is left; removing it is a later release.
 - Schema-per-agent means ~25 relations per agent. Fine for thousands; for much larger counts, a native storage with an
   `agent_id` column and row-level security may be needed.
 - Commit latency is a network round trip; Pi's `settings.progress` intervals can be raised if needed.
@@ -329,6 +529,6 @@ enforcement, text-only messages, no paging, …). The design-level ones:
   the conformance suite guards every upgrade.
 - Scheduled work while an agent hibernates needs the platform to know the next wake time (not built yet).
 - Hostile-code isolation (gVisor/Kata on Talos) is required before self-service uploads.
-- Thread IDs are chosen by clients. Anyone who may use an agent can set the MCP servers of a thread that doesn't exist
-  yet (`PUT .../mcp-servers`), which a later private thread with that ID would inherit; clients should use random
-  thread IDs.
+- Client-chosen thread IDs are guessable if the client picks guessable ones: whoever uses an ID first starts that
+  thread (a shared one anyone allowed on the agent may join; a private one is 404 for everyone else). Use
+  `POST …/threads` or random IDs. (The v0.1.0 pre-seeding of thread MCP servers is closed: see Threads.)

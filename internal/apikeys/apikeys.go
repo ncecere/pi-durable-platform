@@ -243,7 +243,7 @@ func (s *Service) Authenticate(ctx context.Context, secret string) (Principal, e
 	}
 	// The digest lookup is exact; compare again in constant time anyway.
 	if !hmac.Equal([]byte(row.ApiKey.Digest), []byte(digest)) ||
-		Status(row.ApiKey, time.Now()) != StatusActive || row.User.Status != "active" {
+		Status(row.ApiKey, time.Now()) != StatusActive || !store.IsUserActive(row.User) {
 		return Principal{}, ErrInvalid
 	}
 	if previous {

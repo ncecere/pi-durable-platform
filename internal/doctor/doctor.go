@@ -1,8 +1,9 @@
 // Package doctor implements `pi-durable-platform doctor`: the configuration
 // and production safety checks, then PostgreSQL connectivity and the
-// migration state, with timings, then API key pepper rotation: keys still
-// on another pepper, then the agents database (AGENTS_DATABASE_URL): that
-// it answers and that its role may provision agents. It changes nothing.
+// migration state, with timings, then key rotation (API keys still on another
+// pepper, stored secrets still sealed with the previous encryption key), then
+// the agents database (AGENTS_DATABASE_URL): that it answers, that its role may
+// provision agents, and which agent roles belong to no agent. It changes nothing.
 package doctor
 
 import (
@@ -17,8 +18,10 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ncecere/pi-durable-platform/internal/agenthost/provision"
 	"github.com/ncecere/pi-durable-platform/internal/buildinfo"
 	"github.com/ncecere/pi-durable-platform/internal/config"
+	"github.com/ncecere/pi-durable-platform/internal/rekey"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
@@ -30,6 +33,7 @@ type Status string
 const (
 	OK   Status = "ok"
 	Info Status = "info" // worth knowing
+	Warn Status = "warn" // something to do, but the platform works: doctor still exits zero
 	Fail Status = "fail" // broken: doctor exits non-zero
 )
 
@@ -78,10 +82,11 @@ func Run(ctx context.Context, cfg config.Config, opts Options) Report {
 	}
 	r := &runner{cfg: cfg, opts: opts}
 	r.configuration()
-	if pool := r.postgres(ctx); pool != nil {
-		pool.Close()
+	pool := r.postgres(ctx)
+	if pool != nil {
+		defer pool.Close()
 	}
-	r.agentsDatabase(ctx)
+	r.agentsDatabase(ctx, pool)
 	return r.report()
 }
 
@@ -160,6 +165,7 @@ func (r *runner) postgres(ctx context.Context) *pgxpool.Pool {
 	r.add(c)
 	if r.migrations(cctx, pool) {
 		r.keys(cctx, pool)
+		r.encryption(cctx, pool)
 	}
 	return pool
 }
@@ -175,8 +181,9 @@ const provisionMinVersion = 160000
 // schema (or a superuser), on PostgreSQL 16 or later. It reads the role's
 // attributes and privileges; nothing is created. Without
 // AGENTS_DATABASE_URL the checks are skipped (the configuration checks say
-// whether the mode needs it).
-func (r *runner) agentsDatabase(ctx context.Context) {
+// whether the mode needs it). platform is the platform database's pool (nil
+// when unavailable), for the agents whose roles are expected.
+func (r *runner) agentsDatabase(ctx context.Context, platform *pgxpool.Pool) {
 	if r.cfg.Agents.DatabaseURL == "" {
 		r.add(Check{Group: "agents", Name: "database", Status: Info, Detail: "skipped: AGENTS_DATABASE_URL is not set, so agents can't be deployed"})
 		return
@@ -243,6 +250,69 @@ func (r *runner) agentsDatabase(ctx context.Context) {
 		p.Detail = fmt.Sprintf("%s has CREATEROLE and CREATE on %s", role, db)
 	}
 	r.add(p)
+	if p.Status != Fail {
+		r.orphanRoles(ctx, platform, pool)
+	}
+}
+
+// orphanRoles lists agent roles that belong to no agent of the platform and
+// have no schema in the agents database. Roles are server-wide, so a dropped
+// or recreated agents database leaves them behind; prune-roles drops them.
+func (r *runner) orphanRoles(ctx context.Context, platform, agents *pgxpool.Pool) {
+	ctx, cancel := context.WithTimeout(ctx, r.opts.Timeout)
+	defer cancel()
+	c := Check{Group: "agents", Name: "roles", Status: OK}
+	if platform == nil {
+		c.Status, c.Detail = Info, "skipped: the platform database is unavailable, so the agents' roles are unknown"
+		r.add(c)
+		return
+	}
+	start := time.Now()
+	ids, err := dbgen.New(platform).AgentIDs(ctx)
+	if err != nil {
+		c.Status, c.Detail = Info, "skipped: the platform's agents can't be listed (migrations pending?)"
+		r.add(c)
+		return
+	}
+	known := make([]string, len(ids))
+	for i, id := range ids {
+		known[i] = id.String()
+	}
+	orphans, skipped, err := provision.New(agents).OrphanRoles(ctx, known)
+	c.DurationMs = millis(time.Since(start))
+	switch {
+	case err != nil:
+		c.Status, c.Detail = Fail, "agent roles: "+err.Error()
+	case len(orphans) > 0:
+		c.Status = Info
+		c.Detail = fmt.Sprintf("%d agent role(s) belong to no agent and have no schema here: %s", len(orphans), listNames(orphans))
+		if len(skipped) > 0 {
+			c.Detail += fmt.Sprintf("; %d more look like agent roles but prune-roles would leave them alone", len(skipped))
+		}
+		c.Fix = "Run pi-durable-platform prune-roles --dry-run, then prune-roles"
+	case len(skipped) > 0:
+		c.Status = Info
+		c.Detail = fmt.Sprintf("no droppable orphaned agent roles; %d role(s) named like agent roles are left alone: %s", len(skipped), listNames(skippedNames(skipped)))
+	default:
+		c.Detail = "every agent role belongs to an agent or to a schema in the agents database"
+	}
+	r.add(c)
+}
+
+func skippedNames(s []provision.SkippedRole) []string {
+	out := make([]string, len(s))
+	for i, x := range s {
+		out[i] = x.Name
+	}
+	return out
+}
+
+// listNames joins up to five names, then counts the rest.
+func listNames(names []string) string {
+	if len(names) <= 5 {
+		return strings.Join(names, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(names[:5], ", "), len(names)-5)
 }
 
 // missingDatabase reports whether a connection failed because the database
@@ -279,6 +349,63 @@ func (r *runner) keys(ctx context.Context, pool *pgxpool.Pool) {
 		c.Detail = "every usable key is on API_KEY_PEPPER: API_KEY_PEPPER_PREVIOUS can be removed"
 	default:
 		c.Detail = "every usable key is on API_KEY_PEPPER"
+	}
+	r.add(c)
+}
+
+// encryption reports the stored secrets by the key they are sealed with
+// (from their key ids; nothing is opened): values still under
+// ENCRYPTION_KEY_PREVIOUS need `rekey`, values under no configured key
+// cannot be read at all.
+func (r *runner) encryption(ctx context.Context, pool *pgxpool.Pool) {
+	cur, err := secrets.ParseKey(r.cfg.EncryptionKey)
+	if err != nil {
+		return // reported by the configuration checks
+	}
+	var prev [][]byte
+	if r.cfg.EncryptionKeyPrevious != "" {
+		p, err := secrets.ParseKey(r.cfg.EncryptionKeyPrevious)
+		if err != nil {
+			return // likewise
+		}
+		prev = append(prev, p)
+	}
+	box, err := secrets.New(cur, prev...)
+	if err != nil {
+		return
+	}
+	start := time.Now()
+	counts, err := rekey.Count(ctx, pool, box)
+	c := Check{Group: "keys", Name: "encryption", Status: OK, DurationMs: millis(time.Since(start))}
+	var current, previous, unreadable int
+	var onPrevious, onNone []string
+	for _, n := range counts {
+		current += n.Current
+		previous += n.Previous
+		unreadable += n.Unreadable
+		if n.Previous > 0 {
+			onPrevious = append(onPrevious, fmt.Sprintf("%s %d", n.Label(), n.Previous))
+		}
+		if n.Unreadable > 0 {
+			onNone = append(onNone, fmt.Sprintf("%s %d", n.Label(), n.Unreadable))
+		}
+	}
+	switch {
+	case err != nil:
+		c.Status, c.Detail = Fail, err.Error()
+	case unreadable > 0:
+		c.Status = Fail
+		c.Detail = fmt.Sprintf("%d stored secret(s) are sealed with neither ENCRYPTION_KEY nor ENCRYPTION_KEY_PREVIOUS and can't be read (%s)", unreadable, strings.Join(onNone, ", "))
+		c.Fix = "Set ENCRYPTION_KEY_PREVIOUS to the key they were sealed with and run pi-durable-platform rekey, or enter those secrets again"
+	case previous > 0:
+		c.Status = Warn
+		c.Detail = fmt.Sprintf("%d stored secret(s) are still sealed with ENCRYPTION_KEY_PREVIOUS (%s)", previous, strings.Join(onPrevious, ", "))
+		c.Fix = "Run pi-durable-platform rekey, then remove ENCRYPTION_KEY_PREVIOUS"
+	case box.HasPrevious():
+		c.Status = Info
+		c.Detail = fmt.Sprintf("no stored secret is sealed with ENCRYPTION_KEY_PREVIOUS (%d under ENCRYPTION_KEY): it can be removed", current)
+	default:
+		c.Detail = fmt.Sprintf("every stored secret (%d) is sealed with ENCRYPTION_KEY", current)
 	}
 	r.add(c)
 }
@@ -323,7 +450,7 @@ func millis(d time.Duration) float64 {
 	return float64(d.Round(10*time.Microsecond)) / float64(time.Millisecond)
 }
 
-var symbols = map[Status]string{OK: "ok  ", Info: "info", Fail: "FAIL"}
+var symbols = map[Status]string{OK: "ok  ", Info: "info", Warn: "warn", Fail: "FAIL"}
 
 // WriteJSON writes the report as indented JSON.
 func (rep Report) WriteJSON(w io.Writer) error {
@@ -353,7 +480,7 @@ func (rep Report) WriteText(w io.Writer) error {
 	if !rep.OK {
 		verdict = "FAILED"
 	}
-	fmt.Fprintf(&b, "\n%d checks: %d ok, %d info, %d failed. %s\n", len(rep.Checks), counts[OK], counts[Info], counts[Fail], verdict)
+	fmt.Fprintf(&b, "\n%d checks: %d ok, %d info, %d warning, %d failed. %s\n", len(rep.Checks), counts[OK], counts[Info], counts[Warn], counts[Fail], verdict)
 	_, err := io.WriteString(w, b.String())
 	return err
 }

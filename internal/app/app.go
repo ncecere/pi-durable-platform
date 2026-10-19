@@ -16,6 +16,7 @@ import (
 
 	"github.com/ncecere/pi-durable-platform/internal/agenthost"
 	"github.com/ncecere/pi-durable-platform/internal/agenthost/launcher"
+	"github.com/ncecere/pi-durable-platform/internal/agenthost/provision"
 	"github.com/ncecere/pi-durable-platform/internal/agents"
 	"github.com/ncecere/pi-durable-platform/internal/apikeys"
 	"github.com/ncecere/pi-durable-platform/internal/auth"
@@ -118,7 +119,8 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	}
 	loopCtx, stopLoops := context.WithCancel(ctx)
 	defer stopLoops()
-	go cleanupLoop(loopCtx, deps.Auth, deps.OAuth, log)
+	go cleanupLoop(loopCtx, deps.Auth, deps.OAuth, deps.Agents, log)
+	go deps.Auth.RunGroupRecheck(loopCtx)
 	go rateCounterLoop(loopCtx, deps.RateStore, log)
 	go deps.Agents.Host().ReapLoop(loopCtx, 30*time.Second)
 	go deps.Agents.RunThreadEvents(loopCtx, log.With("component", "thread-events"))
@@ -196,6 +198,7 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (httpapi.D
 	}
 	authSvc := auth.NewService(cfg, pool, log)
 	authSvc.SetRateStore(rates)
+	authSvc.SetSecretBox(box)
 	// OAuth Connect: apps act as the people who connect them. Its tokens are
 	// digested under the API key pepper, like keys. The development allowance
 	// lets a metadata document live on this machine.
@@ -256,9 +259,10 @@ func secretBox(cfg config.Config) (*secrets.Box, error) {
 }
 
 // cleanupLoop deletes expired sessions and sign-in states, and expired
-// OAuth codes and tokens and unused registered OAuth clients. Deletes are
-// idempotent, so every replica may run it; no leader election is needed.
-func cleanupLoop(ctx context.Context, a *auth.Service, o *oauth.Service, log *slog.Logger) {
+// OAuth codes and tokens and unused registered OAuth clients, threads nobody
+// used and expired thread MCP servers. Deletes are idempotent, so every
+// replica may run it; no leader election is needed.
+func cleanupLoop(ctx context.Context, a *auth.Service, o *oauth.Service, ag *agents.Service, log *slog.Logger) {
 	t := time.NewTicker(cleanupInterval)
 	defer t.Stop()
 	for {
@@ -275,6 +279,13 @@ func cleanupLoop(ctx context.Context, a *auth.Service, o *oauth.Service, log *sl
 			log.Warn("oauth cleanup failed", "err", err)
 		case n > 0:
 			log.Debug("expired oauth codes, tokens and clients deleted", "rows", n)
+		}
+		n, err = ag.Cleanup(ctx)
+		switch {
+		case err != nil && ctx.Err() == nil:
+			log.Warn("agent thread cleanup failed", "err", err)
+		case n > 0:
+			log.Debug("unused threads and expired thread MCP servers deleted", "rows", n)
 		}
 		select {
 		case <-ctx.Done():
@@ -418,6 +429,27 @@ func PruneAgentStorage(ctx context.Context, cfg config.Config, log *slog.Logger,
 	}
 	defer svc.Close()
 	return svc.PruneStorage(ctx, dryRun)
+}
+
+// PruneRoles drops agent roles that belong to no agent and have no schema in
+// the agents database (the prune-roles command). It returns the roles dropped
+// (or, with dryRun, that would be) and the ones it left alone, with reasons.
+func PruneRoles(ctx context.Context, cfg config.Config, log *slog.Logger, dryRun bool) ([]string, []provision.SkippedRole, error) {
+	pool, err := store.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer pool.Close()
+	box, err := secretBox(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	svc, err := newAgents(cfg, pool, box, llm.New(pool, box), mcp.New(pool, box, mcp.ClientPolicy{}), log)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer svc.Close()
+	return svc.PruneRoles(ctx, dryRun)
 }
 
 // prepareAgents hardens the agents database, waiting for it like the platform

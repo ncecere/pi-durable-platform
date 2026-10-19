@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -216,6 +217,11 @@ func (c Config) validateSignIn() []error {
 		}
 		if len(c.OIDC.AllowedGroups) > 0 && c.OIDC.GroupsClaim == "" {
 			errs = append(errs, errors.New("OIDC_ALLOWED_GROUPS needs OIDC_GROUPS_CLAIM (the claim holding people's groups)"))
+		}
+		if i := c.OIDC.GroupRecheckInterval; i != 0 && i < time.Second {
+			errs = append(errs, errors.New("OIDC_GROUP_RECHECK_INTERVAL must be 0 (off) or at least 1s"))
+		} else if i > 0 && c.OIDC.GroupRecheckGrace < i {
+			errs = append(errs, errors.New("OIDC_GROUP_RECHECK_GRACE must be at least OIDC_GROUP_RECHECK_INTERVAL"))
 		}
 	}
 	return errs

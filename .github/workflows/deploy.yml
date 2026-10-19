@@ -1,0 +1,77 @@
+# Checks for deploy/ (the Helm chart, the Kustomize base and overlays, the
+# examples): runs for pull requests and pushes to main that touch them. A
+# separate workflow from image.yml and chart.yml, so a mistake here cannot break
+# a release.
+#
+#   validate  helm lint and template of every values example (Helm 4 and Helm 3),
+#             kustomize build of every overlay, kubeconform, the generated
+#             Kustomize files being current, and Kustomize and Helm rendering the
+#             same objects (deploy/scripts/validate.sh)
+#   smoke     installs the chart into a kind cluster (kindnet enforces
+#             NetworkPolicy), provisions an agent through the API and checks the
+#             isolation rules (deploy/scripts/smoke-kind.sh)
+#
+# The smoke test pulls the released images the chart's appVersion names, so it
+# tests the chart, not the code of the pull request.
+#
+# Every action is pinned by commit SHA; the comment gives the version. The tools
+# (helm, kubeconform, yq, kind) are installed by deploy/scripts/install-tools.sh at
+# pinned versions and verified checksums.
+name: deploy
+on:
+  pull_request:
+    paths:
+      - "deploy/**"
+      - ".github/workflows/deploy.yml"
+      - "internal/buildinfo/buildinfo.go"
+  push:
+    branches: [main]
+    paths:
+      - "deploy/**"
+      - ".github/workflows/deploy.yml"
+      - "internal/buildinfo/buildinfo.go"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: validate (${{ matrix.helm }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        helm: [helm, helm3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the tools
+        run: |
+          deploy/scripts/install-tools.sh helm helm3 kubeconform yq
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Validate
+        env:
+          HELM: ${{ matrix.helm }}
+        run: deploy/scripts/validate.sh
+
+  smoke:
+    name: smoke (kind)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the tools
+        run: |
+          deploy/scripts/install-tools.sh helm kind
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Install the chart into kind and check isolation
+        run: deploy/scripts/smoke-kind.sh

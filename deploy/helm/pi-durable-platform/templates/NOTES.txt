@@ -1,0 +1,42 @@
+Pi Durable Platform {{ .Chart.AppVersion }} is installed in namespace {{ .Release.Namespace }}.
+Agents run in namespace {{ .Values.agents.namespace }} ({{ .Values.agents.launcher }} launcher{{ if include "pdp.warmPool" . }}, warm pool {{ .Values.agentSandbox.warmPool.name }} of {{ .Values.agentSandbox.warmPool.size }}{{ end }}).
+
+1. Wait for the pod, then check the installation:
+
+     kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "pdp.fullname" . }}
+     kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "pdp.fullname" . }} -- /pi-durable-platform doctor
+
+   The pod needs the Secret "{{ .Values.secrets.name }}" (DATABASE_URL, AGENTS_DATABASE_URL, ENCRYPTION_KEY,
+   API_KEY_PEPPER{{ if .Values.oidc.issuer }}, OIDC_CLIENT_SECRET{{ end }}) in {{ .Release.Namespace }}: while it is missing the pod
+   waits in CreateContainerConfigError.
+
+2. Sign in at {{ .Values.appUrl }}
+{{- if .Values.oidc.bootstrapAdminSubject }}: the OIDC subject "{{ .Values.oidc.bootstrapAdminSubject }}" becomes platform admin on its first sign-in.
+{{- else if .Values.devAuth }} with a development persona (admin@localhost is a platform admin).
+{{- else }}.
+   Set oidc.bootstrapAdminSubject to make someone platform admin on their first sign-in.
+{{- end }}
+{{ if .Values.devAuth }}
+WARNING: devAuth lets anyone sign in as a development persona. The platform refuses it
+unless appUrl is a loopback address; use it for tests only.
+{{ end }}
+{{- if not .Values.networkPolicy.enabled }}
+WARNING: networkPolicy.enabled is false: agents are NOT isolated from each other, the platform
+or the cluster. Only do this where something else enforces equivalent rules.
+{{ else }}
+Agents may reach only their database, the platform's gateway (port 8099) and DNS. Check that your
+cluster's CNI enforces NetworkPolicy: deploy/scripts/smoke-kind.sh shows how.
+{{- end }}
+{{- if and .Values.networkPolicy.enabled (eq (index .Values.networkPolicy.ingress.from 0 | toJson) "{\"namespaceSelector\":{}}") }}
+NOTE: the web port accepts traffic from every namespace (networkPolicy.ingress.from). Narrow it to
+your ingress controller's namespace.
+{{- end }}
+{{- if and (eq .Values.agents.launcher "agent-sandbox") }}
+
+Agent Sandbox's controller and CRDs must be installed (SandboxTemplate, SandboxWarmPool, SandboxClaim).
+{{- end }}
+{{- if not .Values.ingress.enabled }}
+
+No Ingress was created (ingress.enabled): the web port is Service {{ include "pdp.fullname" . }}:{{ .Values.service.port }}.
+Try it with:  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "pdp.fullname" . }} 8098:{{ .Values.service.port }}
+{{- end }}

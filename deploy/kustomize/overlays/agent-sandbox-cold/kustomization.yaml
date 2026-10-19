@@ -1,0 +1,10 @@
+# Kubernetes Agent Sandbox without a warm pool (AGENTS_LAUNCHER=agent-sandbox,
+# AGENTS_IMAGE): the platform creates a Sandbox per agent and suspends it when
+# the agent is idle. Agent Sandbox's controller and CRDs must be installed first.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+patches:
+  - path: config.patch.yaml
+  - path: role.patch.yaml

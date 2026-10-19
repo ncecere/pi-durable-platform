@@ -1,0 +1,275 @@
+# Pi Durable Platform: default values. See README.md for the install steps and
+# the Secrets you create first. Nothing secret belongs in this file: secrets are
+# read from Kubernetes Secrets you create (see `secrets`).
+
+# The public origin people use, https://agents.example.com (scheme and host,
+# no path). Required. It is the OIDC redirect base, the cookie origin and the
+# OAuth Connect resource. Plain http is accepted only on a loopback host.
+appUrl: ""
+
+# One replica only, for now: the idle reaper and the open event streams are
+# tracked in the process (roadmap item B, issue #2). The schema refuses more.
+replicaCount: 1
+
+nameOverride: ""
+fullnameOverride: ""
+
+images:
+  platform:
+    repository: ghcr.io/ncecere/pi-durable-platform
+    # Default: v<appVersion> (the release this chart belongs to).
+    tag: ""
+    # Pin by digest (sha256:...), as the release notes list them. With a
+    # digest the reference is repository:tag@digest.
+    digest: ""
+    pullPolicy: IfNotPresent
+  # The agent runtime: AGENTS_IMAGE (kubernetes launcher) and the container of
+  # the SandboxTemplate (agent-sandbox launcher).
+  runtime:
+    repository: ghcr.io/ncecere/pi-durable-platform-runtime
+    tag: ""
+    digest: ""
+
+# Registry Secrets for the platform pod (a list of {name: ...}).
+imagePullSecrets: []
+
+# Secrets you create in the release namespace before installing. Every setting
+# below reads one key of a Secret: `name` defaults to secrets.name; give a
+# setting its own `name` and `key` to read it from another Secret (for example
+# CloudNativePG's <cluster>-app Secret, key `uri`). Required settings make the
+# pod fail to start with CreateContainerConfigError until the Secret exists.
+secrets:
+  name: pi-durable-platform
+  # Required. PostgreSQL URL of the platform's database.
+  databaseUrl: { name: "", key: DATABASE_URL }
+  # Required. URL of the agents database, with a role that has CREATEROLE and
+  # CREATE on it (each agent gets its own schema and role there; agents never
+  # get this one). Use a host name that resolves from the agents namespace
+  # (service.namespace.svc), or set agents.runtimeDatabaseHost.
+  agentsDatabaseUrl: { name: "", key: AGENTS_DATABASE_URL }
+  # Required. 32 bytes, base64: `openssl rand -base64 32`.
+  encryptionKey: { name: "", key: ENCRYPTION_KEY }
+  # Required. 32 bytes, base64, a different value.
+  apiKeyPepper: { name: "", key: API_KEY_PEPPER }
+  # Optional (the pod starts without the key): required with oidc.issuer.
+  oidcClientSecret: { name: "", key: OIDC_CLIENT_SECRET }
+  # Optional: the values being rotated away from (see .env.example).
+  encryptionKeyPrevious: { name: "", key: ENCRYPTION_KEY_PREVIOUS }
+  apiKeyPepperPrevious: { name: "", key: API_KEY_PEPPER_PREVIOUS }
+  # Optional: the key of agents.model.provider openai-compatible.
+  modelApiKey: { name: "", key: AGENTS_MODEL_API_KEY }
+
+# Instance identity shown in the UI (all optional).
+instance:
+  name: Pi Durable Platform
+  orgName: ""
+  logoUrl: ""
+  supportUrl: ""
+teamRequestUrl: ""
+
+logLevel: info    # debug | info | warn | error
+logFormat: json   # json | text
+migrateOnStart: true
+
+# Ingress CIDRs allowed to set X-Forwarded-For, for example the pod CIDR of
+# your ingress controller.
+trustedProxies: []
+
+# Development sign-in with fixed personas. The platform refuses it unless
+# appUrl is a loopback address: only for tests (port-forward to localhost).
+devAuth: false
+
+# Single sign-on with any OIDC provider (required unless devAuth).
+oidc:
+  issuer: ""
+  clientId: ""
+  scopes: [openid, profile, email]
+  emailClaim: email
+  # The claim with the person's IdP groups; empty stores none.
+  groupsClaim: groups
+  requireVerifiedEmail: true
+  allowedEmailDomains: []
+  # Only people in one of these IdP groups may sign in (the bootstrap admin
+  # always may). Empty: no group is required.
+  allowedGroups: []
+  # The OIDC subject made platform admin on its first sign-in.
+  bootstrapAdminSubject: ""
+
+agents:
+  # Namespace for agent pods (and Sandboxes). The chart creates it with the
+  # Pod Security level below, and the RBAC and NetworkPolicies live there.
+  namespace: pi-durable-agents
+  createNamespace: true
+  # kept on helm uninstall: deleting it would delete every agent's Secret.
+  keepNamespace: true
+  podSecurity: restricted
+  # kubernetes: one pod per agent. agent-sandbox: Kubernetes Agent Sandbox
+  # (its controller and CRDs must be installed; see agentSandbox).
+  launcher: kubernetes
+  # Idle agents hibernate after this long; the next request wakes them.
+  idleTimeout: 10m
+  # An optional sandboxing RuntimeClass (gVisor, Kata) and registry Secret (in
+  # the agents namespace) for agent pods.
+  runtimeClass: ""
+  imagePullSecret: ""
+  # host:port the agents use for PostgreSQL when it differs from the one in
+  # the agents database URL.
+  runtimeDatabaseHost: ""
+  # How agents reach the gateway. Default: the gateway Service,
+  # http://<release>-gateway.<namespace>.svc:8099
+  gatewayUrl: ""
+  # Hosts apps may give agents MCP servers on ([scheme://]host[:port], "*."
+  # for subdomains); none by default. proxy | direct.
+  clientMcpHosts: []
+  clientMcpMode: proxy
+  # The platform's default model: demo (scripted, no key) or openai-compatible
+  # (baseUrl, id and secrets.modelApiKey).
+  model:
+    provider: demo
+    baseUrl: ""
+    id: ""
+    reasoning: false
+  # A bound on runaway agents in the agents namespace (off by default).
+  resourceQuota:
+    enabled: false
+    hard:
+      pods: "30"
+      requests.cpu: "3"
+      requests.memory: 6Gi
+      limits.memory: 16Gi
+      secrets: "200"
+
+# The agent-sandbox launcher.
+agentSandbox:
+  # With a warm pool, a SandboxWarmPool keeps `size` standby runtimes Ready;
+  # waking an agent claims one and activates it. Without it, each agent is
+  # its own Sandbox, suspended when idle.
+  warmPool:
+    enabled: true
+    size: 2
+    name: pdp-runtimes
+  templateName: pdp-runtime
+  # The Secret with the pool's RUNTIME_ACTIVATION_TOKEN. The platform creates
+  # it with a random token when it is missing; to rotate it, delete the Secret
+  # and the pool's unclaimed sandboxes.
+  activationSecret: pdp-runtime-activation
+  resources:
+    requests: { cpu: 50m, memory: 160Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Role and RoleBinding in the agents namespace with exactly the verbs the
+# launcher needs, and nothing cluster-wide.
+rbac:
+  create: true
+
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  # Default: the host of appUrl.
+  host: ""
+  path: /
+  pathType: Prefix
+  annotations: {}
+  # [{secretName: pdp-tls}]; hosts default to the ingress host.
+  tls: []
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# Restricted Pod Security: non-root, read-only root filesystem, no
+# capabilities, the runtime's default seccomp profile.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+terminationGracePeriodSeconds: 30
+
+# Off by default: with one replica a budget of minAvailable 1 blocks node drains.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  maxUnavailable: ""
+
+# Restart the pod when the ConfigMap changes (Helm only).
+rolloutOnConfigChange: true
+
+# More settings (any variable of internal/config/settings.go), as strings.
+config: {}
+# Extra container environment (EnvVar list) and envFrom (EnvFromSource list).
+extraEnv: []
+extraEnvFrom: []
+extraVolumes: []
+extraVolumeMounts: []
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""
+
+# NetworkPolicies: the platform pods take web traffic from your ingress and
+# the gateway port from agents; agents take traffic from the platform only and
+# reach nothing but their database, the gateway and DNS.
+networkPolicy:
+  enabled: true
+  # standard: Kubernetes NetworkPolicy only (give kubeApiServer.cidrs).
+  # cilium: also a CiliumNetworkPolicy allowing the kube-apiserver entity.
+  flavor: standard
+  kubeApiServer:
+    # Standard flavour: the API server's addresses as pods see them after
+    # service translation: `kubectl get endpoints kubernetes`, as /32s.
+    cidrs: []
+    ports: [443, 6443]
+  dns:
+    namespaceSelector: { kubernetes.io/metadata.name: kube-system }
+    podSelector: { k8s-app: kube-dns }
+  # Where PostgreSQL is: pods with these labels (in `namespace`, default the
+  # release namespace) and/or external CIDRs. The platform and the agents may
+  # reach it on `port`. Required.
+  database:
+    namespace: ""
+    podLabels: {}
+    cidrs: []
+    port: 5432
+  ingress:
+    # Who may reach the web port (8098): peers as in NetworkPolicy `from`.
+    # Default: every namespace; narrow it to your ingress controller's.
+    from:
+      - namespaceSelector: {}
+  egress:
+    # Identity provider, model providers and MCP servers by their public names.
+    publicHttps:
+      enabled: true
+      ports: [443]
+      except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 169.254.0.0/16
+        - 100.64.0.0/10
+        - 127.0.0.0/8
+    # Further egress rules for the platform pods (NetworkPolicy `egress` items).
+    extra: []
+  agents:
+    # Further egress rules for agent pods (for direct-mode providers).
+    extraEgress: []

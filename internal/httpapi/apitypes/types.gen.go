@@ -855,6 +855,27 @@ func (e UsageReportGroupBy) Valid() bool {
 	}
 }
 
+// Defines values for UserAccessDeniedReason.
+const (
+	IdpRefused     UserAccessDeniedReason = "idp_refused"
+	IdpUnreachable UserAccessDeniedReason = "idp_unreachable"
+	NotInGroup     UserAccessDeniedReason = "not_in_group"
+)
+
+// Valid indicates whether the value is a known member of the UserAccessDeniedReason enum.
+func (e UserAccessDeniedReason) Valid() bool {
+	switch e {
+	case IdpRefused:
+		return true
+	case IdpUnreachable:
+		return true
+	case NotInGroup:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UserStatus.
 const (
 	UserStatusActive    UserStatus = "active"
@@ -1030,7 +1051,7 @@ type AdminAgentThread struct {
 	TitleHidden  bool                `json:"titleHidden"`
 	UpdatedAt    int64               `json:"updatedAt"`
 
-	// Visibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen with the first message; it never changes.
+	// Visibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen when the thread starts (createAgentThread, its first message, or its MCP servers being set); it never changes.
 	Visibility ThreadVisibility `json:"visibility"`
 }
 
@@ -1261,8 +1282,16 @@ type AgentThread struct {
 	// UpdatedAt Unix milliseconds; moves when a message is sent and when a reply finishes
 	UpdatedAt int64 `json:"updatedAt"`
 
-	// Visibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen with the first message; it never changes.
+	// Visibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen when the thread starts (createAgentThread, its first message, or its MCP servers being set); it never changes.
 	Visibility ThreadVisibility `json:"visibility"`
+}
+
+// AgentThreadCreate defines model for AgentThreadCreate.
+type AgentThreadCreate struct {
+	Title *string `json:"title,omitempty"`
+
+	// Visibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen when the thread starts (createAgentThread, its first message, or its MCP servers being set); it never changes.
+	Visibility *ThreadVisibility `json:"visibility,omitempty"`
 }
 
 // AgentThreadEvent defines model for AgentThreadEvent.
@@ -2344,7 +2373,7 @@ type ThreadPrincipal struct {
 // ThreadPrincipalKind defines model for ThreadPrincipal.Kind.
 type ThreadPrincipalKind string
 
-// ThreadVisibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen with the first message; it never changes.
+// ThreadVisibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen when the thread starts (createAgentThread, its first message, or its MCP servers being set); it never changes.
 type ThreadVisibility string
 
 // TrustedClient defines model for TrustedClient.
@@ -2410,12 +2439,17 @@ type UsageRow struct {
 
 // User defines model for User.
 type User struct {
-	CreatedAt    time.Time          `json:"createdAt"`
-	DisplayName  string             `json:"displayName"`
-	Email        string             `json:"email"`
-	Id           openapi_types.UUID `json:"id"`
-	LastLoginAt  *time.Time         `json:"lastLoginAt,omitempty"`
-	PlatformRole PlatformRole       `json:"platformRole"`
+	// AccessDeniedAt When the identity provider's group rule (OIDC_ALLOWED_GROUPS, re-checked while people are signed in) ended this person's access: sessions and connected apps were revoked and they count as inactive (like a suspended person) until they sign in again. Separate from `status`, which only admins change.
+	AccessDeniedAt *time.Time `json:"accessDeniedAt,omitempty"`
+
+	// AccessDeniedReason not_in_group: the provider's fresh claims lack an allowed group. idp_refused: it rejected the stored grant (person disabled, grant revoked or expired). idp_unreachable: it could not vouch for the person within the grace period (OIDC_GROUP_RECHECK_GRACE).
+	AccessDeniedReason *UserAccessDeniedReason `json:"accessDeniedReason,omitempty"`
+	CreatedAt          time.Time               `json:"createdAt"`
+	DisplayName        string                  `json:"displayName"`
+	Email              string                  `json:"email"`
+	Id                 openapi_types.UUID      `json:"id"`
+	LastLoginAt        *time.Time              `json:"lastLoginAt,omitempty"`
+	PlatformRole       PlatformRole            `json:"platformRole"`
 
 	// Revision Increases on every change. Send it back in If-Match.
 	Revision Revision   `json:"revision"`
@@ -2424,6 +2458,9 @@ type User struct {
 	// TeamCount Teams the user belongs to (admin user list only)
 	TeamCount *int64 `json:"teamCount,omitempty"`
 }
+
+// UserAccessDeniedReason not_in_group: the provider's fresh claims lack an allowed group. idp_refused: it rejected the stored grant (person disabled, grant revoked or expired). idp_unreachable: it could not vouch for the person within the grace period (OIDC_GROUP_RECHECK_GRACE).
+type UserAccessDeniedReason string
 
 // UserDetail defines model for UserDetail.
 type UserDetail struct {
@@ -2762,6 +2799,9 @@ type StreamAgentThreadParams struct {
 // SetThreadMcpServersJSONBody defines parameters for SetThreadMcpServers.
 type SetThreadMcpServersJSONBody struct {
 	Servers []ClientMcpServer `json:"servers"`
+
+	// Visibility Only used when this call starts the thread (default shared). Send it before the first message when the thread is to be private.
+	Visibility *ThreadVisibility `json:"visibility,omitempty"`
 }
 
 // GetMeParams defines parameters for GetMe.
@@ -2930,6 +2970,9 @@ type CreateTemplateVersionJSONRequestBody = AgentTemplateVersionCreate
 
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = AgentUpdate
+
+// CreateAgentThreadJSONRequestBody defines body for CreateAgentThread for application/json ContentType.
+type CreateAgentThreadJSONRequestBody = AgentThreadCreate
 
 // UpdateAgentThreadJSONRequestBody defines body for UpdateAgentThread for application/json ContentType.
 type UpdateAgentThreadJSONRequestBody = AgentThreadUpdate

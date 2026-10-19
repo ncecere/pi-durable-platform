@@ -251,3 +251,42 @@ func TestValidateInstance(t *testing.T) {
 		})
 	}
 }
+
+func TestGroupRecheckSettings(t *testing.T) {
+	c, err := LoadFrom("", env(nil))
+	if err != nil || c.OIDC.GroupRecheckInterval != 15*time.Minute || c.OIDC.GroupRecheckGrace != 24*time.Hour {
+		t.Fatalf("defaults: %+v %v", c.OIDC, err)
+	}
+	c, err = LoadFrom("", env(map[string]string{"OIDC_GROUP_RECHECK_INTERVAL": "5m", "OIDC_GROUP_RECHECK_GRACE": "2h"}))
+	if err != nil || c.OIDC.GroupRecheckInterval != 5*time.Minute || c.OIDC.GroupRecheckGrace != 2*time.Hour {
+		t.Fatalf("parsed: %+v %v", c.OIDC, err)
+	}
+	if c, err = LoadFrom("", env(map[string]string{"OIDC_GROUP_RECHECK_INTERVAL": "0"})); err != nil || c.OIDC.GroupRecheckInterval != 0 {
+		t.Fatalf("0 turns it off: %+v %v", c.OIDC, err)
+	}
+	if _, err = LoadFrom("", env(map[string]string{"OIDC_GROUP_RECHECK_INTERVAL": "soon"})); err == nil || !strings.Contains(err.Error(), "OIDC_GROUP_RECHECK_INTERVAL") {
+		t.Fatalf("a bad interval: %v", err)
+	}
+	// The grace period can't be shorter than the interval, nor the interval absurdly short.
+	for _, tc := range []map[string]string{
+		{"OIDC_GROUP_RECHECK_INTERVAL": "1h", "OIDC_GROUP_RECHECK_GRACE": "30m"},
+		{"OIDC_GROUP_RECHECK_INTERVAL": "100ms"},
+	} {
+		c := Defaults()
+		c.DevAuth = false
+		c.OIDC.Issuer, c.OIDC.ClientID, c.OIDC.ClientSecret = "https://idp.example.com", "id", "secret"
+		for k, v := range tc {
+			for _, s := range settings {
+				if s.key == k {
+					if err := s.apply(&c, v); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+		}
+		errs := c.validateSignIn()
+		if len(errs) != 1 || !strings.Contains(errs[0].Error(), "OIDC_GROUP_RECHECK") {
+			t.Fatalf("%v: %v", tc, errs)
+		}
+	}
+}

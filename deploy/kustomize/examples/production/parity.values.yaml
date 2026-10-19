@@ -1,0 +1,45 @@
+# The Helm values that match this directory's kustomization (see
+# deploy/scripts/check-parity.sh). Keep the two in step.
+appUrl: https://agents.example.org
+rolloutOnConfigChange: false
+agents:
+  keepNamespace: false
+  launcher: agent-sandbox
+  clientMcpHosts: ["*.example.org"]
+  resourceQuota:
+    enabled: true
+agentSandbox:
+  warmPool:
+    size: 3
+images:
+  platform:
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000001
+  runtime:
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000002
+oidc:
+  issuer: https://idp.example.org/application/o/pi-durable-platform/
+  clientId: pi-durable-platform
+  allowedGroups: [pi-durable-users, pi-durable-admins]
+  bootstrapAdminSubject: admin-subject
+trustedProxies: [10.244.0.0/16]
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+  tls:
+    - secretName: pdp-tls
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+networkPolicy:
+  kubeApiServer:
+    cidrs: [192.0.2.20/32]
+  database:
+    podLabels:
+      cnpg.io/cluster: pdp-db
+  ingress:
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: ingress-nginx

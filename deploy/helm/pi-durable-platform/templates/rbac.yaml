@@ -1,0 +1,58 @@
+{{- if .Values.rbac.create }}
+# The launcher manages agents in the agents namespace, and nothing else, with
+# exactly the verbs it uses (internal/agenthost/launcher).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pdp.fullname" . }}-agent-launcher
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+rules:
+  {{- if eq .Values.agents.launcher "kubernetes" }}
+  # One pod per agent, its secrets in a Secret of the same name.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, update, delete]
+  {{- else if include "pdp.warmPool" . }}
+  # Claims on the warm pool; the pool's activation Secret (kept by the
+  # platform) and cleanup of a Secret another launcher left.
+  - apiGroups: [extensions.agents.x-k8s.io]
+    resources: [sandboxclaims]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, delete]
+  {{- else }}
+  # A Sandbox per agent, its secrets in a Secret of the same name, and pods
+  # (get) to see a runtime that exited because the agent is owned elsewhere.
+  - apiGroups: [agents.x-k8s.io]
+    resources: [sandboxes]
+    verbs: [get, list, watch, create, patch, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, update, delete]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "pdp.fullname" . }}-agent-launcher
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "pdp.fullname" . }}-agent-launcher
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pdp.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

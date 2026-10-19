@@ -1,0 +1,6 @@
+# One pod per agent (AGENTS_LAUNCHER=kubernetes): the base as it is. Role: pods
+# and secrets in the agents namespace.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base

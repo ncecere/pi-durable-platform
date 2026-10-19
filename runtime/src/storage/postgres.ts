@@ -12,7 +12,7 @@ interface Executor {
 	all<T extends object>(sql: string, ...params: SqlValue[]): Promise<T[]>;
 }
 
-/** Another process holds this agent's ownership lock. Nothing was written. */
+/** Another process owns this agent's storage. Nothing was written. */
 export class AgentOwnedElsewhereError extends Error {
 	constructor(schema: string) {
 		super(`Agent storage ${schema} is owned by another process`);
@@ -96,7 +96,11 @@ export class PostgresSqliteDatabase extends PgExecutor {
 	private readonly queue = new SerialQueue();
 	private closed = false;
 
-	constructor(client: pg.Client) {
+	/** `beforeClose` runs once, best effort, before the connection ends (it releases ownership for a prompt hand-over). */
+	constructor(
+		client: pg.Client,
+		private readonly beforeClose: () => Promise<void> = async () => {},
+	) {
 		super(client);
 	}
 
@@ -144,6 +148,7 @@ export class PostgresSqliteDatabase extends PgExecutor {
 		return this.queue.run(async () => {
 			if (this.closed) return;
 			this.closed = true;
+			await this.beforeClose().catch(() => {});
 			await this.client.end();
 		});
 	}
@@ -158,6 +163,13 @@ export type OpenPostgresAgentStorageOptions = {
 	createSchema?: boolean;
 	/** Called once if the connection drops; the storage is unusable afterwards. */
 	onConnectionLost?: (error: Error) => void;
+	/**
+	 * Also take the session advisory lock that runtimes before the ownership table (platform 0.1.x) used, so such a
+	 * runtime and this one can't own the agent together during a rolling upgrade (default true). Only a holder running
+	 * as this agent's own database role is honoured: the lock is database-wide, so any other role can take the key, and
+	 * that must not keep this agent from starting. Turn it off once no 0.1.x runtime is left.
+	 */
+	legacyLock?: boolean;
 };
 
 export type PostgresAgentStorage = {
@@ -166,13 +178,116 @@ export type PostgresAgentStorage = {
 	readonly backendPid: number;
 };
 
+/** Where an agent's ownership is recorded: a one-row table in the agent's own schema, writable only by its role. */
+export const OWNERSHIP_TABLE = "pdp_ownership";
+
+/** The session advisory lock key of runtimes before the ownership table (still taken for rolling upgrades). */
+const legacyLockKey = (schema: string): string => `pdp-agent:${schema}`;
+
+const quoteIdent = (name: string): string => `"${name}"`;
+
+/** PostgreSQL error codes of two sessions racing to create the same table. */
+const CREATE_RACE = new Set(["23505", "42P07", "42710"]);
+
+async function ensureOwnershipTable(client: pg.Client, table: string): Promise<void> {
+	for (let attempt = 0; ; attempt++) {
+		try {
+			await client.query(
+				`CREATE TABLE IF NOT EXISTS ${table} (
+					id integer PRIMARY KEY CHECK (id = 1),
+					owner_pid integer,
+					owner_started timestamptz,
+					taken_at timestamptz,
+					generation bigint NOT NULL DEFAULT 0
+				)`,
+			);
+			return;
+		} catch (error) {
+			// Two processes of the same agent starting together (an upgrade of an agent that has no table yet).
+			if (attempt < 3 && CREATE_RACE.has((error as { code?: string }).code ?? "")) continue;
+			throw error;
+		}
+	}
+}
+
 /**
- * Open one agent's durable storage in its own PostgreSQL schema and take its ownership lock.
+ * Take the legacy advisory lock if it is free. Returns whether this connection now holds it. Throws
+ * `AgentOwnedElsewhereError` when a session of this same role holds it (a 0.1.x runtime of this agent). A holder
+ * running as another role is ignored: it can only be another agent probing, and it is not an owner.
+ */
+async function takeLegacyLock(client: pg.Client, schema: string): Promise<boolean> {
+	const key = "hashtextextended($1, 0)";
+	const locked = await client.query<{ locked: boolean }>(`SELECT pg_try_advisory_lock(${key}) AS locked`, [legacyLockKey(schema)]);
+	if (locked.rows[0]?.locked === true) return true;
+	const holder = await client.query(
+		`SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+		 WHERE l.locktype = 'advisory' AND l.granted AND l.objsubid = 1
+		   AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+		   AND l.classid = ((${key} >> 32) & 4294967295)::bigint::oid
+		   AND l.objid = (${key} & 4294967295)::bigint::oid
+		   AND a.usename = session_user`,
+		[legacyLockKey(schema)],
+	);
+	if ((holder.rowCount ?? 0) > 0) throw new AgentOwnedElsewhereError(schema);
+	console.warn(`[storage ${schema}] another database role holds this agent's legacy lock key; ignored (ownership is recorded in ${OWNERSHIP_TABLE})`);
+	return false;
+}
+
+/**
+ * Take ownership: record this session as the owner in the ownership table, unless the recorded owner's session still
+ * exists. The row is locked while deciding, so two openers are serialized and the second sees the first. A session is
+ * identified by backend pid and start time (a recycled pid has another start time), as listed in `pg_stat_activity`,
+ * where an agent role sees its own role's sessions. Throws `AgentOwnedElsewhereError` when the owner is alive.
  *
- * Ownership is a session-level advisory lock held by this connection for its whole life. A second opener fails with
- * `AgentOwnedElsewhereError`. Because the connection is never re-established, a process that loses its connection
- * also loses the ability to write, and the lock is released for the next owner: the lock and the write path share one
- * fate, which is what keeps a stale pod from writing after its replacement took over.
+ * Everything the decision rests on is in the agent's own schema or is the agent's own sessions, so no other role
+ * can take, hold or forge it. `pg_stat_activity` is read only after the row lock is held: its snapshot lasts the
+ * whole transaction, and one taken before waiting for another opener could miss that opener's new session.
+ */
+async function takeOwnership(client: pg.Client, schema: string, table: string): Promise<void> {
+	await client.query("BEGIN");
+	try {
+		await client.query("SET LOCAL lock_timeout = '5s'");
+		await client.query(`INSERT INTO ${table} (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+		await client.query(`SELECT 1 FROM ${table} WHERE id = 1 FOR UPDATE`);
+		const self = await client.query<{ started: Date | null }>(
+			"SELECT backend_start AS started FROM pg_stat_activity WHERE pid = pg_backend_pid()",
+		);
+		if (self.rows[0]?.started == null) {
+			// Without this, a live owner could look dead and be taken over.
+			throw new Error("This session is not visible in pg_stat_activity, so agent ownership can't be decided (track_activities off?)");
+		}
+		const alive = await client.query<{ alive: boolean }>(
+			`SELECT EXISTS (SELECT 1 FROM pg_stat_activity a, ${table} o
+			 WHERE o.id = 1 AND a.pid = o.owner_pid AND a.backend_start = o.owner_started AND a.usename = session_user) AS alive`,
+		);
+		if (alive.rows[0]?.alive === true) throw new AgentOwnedElsewhereError(schema);
+		await client.query(
+			`UPDATE ${table} SET owner_pid = pg_backend_pid(),
+			   owner_started = (SELECT backend_start FROM pg_stat_activity WHERE pid = pg_backend_pid()),
+			   taken_at = now(), generation = generation + 1 WHERE id = 1`,
+		);
+		await client.query("COMMIT");
+	} catch (error) {
+		await client.query("ROLLBACK").catch(() => {});
+		// Another opener holds the row for longer than a decision takes: it is taking ownership right now.
+		if ((error as { code?: string }).code === "55P03") throw new AgentOwnedElsewhereError(schema);
+		throw error;
+	}
+}
+
+/**
+ * Open one agent's durable storage in its own PostgreSQL schema and take its ownership.
+ *
+ * Ownership is a row in the agent's own schema (`pdp_ownership`) naming the owning database session. A second opener
+ * fails with `AgentOwnedElsewhere` while that session exists; when it is gone (the process exited, the connection
+ * dropped, the backend was terminated) the next opener takes over at once, with no lease to wait out. Because the
+ * connection is never re-established, a process that loses its connection also loses the ability to write, and its
+ * session ends for the next owner: the ownership and the write path share one fate, which is what keeps a stale pod
+ * from writing after its replacement took over. No other agent's role can write the table, lock it, or end the
+ * owner's session, which the database-wide advisory lock this replaced could not promise.
+ *
+ * An agent created by platform 0.1.x has no ownership table: it is created here, in place, on first start. Until every
+ * runtime is upgraded the legacy advisory lock is also taken (see `legacyLock`).
  */
 export async function openPostgresAgentStorage(options: OpenPostgresAgentStorageOptions): Promise<PostgresAgentStorage> {
 	assertSchemaName(options.schema);
@@ -196,18 +311,21 @@ export async function openPostgresAgentStorage(options: OpenPostgresAgentStorage
 		await client.query("SET tcp_keepalives_interval = 10");
 		await client.query("SET tcp_keepalives_count = 3");
 		await client.query("SET idle_in_transaction_session_timeout = '60s'");
-		const quoted = `"${options.schema}"`;
+		const quoted = quoteIdent(options.schema);
 		if (options.createSchema) await client.query(`CREATE SCHEMA IF NOT EXISTS ${quoted}`);
 		const exists = await client.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [options.schema]);
 		if (exists.rowCount !== 1) throw new Error(`Agent schema ${options.schema} does not exist`);
 		await client.query(`SET search_path TO ${quoted}`);
-		const locked = await client.query<{ locked: boolean }>(
-			"SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS locked",
-			[`pdp-agent:${options.schema}`],
-		);
-		if (locked.rows[0]?.locked !== true) throw new AgentOwnedElsewhereError(options.schema);
+		const table = `${quoted}.${OWNERSHIP_TABLE}`;
+		await ensureOwnershipTable(client, table);
+		const legacy = options.legacyLock === false ? false : await takeLegacyLock(client, options.schema);
+		await takeOwnership(client, options.schema, table);
 		const pid = await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
-		const database = new PostgresSqliteDatabase(client);
+		const database = new PostgresSqliteDatabase(client, async () => {
+			// A clean stop hands over at once: the next owner doesn't wait for this session to disappear.
+			await client.query(`UPDATE ${table} SET owner_pid = NULL, owner_started = NULL WHERE id = 1 AND owner_pid = pg_backend_pid()`);
+			if (legacy) await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [legacyLockKey(options.schema)]);
+		});
 		const storage = await SqliteStorage.open(database);
 		return { storage, backendPid: pid.rows[0]!.pid };
 	} catch (error) {

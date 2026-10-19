@@ -183,7 +183,7 @@ func (q *Queries) GetOAuthSettings(ctx context.Context) (OauthSetting, error) {
 }
 
 const getOAuthToken = `-- name: GetOAuthToken :one
-SELECT t.id, t.grant_id, t.kind, t.token_hash, t.pepper_id, t.resource, t.expires_at, t.rotated_at, t.created_at, gr.id, gr.user_id, gr.client_id, gr.client_kind, gr.client_name, gr.client_uri, gr.logo_uri, gr.scopes, gr.resource, gr.created_at, gr.last_used_at, gr.revoked_at, gr.revoked_reason, u.id, u.oidc_issuer, u.oidc_subject, u.email, u.display_name, u.platform_role, u.status, u.claims, u.groups, u.revision, u.created_at, u.updated_at, u.last_login_at
+SELECT t.id, t.grant_id, t.kind, t.token_hash, t.pepper_id, t.resource, t.expires_at, t.rotated_at, t.created_at, gr.id, gr.user_id, gr.client_id, gr.client_kind, gr.client_name, gr.client_uri, gr.logo_uri, gr.scopes, gr.resource, gr.created_at, gr.last_used_at, gr.revoked_at, gr.revoked_reason, u.id, u.oidc_issuer, u.oidc_subject, u.email, u.display_name, u.platform_role, u.status, u.claims, u.groups, u.revision, u.created_at, u.updated_at, u.last_login_at, u.group_denied_at, u.group_denied_reason
 FROM oauth_tokens t
 JOIN oauth_grants gr ON gr.id = t.grant_id
 JOIN users u ON u.id = gr.user_id
@@ -241,6 +241,8 @@ func (q *Queries) GetOAuthToken(ctx context.Context, arg GetOAuthTokenParams) (G
 		&i.User.CreatedAt,
 		&i.User.UpdatedAt,
 		&i.User.LastLoginAt,
+		&i.User.GroupDeniedAt,
+		&i.User.GroupDeniedReason,
 	)
 	return i, err
 }

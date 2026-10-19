@@ -1,0 +1,16 @@
+# The platform for the kubernetes launcher: namespaces, ServiceAccount, RBAC,
+# ConfigMap, Deployment, Services and NetworkPolicies. Everything but
+# namespace-platform.yaml is generated from the Helm chart; see ../README.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace-platform.yaml
+  - namespace-agents.yaml
+  - serviceaccount.yaml
+  - rbac.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy-platform.yaml
+  - networkpolicy-kube-api.yaml
+  - networkpolicy-agents.yaml

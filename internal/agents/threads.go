@@ -2,6 +2,8 @@ package agents
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -39,7 +41,7 @@ var (
 	errThreadNotFound  = apperr.NotFound("thread_not_found", "Thread not found")
 	errBadTitle        = apperr.Invalid("invalid_title", "Title must be 1-200 characters on one line")
 	errBadVisibility   = apperr.Invalid("invalid_visibility", "visibility must be shared or private")
-	errVisibilityFixed = apperr.Conflict("visibility_fixed", "A thread's visibility is chosen with its first message and can't change")
+	errVisibilityFixed = apperr.Conflict("visibility_fixed", "A thread's visibility is chosen when it starts and can't change")
 	errBadReason       = apperr.Invalid("invalid_reason", "Give a reason of 10-500 characters")
 	errAdminOnly       = apperr.Forbidden("Only platform admins can open conversations, with a reason")
 )
@@ -92,6 +94,11 @@ func owns(a authz.Actor, t Thread) bool {
 
 // canSee reports whether the actor (who may use the agent) may see the thread.
 func canSee(a authz.Actor, t Thread) bool { return t.Visibility != VisibilityPrivate || owns(a, t) }
+
+// listable reports whether the thread appears in the actor's lists and event
+// streams: one they canSee, and not another's reserved thread (started
+// without a message yet; anyone may still reach it by its ID).
+func listable(a authz.Actor, t Thread) bool { return canSee(a, t) && (!t.Reserved || owns(a, t)) }
 
 // creator is the actor as a thread's creator (or participant).
 func creator(a authz.Actor) (user, service uuid.NullUUID) {
@@ -237,10 +244,8 @@ type Claim struct {
 // different visibility is refused. Call it after Spec (which authorizes the
 // agent); at is when the platform received the message.
 func (s *Service) ClaimThread(ctx context.Context, a authz.Actor, agentID uuid.UUID, threadID, visibility, text string, at time.Time) (Claim, error) {
-	switch visibility {
-	case "", VisibilityShared, VisibilityPrivate:
-	default:
-		return Claim{}, errBadVisibility
+	if err := checkVisibility(visibility); err != nil {
+		return Claim{}, err
 	}
 	ag, err := s.load(ctx, s.q, agentID)
 	if err != nil {
@@ -251,27 +256,8 @@ func (s *Service) ClaimThread(ctx context.Context, a authz.Actor, agentID uuid.U
 		return Claim{}, err
 	}
 	var c Claim
-	user, service := creator(a)
-	vis := visibility
-	if vis == "" {
-		vis = VisibilityShared
-	}
-	t, err := s.q.ClaimAgentThread(ctx, dbgen.ClaimAgentThreadParams{AgentID: agentID, ThreadID: threadID, Title: TitleFrom(text),
-		CreatedByUser: user, CreatedByService: service, At: at, Visibility: vis})
-	switch {
-	case err == nil:
-		c.Thread, c.Created = t, true
-	case errors.Is(store.NotFound(err), store.ErrNotFound):
-		found := false
-		if c.Thread, found, err = s.thread(ctx, s.q, a, agentID, threadID); err != nil {
-			return Claim{}, err
-		} else if !found { // deleted meanwhile: the runtime decides
-			c.Thread = Thread{AgentID: agentID, ThreadID: threadID, Visibility: VisibilityShared}
-		}
-		if visibility != "" && visibility != c.Thread.Visibility {
-			return Claim{}, errVisibilityFixed
-		}
-	default:
+	c.Thread, c.Created, err = s.claim(ctx, a, agentID, threadID, visibility, TitleFrom(text), false, at)
+	if err != nil {
 		return Claim{}, err
 	}
 	if c.Author, err = s.author(ctx, a); err != nil {
@@ -280,6 +266,98 @@ func (s *Service) ClaimThread(ctx context.Context, a authz.Actor, agentID uuid.U
 	}
 	c.AnnounceAuthor = c.Thread.Visibility == VisibilityShared && team.Kind == teams.KindTeam
 	return c, nil
+}
+
+func checkVisibility(v string) error {
+	switch v {
+	case "", VisibilityShared, VisibilityPrivate:
+		return nil
+	}
+	return errBadVisibility
+}
+
+// claim writes the record of a thread that has none, with the actor as its
+// creator (created), or finds the existing one: another's private thread is
+// not found and a visibility that differs from the thread's is refused.
+// reserved: the thread starts without a message (see Thread.Reserved). A
+// record deleted between the two steps is written again; with the thread
+// still missing at the end (the message path only) the thread is a shared
+// placeholder and the runtime decides.
+func (s *Service) claim(ctx context.Context, a authz.Actor, agentID uuid.UUID, threadID, visibility, title string, reserved bool, at time.Time) (Thread, bool, error) {
+	vis := visibility
+	if vis == "" {
+		vis = VisibilityShared
+	}
+	user, service := creator(a)
+	for attempt := 0; ; attempt++ {
+		t, err := s.q.ClaimAgentThread(ctx, dbgen.ClaimAgentThreadParams{AgentID: agentID, ThreadID: threadID, Title: title,
+			CreatedByUser: user, CreatedByService: service, At: at, Visibility: vis, Reserved: reserved})
+		if err == nil {
+			return t, true, nil
+		} else if !errors.Is(store.NotFound(err), store.ErrNotFound) {
+			return Thread{}, false, err
+		}
+		t, found, err := s.thread(ctx, s.q, a, agentID, threadID)
+		if err != nil {
+			return Thread{}, false, err
+		}
+		if !found { // deleted meanwhile
+			if attempt < 2 {
+				continue
+			}
+			t = Thread{AgentID: agentID, ThreadID: threadID, Visibility: VisibilityShared}
+		}
+		if visibility != "" && visibility != t.Visibility {
+			return Thread{}, false, errVisibilityFixed
+		}
+		return t, false, nil
+	}
+}
+
+// newThreadID is a platform-chosen thread ID: 128 random bits.
+func newThreadID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(err) // the platform cannot choose safely without randomness
+	}
+	return "t_" + base64.RawURLEncoding.EncodeToString(b)
+}
+
+// DefaultTitle is a new thread's title until its first message names it.
+const DefaultTitle = "New chat"
+
+// CreateThread starts a conversation under a platform-chosen, unguessable
+// ID (the actor is its creator; visibility "" is shared; title "" is
+// DefaultTitle). It is authorized like sending a message: anyone who may use
+// the agent, while it is turned on. The thread is reserved until its first
+// message: listed for its creator only, and removed after 30 days unused.
+func (s *Service) CreateThread(ctx context.Context, a authz.Actor, agentID uuid.UUID, visibility, title string) (ThreadView, error) {
+	ag, err := s.usable(ctx, a, agentID)
+	if err != nil {
+		return ThreadView{}, err
+	}
+	if !ag.Enabled {
+		return ThreadView{}, errDisabled
+	}
+	if err := checkVisibility(visibility); err != nil {
+		return ThreadView{}, err
+	}
+	if title = strings.TrimSpace(title); title == "" {
+		title = DefaultTitle
+	} else if title, err = checkTitle(title); err != nil {
+		return ThreadView{}, err
+	}
+	for {
+		t, created, err := s.claim(ctx, a, agentID, newThreadID(), visibility, title, true, time.Now())
+		if err != nil {
+			return ThreadView{}, err
+		}
+		if !created { // a collision of 128-bit IDs: not in this universe
+			continue
+		}
+		s.announce(ctx, t)
+		return s.view1(ctx, t)
+	}
 }
 
 // author is the actor as a message's author.
@@ -316,12 +394,12 @@ func (s *Service) Unclaim(ctx context.Context, c Claim) {
 	}
 }
 
-// TitleFrom is a thread's default title: its first message's first line.
+// TitleFrom is a thread's title from its first message: its first message's first line.
 func TitleFrom(text string) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
 	line = strings.TrimSpace(line)
 	if line == "" {
-		return "New chat"
+		return DefaultTitle
 	}
 	if r := []rune(line); len(r) > 60 {
 		return string(r[:59]) + "…"
@@ -366,9 +444,9 @@ func (s *Service) RenameThread(ctx context.Context, a authz.Actor, id uuid.UUID,
 	} else if !found {
 		return ThreadView{}, errThreadNotFound
 	}
-	title = strings.TrimSpace(title)
-	if n := utf8.RuneCountInString(title); n < 1 || n > 200 || strings.ContainsAny(title, "\r\n\x00") {
-		return ThreadView{}, errBadTitle
+	title, err := checkTitle(title)
+	if err != nil {
+		return ThreadView{}, err
 	}
 	t, err := s.q.RenameAgentThread(ctx, dbgen.RenameAgentThreadParams{AgentID: id, ThreadID: threadID, Title: title})
 	if errors.Is(store.NotFound(err), store.ErrNotFound) {
@@ -378,6 +456,15 @@ func (s *Service) RenameThread(ctx context.Context, a authz.Actor, id uuid.UUID,
 	}
 	s.announce(ctx, t)
 	return s.view1(ctx, t)
+}
+
+// checkTitle trims a title chosen by a client and checks it.
+func checkTitle(title string) (string, error) {
+	title = strings.TrimSpace(title)
+	if n := utf8.RuneCountInString(title); n < 1 || n > 200 || strings.ContainsAny(title, "\r\n\x00") {
+		return "", errBadTitle
+	}
+	return title, nil
 }
 
 // ThreadSent records that a message was relayed to a claimed thread at at
@@ -419,6 +506,18 @@ func (s *Service) ThreadRemoved(ctx context.Context, id uuid.UUID, threadID stri
 		t = rows[0]
 	}
 	s.announce(ctx, t)
+}
+
+// Cleanup deletes threads the platform created that nobody sent to in 30
+// days (reserved: see CreateThread) and client MCP servers expired for more
+// than a day. Deletes are idempotent, so every replica may run it.
+func (s *Service) Cleanup(ctx context.Context) (int64, error) {
+	threads, err := s.q.DeleteStaleReservedThreads(ctx)
+	if err != nil {
+		return 0, err
+	}
+	servers, err := s.mcp.PruneExpired(ctx)
+	return threads + servers, err
 }
 
 // AdminThreads lists every thread of any agent, private ones too, for
@@ -532,7 +631,7 @@ func (r *ThreadReport) check() bool {
 	}
 	r.Title = strings.TrimSpace(r.Title)
 	if n := utf8.RuneCountInString(r.Title); n < 1 || n > 200 {
-		r.Title = "New chat"
+		r.Title = DefaultTitle
 	}
 	if r.LastError != nil && utf8.RuneCountInString(*r.LastError) > 2000 {
 		e := string([]rune(*r.LastError)[:2000])
@@ -663,7 +762,7 @@ func (s *Service) SubscribeThreads(ctx context.Context, a authz.Actor, only *uui
 					ok = err == nil
 					allowed[ev.AgentID] = ok
 				}
-				if !ok || !canSee(a, ev.Thread.Thread) {
+				if !ok || !listable(a, ev.Thread.Thread) {
 					continue
 				}
 				select {

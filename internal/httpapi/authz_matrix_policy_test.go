@@ -235,7 +235,9 @@ var matrixPolicies = map[string]policy{
 	"deleteAgent":      {scope: scopeTeam, own: admins | padmin, foreign: padmin, build: func(c *mctx) request { return del(c.agent("", true)) }},
 	"hibernateAgent":   {scope: scopeTeam, own: members, build: func(c *mctx) request { return post(c.agent("/hibernate", true), nil) }},
 	"listAgentThreads": {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.agent("/threads", false)) }},
-	"getAgentThread":   {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.thread("", false)) }},
+	// Starting a thread is authorized like sending a message.
+	"createAgentThread": {scope: scopeTeam, own: members, build: func(c *mctx) request { return post(c.agent("/threads", false), nil) }},
+	"getAgentThread":    {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.thread("", false)) }},
 	"updateAgentThread": {scope: scopeTeam, own: members, build: func(c *mctx) request {
 		return patch(c.thread("", false), map[string]any{"title": "Renamed by the matrix"})
 	}},

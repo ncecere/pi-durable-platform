@@ -150,14 +150,21 @@ func (s *Service) CheckClientServers(servers []ClientServer) error {
 	return nil
 }
 
-// SetThreadServers replaces a thread's client servers (an empty list removes
-// them). clientMCP is whether the agent's template version allows them; call
-// it after authorizing the caller for the agent.
-func (s *Service) SetThreadServers(ctx context.Context, agentID uuid.UUID, threadID string, clientMCP bool, servers []ClientServer) error {
+// CheckThreadServers validates servers an app gives a thread: the agent's
+// template version must allow them (clientMCP), and CheckClientServers.
+func (s *Service) CheckThreadServers(clientMCP bool, servers []ClientServer) error {
 	if len(servers) > 0 && !clientMCP {
 		return errClientMCPOff
 	}
-	if err := s.CheckClientServers(servers); err != nil {
+	return s.CheckClientServers(servers)
+}
+
+// SetThreadServers replaces a thread's client servers (an empty list removes
+// them). clientMCP is whether the agent's template version allows them; call
+// it after authorizing the caller for the agent and after the thread's record
+// exists (agent_threads: the servers go with it when it is deleted).
+func (s *Service) SetThreadServers(ctx context.Context, agentID uuid.UUID, threadID string, clientMCP bool, servers []ClientServer) error {
+	if err := s.CheckThreadServers(clientMCP, servers); err != nil {
 		return err
 	}
 	return store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {

@@ -444,7 +444,7 @@ export interface paths {
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
-                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
                 threadId: components["parameters"]["ThreadIdParam"];
             };
             cookie?: never;
@@ -1338,7 +1338,7 @@ export interface paths {
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
-                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
                 threadId: components["parameters"]["ThreadIdParam"];
             };
             cookie?: never;
@@ -1347,7 +1347,7 @@ export interface paths {
         get: operations["getThreadMcpServers"];
         /**
          * Give the thread the MCP servers its user enabled in the app (replaces them; [] removes them)
-         * @description For template versions with clientMcp, on hosts the platform allows (AGENTS_CLIENT_MCP_HOSTS). Headers, such as the user's token, are stored encrypted until the server expires (default a day). The same list can be sent with a message as mcpServers.
+         * @description For template versions with clientMcp, on hosts the platform allows (AGENTS_CLIENT_MCP_HOSTS). Headers, such as the user's token, are stored encrypted until the server expires (default a day). The same list can be sent with a message as mcpServers. Servers belong to a thread whose creator is known: setting servers on a thread ID the platform has no record of starts the thread (the caller is its creator, with the `visibility` sent here, default shared), exactly as its first message would. A thread that exists must be one the caller may reach: another person's private thread is 404 thread_not_found, and a `visibility` that differs from the thread's is 409 visibility_fixed. The servers go with the thread when it is deleted. An empty list on an unknown thread changes nothing.
          */
         put: operations["setThreadMcpServers"];
         post?: never;
@@ -1589,7 +1589,11 @@ export interface paths {
          */
         get: operations["listAgentThreads"];
         put?: never;
-        post?: never;
+        /**
+         * Start a conversation with a thread ID the platform chooses
+         * @description Records a new thread (the caller is its creator) under a random, unguessable ID and returns it; send the first message to `.../threads/{threadId}/messages`. Authorized like sending a message (anyone who may use the agent; 409 agent_disabled for a turned-off one). Both fields are optional: `visibility` (default shared) is fixed from now on, and `title` (default "New chat") is replaced by the first message's first line while it is still the default. A thread nobody sends to is removed after 30 days. Until its first message a thread is listed only for its creator. Clients may still choose thread IDs themselves (the first message or the thread's MCP servers start the thread under that ID), but only a platform-chosen ID is unguessable.
+         */
+        post: operations["createAgentThread"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1602,7 +1606,7 @@ export interface paths {
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
-                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
                 threadId: components["parameters"]["ThreadIdParam"];
             };
             cookie?: never;
@@ -1625,7 +1629,7 @@ export interface paths {
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
-                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
                 threadId: components["parameters"]["ThreadIdParam"];
             };
             cookie?: never;
@@ -1649,7 +1653,7 @@ export interface paths {
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
-                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
                 threadId: components["parameters"]["ThreadIdParam"];
             };
             cookie?: never;
@@ -1670,7 +1674,7 @@ export interface paths {
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
-                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
                 threadId: components["parameters"]["ThreadIdParam"];
             };
             cookie?: never;
@@ -2486,7 +2490,7 @@ export interface components {
             participants: components["schemas"]["ThreadParticipant"][];
         };
         /**
-         * @description shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen with the first message; it never changes.
+         * @description shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen when the thread starts (createAgentThread, its first message, or its MCP servers being set); it never changes.
          * @enum {string}
          */
         ThreadVisibility: "shared" | "private";
@@ -2533,6 +2537,10 @@ export interface components {
         };
         AgentThreadUpdate: {
             title: string;
+        };
+        AgentThreadCreate: {
+            visibility?: components["schemas"]["ThreadVisibility"];
+            title?: string;
         };
         AgentThreadEvent: {
             /** Format: uuid */
@@ -2924,6 +2932,16 @@ export interface components {
             /** Format: date-time */
             lastLoginAt?: string | null;
             /**
+             * Format: date-time
+             * @description When the identity provider's group rule (OIDC_ALLOWED_GROUPS, re-checked while people are signed in) ended this person's access: sessions and connected apps were revoked and they count as inactive (like a suspended person) until they sign in again. Separate from `status`, which only admins change.
+             */
+            accessDeniedAt?: string | null;
+            /**
+             * @description not_in_group: the provider's fresh claims lack an allowed group. idp_refused: it rejected the stored grant (person disabled, grant revoked or expired). idp_unreachable: it could not vouch for the person within the grace period (OIDC_GROUP_RECHECK_GRACE).
+             * @enum {string|null}
+             */
+            accessDeniedReason?: "not_in_group" | "idp_refused" | "idp_unreachable" | null;
+            /**
              * Format: int64
              * @description Teams the user belongs to (admin user list only)
              */
@@ -3180,7 +3198,7 @@ export interface components {
         ModelIdParam: string;
         TemplateIdParam: string;
         AgentIdParam: string;
-        /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+        /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
         ThreadIdParam: string;
         /** @description An exact action (team.member_add), or a prefix ending in a dot (team.) for every action in that group. */
         AuditActionParam: string;
@@ -3933,7 +3951,7 @@ export interface operations {
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
-                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
                 threadId: components["parameters"]["ThreadIdParam"];
             };
             cookie?: never;
@@ -5951,7 +5969,7 @@ export interface operations {
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
-                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
                 threadId: components["parameters"]["ThreadIdParam"];
             };
             cookie?: never;
@@ -5980,7 +5998,7 @@ export interface operations {
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
-                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
                 threadId: components["parameters"]["ThreadIdParam"];
             };
             cookie?: never;
@@ -5989,6 +6007,8 @@ export interface operations {
             content: {
                 "application/json": {
                     servers: components["schemas"]["ClientMcpServer"][];
+                    /** @description Only used when this call starts the thread (default shared). Send it before the first message when the thread is to be private. */
+                    visibility?: components["schemas"]["ThreadVisibility"];
                 };
             };
         };
@@ -6503,13 +6523,47 @@ export interface operations {
             503: components["responses"]["ErrorReply"];
         };
     };
+    createAgentThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AgentThreadCreate"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    /** @description The thread's path */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentThread"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
     getAgentThread: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
-                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
                 threadId: components["parameters"]["ThreadIdParam"];
             };
             cookie?: never;
@@ -6538,7 +6592,7 @@ export interface operations {
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
-                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
                 threadId: components["parameters"]["ThreadIdParam"];
             };
             cookie?: never;
@@ -6567,7 +6621,7 @@ export interface operations {
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
-                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
                 threadId: components["parameters"]["ThreadIdParam"];
             };
             cookie?: never;
@@ -6599,7 +6653,7 @@ export interface operations {
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
-                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
                 threadId: components["parameters"]["ThreadIdParam"];
             };
             cookie?: never;
@@ -6633,7 +6687,7 @@ export interface operations {
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
-                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
                 threadId: components["parameters"]["ThreadIdParam"];
             };
             cookie?: never;
@@ -6665,7 +6719,7 @@ export interface operations {
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
-                /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
                 threadId: components["parameters"]["ThreadIdParam"];
             };
             cookie?: never;

@@ -18,6 +18,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/oauth"
 	"github.com/ncecere/pi-durable-platform/internal/ratelimit"
+	"github.com/ncecere/pi-durable-platform/internal/store"
 )
 
 const (
@@ -189,8 +190,8 @@ func (a *api) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, a.Auth.LoginURL("/oauth/authorize?"+r.URL.RawQuery), http.StatusFound)
 		return
 	}
-	if user.Status != auth.StatusActive {
-		a.oauthPage(w, r, oauth.PageError("access_denied", "This account is suspended."))
+	if !store.IsUserActive(user) {
+		a.oauthPage(w, r, oauth.PageError("access_denied", "This account is suspended or no longer in a group allowed to use this platform."))
 		return
 	}
 	trusted, err := a.OAuth.Trusted(r.Context(), c)

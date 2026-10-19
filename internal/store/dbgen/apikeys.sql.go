@@ -57,7 +57,7 @@ func (q *Queries) CountKeysByPepper(ctx context.Context, arg CountKeysByPepperPa
 }
 
 const getAPIKeyByDigest = `-- name: GetAPIKeyByDigest :one
-SELECT k.id, k.user_id, k.name, k.prefix, k.digest, k.pepper_id, k.created_at, k.expires_at, k.revoked_at, k.last_used_at, u.id, u.oidc_issuer, u.oidc_subject, u.email, u.display_name, u.platform_role, u.status, u.claims, u.groups, u.revision, u.created_at, u.updated_at, u.last_login_at
+SELECT k.id, k.user_id, k.name, k.prefix, k.digest, k.pepper_id, k.created_at, k.expires_at, k.revoked_at, k.last_used_at, u.id, u.oidc_issuer, u.oidc_subject, u.email, u.display_name, u.platform_role, u.status, u.claims, u.groups, u.revision, u.created_at, u.updated_at, u.last_login_at, u.group_denied_at, u.group_denied_reason
 FROM api_keys k
 JOIN users u ON u.id = k.user_id
 WHERE k.digest = $1
@@ -95,6 +95,8 @@ func (q *Queries) GetAPIKeyByDigest(ctx context.Context, digest string) (GetAPIK
 		&i.User.CreatedAt,
 		&i.User.UpdatedAt,
 		&i.User.LastLoginAt,
+		&i.User.GroupDeniedAt,
+		&i.User.GroupDeniedReason,
 	)
 	return i, err
 }

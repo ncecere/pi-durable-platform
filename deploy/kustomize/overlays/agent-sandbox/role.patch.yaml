@@ -1,0 +1,15 @@
+# Claims on the warm pool, and the activation Secret the platform keeps (get,
+# create) with cleanup of a Secret another launcher left (delete). Replaces the
+# base's rules (pods and secrets, for the kubernetes launcher).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pi-durable-platform-agent-launcher
+  namespace: pi-durable-agents
+rules:
+  - apiGroups: [extensions.agents.x-k8s.io]
+    resources: [sandboxclaims]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, delete]

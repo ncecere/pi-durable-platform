@@ -1,0 +1,17 @@
+# A Sandbox per agent, its Secret, and pods (get) to see a runtime that exited
+# because the agent is owned elsewhere. Replaces the base's rules.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pi-durable-platform-agent-launcher
+  namespace: pi-durable-agents
+rules:
+  - apiGroups: [agents.x-k8s.io]
+    resources: [sandboxes]
+    verbs: [get, list, watch, create, patch, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, update, delete]
