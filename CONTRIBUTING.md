@@ -81,11 +81,11 @@ Commit generated files with the change that caused them, and never edit them by 
 
 ## Releasing
 
-1. Write `docs/releases/vX.Y.Z.md`, turn the changelog's Unreleased section into `[X.Y.Z] - <date>`, and make `Version` in `internal/buildinfo/buildinfo.go` and `version` in `runtime/package.json` the release version. The release workflow refuses a tag that doesn't match them, or one without notes.
+1. Write `docs/releases/vX.Y.Z.md`, turn the changelog's Unreleased section into `[X.Y.Z] - <date>`, and make `Version` in `internal/buildinfo/buildinfo.go`, `version` in `runtime/package.json` and `web/package.json` (and its lock file's two entries), and `version` and `appVersion` in `deploy/helm/pi-durable-platform/Chart.yaml` the release version, in the same commit; then run `deploy/scripts/generate-kustomize.sh`, change the image tags in `deploy/kustomize/examples/production/kustomization.yaml` and `deploy/kustomize/README.md`, and check with `make deploy-check` (`deploy/scripts/validate.sh` fails when `appVersion` and `internal/buildinfo` differ). The release workflow refuses a tag that doesn't match the version files, or one without notes.
 2. Push `main` and wait for CI to pass.
 3. Tag `vX.Y.Z` (or `vX.Y.Z-rc.1`, which becomes a pre-release with the base version's notes) and push the tag. `.github/workflows/image.yml` builds both images for linux/amd64 and linux/arm64, checks and scans them, publishes and signs them, and creates the GitHub Release (`scripts/github-release.sh`; `RELEASE_DRY_RUN=1` with `RELEASE_SBOM_FILE` and `RELEASE_RUNTIME_SBOM_FILE` tries it without publishing).
 4. Fill in the image digests in the release notes.
-5. `.github/workflows/chart.yml` publishes and signs the Helm chart for the same tag (chart version and appVersion are the tag's). Afterwards set `version` and `appVersion` in `deploy/helm/pi-durable-platform/Chart.yaml` to the release (`deploy/scripts/validate.sh` checks `appVersion` against `internal/buildinfo`) and run `deploy/scripts/generate-kustomize.sh`.
+5. `.github/workflows/chart.yml` publishes and signs the Helm chart for the same tag (chart version and appVersion are the tag's).
 
 Branch pushes publish `sha-<12>` images (linux/amd64) through `.github/workflows/images.yml`; tags never do.
 
