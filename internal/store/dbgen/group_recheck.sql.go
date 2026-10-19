@@ -212,6 +212,23 @@ func (q *Queries) RestoreUserGroup(ctx context.Context, id uuid.UUID) (User, err
 	return i, err
 }
 
+const setIdPRefreshToken = `-- name: SetIdPRefreshToken :exec
+UPDATE user_idp_tokens SET refresh_token_enc = $1 WHERE user_id = $2
+`
+
+type SetIdPRefreshTokenParams struct {
+	RefreshTokenEnc []byte
+	UserID          uuid.UUID
+}
+
+// The IdP rotated the refresh token but could not vouch for the person this
+// time: keep the new token (verified_at stays, so the grace period still counts
+// from the last answer).
+func (q *Queries) SetIdPRefreshToken(ctx context.Context, arg SetIdPRefreshTokenParams) error {
+	_, err := q.db.Exec(ctx, setIdPRefreshToken, arg.RefreshTokenEnc, arg.UserID)
+	return err
+}
+
 const setUserGroups = `-- name: SetUserGroups :exec
 UPDATE users SET groups = $1::text[], updated_at = now() WHERE id = $2
 `

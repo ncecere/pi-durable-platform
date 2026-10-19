@@ -34,9 +34,12 @@ import (
 // revoked, and everywhere the platform asks whether a person is active
 // (store.IsUserActive) they now are not: sessions, API keys, app tokens.
 // Their data and teams stay; signing in again (which applies the rule
-// afresh) clears the flag. If the IdP can't be asked (unreachable, or the
-// groups claim is missing from its answer) nothing changes until
-// OIDC_GROUP_RECHECK_GRACE has passed since its last answer.
+// afresh) clears the flag. If the IdP can't be asked (unreachable, the groups
+// claim is missing from its answer, or the stored token can't be opened)
+// nothing changes until OIDC_GROUP_RECHECK_GRACE has passed since its last
+// answer. A check that has begun is finished and recorded even when the
+// platform is stopping (the IdP may have rotated the refresh token), and a
+// rotated token is kept whatever else the answer says.
 
 // Why a person was denied (users.group_denied_reason).
 const (
@@ -49,6 +52,7 @@ const (
 	recheckBatch        = 50
 	recheckWorkers      = 4
 	recheckTimeout      = 20 * time.Second
+	recheckCommit       = 10 * time.Second
 	recheckActiveWindow = 30 * 24 * time.Hour
 )
 
@@ -269,7 +273,7 @@ type answer struct {
 	verdict verdict
 	reason  string   // denied: why
 	groups  []string // allowed: their groups now
-	refresh string   // the refresh token to keep ("": the same)
+	refresh string   // the refresh token the IdP rotated to, to keep ("": the same); set on every answer once it has been given
 	why     string   // unknown: what went wrong (for the log)
 }
 
@@ -281,8 +285,16 @@ const (
 	unknown // the IdP couldn't say
 )
 
-func (s *Service) checkOne(ctx context.Context, row dbgen.ListDueGroupChecksRow) {
-	ctx, cancel := context.WithTimeout(ctx, recheckTimeout)
+func (s *Service) checkOne(parent context.Context, row dbgen.ListDueGroupChecksRow) {
+	if parent.Err() != nil {
+		return // shutting down: nothing was asked, nothing can be lost
+	}
+	// A check that has begun is finished even when the platform is told to stop:
+	// once the IdP has answered, it may have rotated the refresh token, and a
+	// check cut off before the new one is recorded would find the old one
+	// refused (invalid_grant) at the next check and deny a legitimate person.
+	// The check is bounded by its own timeout, and shutdown waits for it.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), recheckTimeout)
 	defer cancel()
 	if s.isBootstrap(row.OIDCSubject) {
 		return
@@ -326,30 +338,34 @@ func (s *Service) ask(ctx context.Context, c *oidcClient, refresh, subject strin
 		}
 		return answer{verdict: unknown, why: "token endpoint unreachable"}
 	}
+	// From here on the IdP has answered and may have rotated the refresh token:
+	// every answer carries the new one, even one that can't say (unknown), so
+	// that the token is kept and the next check isn't refused with invalid_grant.
 	out := answer{}
 	if tok.RefreshToken != "" && tok.RefreshToken != refresh {
 		out.refresh = tok.RefreshToken
 	}
+	cantSay := func(why string) answer { return answer{verdict: unknown, why: why, refresh: out.refresh} }
 	claimName := s.cfg.OIDC.GroupsClaim
 	var claims map[string]any
 	if raw, _ := tok.Extra("id_token").(string); raw != "" {
 		idt, err := c.verifier.Verify(ctx, raw)
 		if err != nil {
-			return answer{verdict: unknown, why: "the ID token did not verify"}
+			return cantSay("the ID token did not verify")
 		}
 		if idt.Subject != subject {
 			log.Error("group re-check: the identity provider answered for a different subject")
-			return answer{verdict: unknown, why: "subject mismatch"}
+			return cantSay("subject mismatch")
 		}
 		if err := idt.Claims(&claims); err != nil {
-			return answer{verdict: unknown, why: "the ID token's claims are unreadable"}
+			return cantSay("the ID token's claims are unreadable")
 		}
 	}
 	if _, ok := claims[claimName]; !ok {
 		claims = s.userinfoClaims(ctx, c, tok, subject, claimName)
 	}
 	if _, ok := claims[claimName]; !ok {
-		return answer{verdict: unknown, why: "the groups claim " + claimName + " is in neither the ID token nor userinfo"}
+		return cantSay("the groups claim " + claimName + " is in neither the ID token nor userinfo")
 	}
 	out.groups = Groups(claims, claimName)
 	if s.groupAllowed(out.groups) {
@@ -380,8 +396,18 @@ func (s *Service) userinfoClaims(ctx context.Context, c *oidcClient, tok *oauth2
 
 // apply records what the IdP said about one person. A person who signed in
 // again since the check began (their token changed) is left alone: that
-// sign-in applied the rule afresh.
+// sign-in applied the rule afresh. It commits under a context of its own
+// (not the caller's cancellation or deadline, for recheckCommit): the IdP has
+// answered, and a rotated refresh token that isn't recorded is lost.
 func (s *Service) apply(ctx context.Context, log *slog.Logger, row dbgen.ListDueGroupChecksRow, a answer) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recheckCommit)
+	defer cancel()
+	seal := func(cur []byte) ([]byte, error) {
+		if a.refresh == "" {
+			return cur, nil
+		}
+		return s.box.Seal([]byte(a.refresh), idpTokenAD(row.UserID))
+	}
 	err := store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {
 		cur, err := q.LockIdPToken(ctx, row.UserID)
 		if errors.Is(store.NotFound(err), store.ErrNotFound) {
@@ -394,11 +420,9 @@ func (s *Service) apply(ctx context.Context, log *slog.Logger, row dbgen.ListDue
 		}
 		switch a.verdict {
 		case allowed:
-			enc := cur.RefreshTokenEnc
-			if a.refresh != "" {
-				if enc, err = s.box.Seal([]byte(a.refresh), idpTokenAD(row.UserID)); err != nil {
-					return err
-				}
+			enc, err := seal(cur.RefreshTokenEnc)
+			if err != nil {
+				return err
 			}
 			if err := q.MarkGroupVerified(ctx, dbgen.MarkGroupVerifiedParams{UserID: row.UserID, RefreshTokenEnc: enc}); err != nil {
 				return err
@@ -413,11 +437,21 @@ func (s *Service) apply(ctx context.Context, log *slog.Logger, row dbgen.ListDue
 				"why", a.why, "grace", grace)
 			return s.denyGroupAccess(ctx, q, row.UserID, DeniedUnreachable)
 		}
+		// Kept for now; but the IdP may have rotated the token meanwhile.
+		if a.refresh != "" {
+			enc, err := seal(cur.RefreshTokenEnc)
+			if err != nil {
+				return err
+			}
+			if err := q.SetIdPRefreshToken(ctx, dbgen.SetIdPRefreshTokenParams{UserID: row.UserID, RefreshTokenEnc: enc}); err != nil {
+				return err
+			}
+		}
 		log.Warn("group re-check: the identity provider could not say; access kept for now", "why", a.why,
 			"lastVerified", cur.VerifiedAt.Format(time.RFC3339))
 		return nil
 	})
-	if err != nil && ctx.Err() == nil {
+	if err != nil {
 		log.Error("group re-check: recording the answer failed", "err", err)
 	}
 }

@@ -89,6 +89,11 @@ again, with no credentials of its own to the IdP and no SCIM:
   within the interval plus up to a minute. Not chosen: userinfo with the sign-in's access token (it expires in
   minutes, so it needs the refresh token anyway); checking on every request or at session first use (puts the IdP
   on the request path and makes its outage everyone's outage; the loop bounds the window instead).
+- *Rotated tokens and shutdown.* The IdP may rotate the refresh token with every exchange, so the new one must not
+  be lost: a check that has begun is finished and recorded under its own 10 s commit even while the platform stops
+  (shutdown waits up to 15 s for it; a check not yet begun is skipped), and the rotated token is kept whatever else
+  the answer says, even when the IdP couldn't vouch for the person. Losing it would make the next check
+  `invalid_grant` and deny a legitimate person.
 - *Outcome by answer.* The IdP lists an allowed group: access continues (the person's stored groups are updated).
   It lists none: **denied**, `not_in_group`. It refuses the refresh token (`invalid_grant`, `access_denied` and the
   like: the person was disabled, the grant revoked or expired): denied, `idp_refused`. It can't be asked

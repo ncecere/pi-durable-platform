@@ -144,7 +144,11 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	// reaper passes are taken one at a time through a database lock
 	// (docs/replicas.md).
 	go cleanupLoop(loopCtx, deps.Auth, deps.OAuth, deps.Agents, deps.Metrics, log)
-	go deps.Auth.RunGroupRecheck(loopCtx)
+	recheckDone := make(chan struct{})
+	go func() {
+		defer close(recheckDone)
+		deps.Auth.RunGroupRecheck(loopCtx)
+	}()
 	go rateCounterLoop(loopCtx, deps.RateStore, deps.Metrics, log)
 	go deps.Agents.ObserveAgents(loopCtx, 30*time.Second)
 	go deps.Agents.Host().ReapLoop(loopCtx, 30*time.Second)
@@ -154,6 +158,13 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	}
 	stopLoops()
 	err = shutdown(cfg, log, health, servers...)
+	// A group re-check in flight finishes and records what the IdP said (it may
+	// have rotated a refresh token) before the database goes away.
+	select {
+	case <-recheckDone:
+	case <-time.After(15 * time.Second):
+		log.Warn("group re-check still running at shutdown: a check may be lost")
+	}
 	// Local runtimes are child processes: stop them gracefully with the
 	// platform. Kubernetes agents keep running and hibernate on their own.
 	if l, ok := deps.Agents.Host().Launcher().(*launcher.Local); ok {

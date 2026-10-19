@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"strings"
 	"sync"
@@ -83,5 +84,80 @@ func TestGroupRecheckUnreadableTokenEndsAccessAfterGrace(t *testing.T) {
 	recheck(t, app)
 	if code, _ := lena.raw("GET", "/v1/me", nil, nil); code != 401 || denial(t, app, "lena@example.com") != "idp_unreachable" {
 		t.Fatalf("after the grace period: %d %q", code, denial(t, app, "lena@example.com"))
+	}
+}
+
+func storedToken(t *testing.T, app *testApp, email string) string {
+	t.Helper()
+	return scalar(t, app, `SELECT encode(refresh_token_enc, 'hex') FROM user_idp_tokens WHERE user_id = (SELECT id FROM users WHERE email = $1)`, email)
+}
+
+// An IdP that rotates refresh tokens (each is good once) has already moved on
+// when a check can't be finished: the new token must still be kept, or the
+// next check is refused (invalid_grant) and a legitimate person is denied.
+func TestGroupRecheckKeepsRotatedTokenWhenIdPCantSay(t *testing.T) {
+	app, p := groupApp(t, nil)
+	p.RotateRefreshTokens(true)
+	mia := mustLogin(t, app, p, personClaims("mia", allowedGroup))
+	before := storedToken(t, app, "mia@example.com")
+
+	// The grant is answered (and rotates the token), but the groups can't be read: no ID token, userinfo down.
+	p.OmitIDTokenOnRefresh(true)
+	p.FailUserinfo(true)
+	dueNow(t, app)
+	recheck(t, app)
+	if p.Refreshes("mia") != 1 || denial(t, app, "mia@example.com") != "" {
+		t.Fatalf("refreshes %d, denial %q", p.Refreshes("mia"), denial(t, app, "mia@example.com"))
+	}
+	if storedToken(t, app, "mia@example.com") == before {
+		t.Fatal("the rotated refresh token was thrown away with the unanswered check")
+	}
+
+	// The IdP recovers: the next check uses the rotated token and passes.
+	p.OmitIDTokenOnRefresh(false)
+	p.FailUserinfo(false)
+	dueNow(t, app)
+	recheck(t, app)
+	if code, _ := mia.raw("GET", "/v1/me", nil, nil); code != 200 || denial(t, app, "mia@example.com") != "" {
+		t.Fatalf("after the IdP recovered: %d %q", code, denial(t, app, "mia@example.com"))
+	}
+}
+
+// The platform being told to stop (every rollout) while a check is in flight
+// must not lose the token the IdP rotated: the check that began is finished
+// and recorded, and the next one is not refused.
+func TestGroupRecheckRecordsAnswerWhenStopped(t *testing.T) {
+	app, p := groupApp(t, nil)
+	p.RotateRefreshTokens(true)
+	nia := mustLogin(t, app, p, personClaims("nia", allowedGroup))
+	before := storedToken(t, app, "nia@example.com")
+
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	p.OnRefresh(func(string) { stop() }) // SIGTERM, just after the IdP answered
+	dueNow(t, app)
+	if _, err := app.Auth.RecheckGroups(ctx); err != nil && ctx.Err() == nil {
+		t.Fatal(err)
+	}
+	p.OnRefresh(nil)
+	if p.Refreshes("nia") != 1 {
+		t.Fatalf("refreshes %d", p.Refreshes("nia"))
+	}
+	if storedToken(t, app, "nia@example.com") == before {
+		t.Fatal("the token the IdP rotated was not recorded when the platform was stopped")
+	}
+	dueNow(t, app)
+	recheck(t, app)
+	if code, _ := nia.raw("GET", "/v1/me", nil, nil); code != 200 || denial(t, app, "nia@example.com") != "" {
+		t.Fatalf("after the restart: %d %q", code, denial(t, app, "nia@example.com"))
+	}
+
+	// A stop before a check begins asks nobody (and loses nothing).
+	dueNow(t, app)
+	stopped, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = app.Auth.RecheckGroups(stopped)
+	if p.Refreshes("nia") != 2 {
+		t.Fatalf("a stopped platform asked the IdP: refreshes %d", p.Refreshes("nia"))
 	}
 }

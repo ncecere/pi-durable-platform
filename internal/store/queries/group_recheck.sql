@@ -39,6 +39,12 @@ SELECT * FROM user_idp_tokens WHERE user_id = @user_id FOR UPDATE;
 -- The IdP confirmed the person (and may have rotated the refresh token).
 UPDATE user_idp_tokens SET refresh_token_enc = @refresh_token_enc, verified_at = now() WHERE user_id = @user_id;
 
+-- name: SetIdPRefreshToken :exec
+-- The IdP rotated the refresh token but could not vouch for the person this
+-- time: keep the new token (verified_at stays, so the grace period still counts
+-- from the last answer).
+UPDATE user_idp_tokens SET refresh_token_enc = @refresh_token_enc WHERE user_id = @user_id;
+
 -- name: SetUserGroups :exec
 UPDATE users SET groups = @groups::text[], updated_at = now() WHERE id = @user_id;
 
