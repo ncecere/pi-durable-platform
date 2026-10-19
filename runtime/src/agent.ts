@@ -37,7 +37,7 @@ const ctx = BACKGROUND_CONTEXT;
 export { AgentOwnedElsewhereError };
 
 /**
- * Open the agent's storage (taking its ownership lock), resume unfinished work and return its HTTP handler. Throws
+ * Open the agent's storage (taking its ownership, see storage/postgres.ts), resume unfinished work and return its HTTP handler. Throws
  * AgentOwnedElsewhereError when another process owns the agent. Once running, it exits the process when storage fails,
  * so the supervisor starts a fresh one that resumes from storage.
  */
