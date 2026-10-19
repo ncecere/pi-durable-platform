@@ -25,7 +25,7 @@ Later: teams build and upload their own agents (self-service). That requires str
 | 2 | Pi Durable runs in a separate **Node runtime** (`runtime/`), one process per agent. | Pi Durable is TypeScript. |
 | 3 | **Agent state in PostgreSQL**, not SQLite. Pi's own `SqliteStorage` runs unchanged on a small SQL facade over one dedicated pg connection (`runtime/src/storage`). | Stateless agent pods: an agent can wake on any node, no node-pinned volumes. |
 | 4 | **One schema and one database role per agent**, in a database separate from platform metadata. | Database-enforced isolation between agents; easy delete. |
-| 5 | **Single owner per agent** via a session advisory lock on the agent's only connection, never re-established. | A stale pod that loses its connection loses its ability to write at the same moment its lock is released. |
+| 5 | **Single owner per agent** through an ownership record in the agent's own schema, naming the database session that owns it, on the agent's only connection, never re-established. See [Agent storage and ownership](#agent-storage-and-ownership). | A stale pod that loses its connection loses its ability to write at the same moment its ownership ends. No other agent's role can write, lock or take over the record. |
 | 6 | **One runtime per active agent; idle agents hibernate** (no pod, no connection). Requests wake them. | Thousands of per-user agents cannot all hold pods. |
 | 7 | Clients reach agents **only through the platform API**, which authenticates, authorizes and proxies. Runtimes require a per-agent bearer token. | One enforcement point; runtimes are never exposed. |
 | 8 | Agents come from **templates** (instructions, a model and MCP tools; no code) that platform admins or team admins write, running the platform's own runtime. Self-service upload of agent code is later and gated on sandboxed runtimes (gVisor/Kata). | The runtime's code is trusted; uploaded code is not. |
@@ -280,6 +280,74 @@ agent, and announces changes on `GET /v1/agents/events`.
   workspaces', so Admin › Teams › a team lists them and links to each agent's page. Read-only: they don't talk to,
   change or hibernate an agent of a team they aren't on (platform admins may delete one).
 
+## Agent storage and ownership
+
+Each agent has a schema and a login role of the same name (`agent_<uuid without dashes>`) in the agents database. The
+provisioner (`internal/agenthost/provision`, run by a CREATEROLE role that is not a superuser) creates the role
+(`LOGIN NOINHERIT NOCREATEDB NOCREATEROLE CONNECTION LIMIT 2`) and the schema it owns; PUBLIC has no access to schema
+`public` or `TEMP`. The role owns every table in its schema and nothing else, so another agent's role gets "permission
+denied" on all of it. The role's own tables are created by the runtime at start (pi-durable's by `SqliteStorage.open`,
+the ownership record below), which is why the agents database has no migrations of its own.
+
+**What ownership has to guarantee.** One process at a time writes for an agent; a replacement takes over as soon as the
+owner is gone (a crash, a lost connection, a termination), so an agent never waits on a timer; and a stale owner can't
+write after its replacement started. The runtime exits when its connection is lost, so the supervisor starts a new one.
+
+**Design: an ownership record in the agent's own schema.** The runtime keeps a one-row table, `pdp_ownership`, in the
+agent's schema. It holds the owner's database session (backend pid and start time), when it took over and a generation
+counter. To take ownership the runtime, in one transaction: locks the row (`SELECT ... FOR UPDATE`), then looks at
+`pg_stat_activity`. If the recorded session still exists, it fails with `AgentOwnedElsewhereError` (the platform retries,
+as before). If not (the process exited, the connection dropped, the backend was terminated), it records itself and
+continues. A session is identified by pid and start time, so a reused pid doesn't count. `pg_stat_activity` is read only
+after the row lock is held (its snapshot lasts the transaction; one taken earlier could miss a session that started while
+waiting). A clean stop clears the record before disconnecting, so a hibernated agent's next start never waits.
+
+This keeps what the session advisory lock gave: ownership is bound to the one connection that also writes, so it ends
+exactly when the ability to write ends, with no lease, heartbeat or expiry to wait out or to get wrong (a stalled but
+connected owner stays the owner, as before; `Evict` ends its sessions). It also removes what the lock couldn't: the
+decision rests on a table only the agent's role can write and on the agent's own role's sessions, so no other role can
+influence it. The runtime refuses to start when its own session isn't visible in `pg_stat_activity` (`track_activities`
+off), since a live owner could then look dead.
+
+**What another agent's role can do** (`runtime/test/ownership.test.ts`, `internal/agenthost/provision`):
+
+| Attack | Session advisory lock (v0.1.x) | Ownership record |
+|---|---|---|
+| Take a free agent's key while it is hibernated, and hold it | Blocks that agent's start for as long as it is held | Can't take ownership (permission denied on the schema and table); the key it holds is ignored by the runtime (`cannot block A's start by holding A's legacy lock key`, `cannot take ownership of an agent's storage`) |
+| Observe `pg_locks` for the key, grab it when the owner stops | Same | Same; B sees that some session holds an advisory lock, nothing it can act on |
+| Write, lock, drop or read the record; plant objects in the schema | n/a (no record) | Permission denied (`cannot write, lock, drop or read A's ownership record`) |
+| End the owner's session (`pg_terminate_backend`, `pg_cancel_backend`) to force a restart | Refused | Refused |
+| Use up the agent's connections | Per-role limit of 2 | Same (`TestAnotherAgentCannotInterfereWithOwnership`) |
+
+What is left: any role can see which sessions of other roles exist (`pg_stat_activity` shows the user name and pid),
+and agents share the server's connection and CPU capacity, so a hostile agent can still be a noisy neighbour. Per-role
+quotas are the database's, not this design's. An agent's own role can of course tamper with its own record and data.
+
+**Upgrading agents made by v0.1.x, and rolling upgrades.** There is nothing to migrate in the platform database or by the
+provisioner. The runtime creates the table with the agent's own role (`CREATE TABLE IF NOT EXISTS`, retried if two
+processes of one agent race) the first time a new runtime starts that agent: agents upgrade as they next wake, with no
+downtime beyond that restart. Rolling back to a v0.1.x runtime works; it ignores the table.
+
+Runtimes before and after the change may run side by side while pods are replaced (an old pod still running, or an agent
+woken with the old image). The new runtime therefore also takes the v0.1.x session advisory lock
+(`pg_try_advisory_lock(hashtextextended('pdp-agent:<schema>', 0))`) on its connection. If a session of this agent's own
+role holds it, that is a v0.1.x runtime of the same agent and the new one refuses (`AgentOwnedElsewhereError`); while the
+new runtime runs, it holds the lock, so a v0.1.x runtime refuses. A holder running as any other role is ignored: that is
+the attack above. The one gap is a v0.1.x runtime started while another role holds the key and releases it again, which
+needs untrusted code in the agents database during the upgrade; self-service agent code is not available before this
+change. The runtime option `legacyLock: false` turns the compatibility lock off; once no v0.1.x runtime is left (every
+agent has been restarted on the new image) it can be removed.
+
+**Orphaned roles.** Roles are server-wide, so a dropped or recreated agents database leaves its agents' roles behind. The
+provisioner marks each role it creates with a comment naming its agents database. `pi-durable-platform doctor` lists the
+roles named like agents' (`agent_...`) that belong to no agent in the platform database and to no schema in the agents
+database; `pi-durable-platform prune-roles [--dry-run]` drops them. It only drops a role that is what the provisioner
+makes (a login role without privileged attributes, member of nothing, one the provisioning role manages, not marked for
+another agents database) and has no open sessions, and it never forces: no `DROP OWNED` and no `CASCADE`, so if the
+server finds the role still owns objects or has privileges in any database (another installation's live agent on a
+shared server owns its schema there), the role is kept and reported with the reason. Anything else is listed as left
+alone. Roles made before the comment existed carry no mark and are still considered; only those that own nothing can go.
+
 ## Launchers
 
 | `AGENTS_LAUNCHER` | Runtime per active agent | Hibernate | Wake |
@@ -307,8 +375,12 @@ sandboxes.
 
 - `runtime/test/conformance.test.ts`: pi-durable 1.3.0's own storage conformance suite (24 cases) passes on PostgreSQL.
 - Ownership: a second opener is refused; an owner whose backend is terminated can no longer read or write, and the
-  next owner opens (`ownership.test.ts`).
-- Isolation: an agent role cannot read another agent's schema (`ownership.test.ts`).
+  next owner opens within a bounded time; concurrent openers never produce two owners; an agent without the ownership
+  table is upgraded in place (`ownership.test.ts`).
+- Isolation: an agent role cannot read another agent's schema, and cannot take, block, steal, lock or observe-and-grab
+  another agent's ownership (`ownership.test.ts`, `provision_integration_test.go`).
+- Orphaned agent roles are listed by `doctor` and dropped by `prune-roles` without touching live ones
+  (`provision_integration_test.go`, `doctor_integration_test.go`, `prune_roles_integration_test.go`).
 - A real Harness keeps its conversation and deduplicates retried requests across a process restart
   (`harness.test.ts`); a manual `kill -9` mid-reply resumed and completed the reply.
 
@@ -317,11 +389,11 @@ sandboxes.
 The [v0.1.0 release notes](docs/releases/v0.1.0.md#known-limitations) list the product limits (one replica, no budget
 enforcement, text-only messages, no paging, …). The design-level ones:
 
-- Database roles are server-wide: agent roles outlive a dropped agents database (tests remove theirs);
-  `prune-agent-storage` only considers schemas in its own database.
-- **Advisory locks are database-wide**: any role in the agents database can take another agent's lock key and block
-  it from starting. Acceptable for trusted templates; uploaded agents must not get direct database credentials (a
-  storage proxy instead).
+- Agent roles still share the server's connection and CPU capacity (no per-role quotas), and any role can see that
+  other roles' sessions exist. Cross-agent ownership interference is closed (see Agent storage and ownership), but
+  uploaded agent code (#28, #29) still needs hostile-code isolation of the pod and a decision on whether it gets direct
+  database credentials at all (a storage proxy is the alternative).
+- The v0.1.x compatibility advisory lock stays until no v0.1.x runtime is left; removing it is a later release.
 - Schema-per-agent means ~25 relations per agent. Fine for thousands; for much larger counts, a native storage with an
   `agent_id` column and row-level security may be needed.
 - Commit latency is a network round trip; Pi's `settings.progress` intervals can be raised if needed.

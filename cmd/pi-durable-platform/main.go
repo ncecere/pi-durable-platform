@@ -4,6 +4,8 @@
 //	pi-durable-platform serve     HTTP API, embedded UI and background loops
 //	pi-durable-platform migrate   apply database migrations and exit
 //	pi-durable-platform doctor    check the configuration, Postgres, migrations and the agents database
+//	pi-durable-platform prune-agent-storage   remove agent storage no agent owns
+//	pi-durable-platform prune-roles           drop agent database roles no agent owns
 //	pi-durable-platform version   print the version
 package main
 
@@ -34,6 +36,9 @@ commands:
             database (--json, --help)
   prune-agent-storage
             remove agent storage no agent owns (--dry-run, --help)
+  prune-roles
+            drop agent database roles no agent owns, left by a dropped
+            agents database (--dry-run, --help)
   version   print the version
 
 Configuration comes from environment variables and the optional YAML file
@@ -66,6 +71,8 @@ func run(args []string) error {
 		return runDoctor(args[1:], os.Stdout)
 	case "prune-agent-storage":
 		return runPrune(args[1:], os.Stdout)
+	case "prune-roles":
+		return runPruneRoles(args[1:], os.Stdout)
 	case app.ModeServe, app.ModeMigrate:
 	default:
 		fmt.Fprint(os.Stderr, usage)
@@ -175,5 +182,49 @@ func runPrune(args []string, stdout io.Writer) error {
 		verb = "would remove"
 	}
 	fmt.Fprintf(stdout, "%s %d unowned agent storage name(s)\n", verb, len(names))
+	return nil
+}
+
+// runPruneRoles implements `pi-durable-platform prune-roles [--dry-run]`.
+func runPruneRoles(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("prune-roles", flag.ContinueOnError)
+	dryRun := fs.Bool("dry-run", false, "list what would be dropped without dropping it")
+	fs.Usage = func() {
+		fmt.Fprint(fs.Output(), "usage: pi-durable-platform prune-roles [--dry-run]\n\n"+
+			"Drops agent database roles (agent_...) that belong to no agent and have no schema in the\n"+
+			"agents database. Roles are server-wide, so a dropped or recreated agents database leaves\n"+
+			"them behind. Only roles made like the platform makes them are dropped: a role that owns\n"+
+			"objects or has privileges anywhere on the server, has open sessions, or has other\n"+
+			"attributes is left alone and listed with the reason. Run it while no agents are being\n"+
+			"created, with --dry-run first.\n\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); errors.Is(err, flag.ErrHelp) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("configuration:\n%w", err)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	log := newLogger(io.Discard, cfg.LogLevel, cfg.LogFormat)
+	dropped, skipped, err := app.PruneRoles(ctx, cfg, log, *dryRun)
+	for _, n := range dropped {
+		fmt.Fprintln(stdout, n)
+	}
+	for _, s := range skipped {
+		fmt.Fprintf(stdout, "kept %s: %s\n", s.Name, s.Reason)
+	}
+	if err != nil {
+		return err
+	}
+	verb := "dropped"
+	if *dryRun {
+		verb = "would drop"
+	}
+	fmt.Fprintf(stdout, "%s %d orphaned agent role(s), kept %d\n", verb, len(dropped), len(skipped))
 	return nil
 }

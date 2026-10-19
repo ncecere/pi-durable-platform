@@ -137,6 +137,8 @@ pi-durable-platform migrate   apply database migrations and exit
 pi-durable-platform doctor    check the configuration, Postgres, migrations and the agents database
 pi-durable-platform prune-agent-storage [--dry-run]
                               remove agent storage no agent owns
+pi-durable-platform prune-roles [--dry-run]
+                              drop agent database roles no agent owns (left by a dropped agents database)
 pi-durable-platform version   print the version
 ```
 

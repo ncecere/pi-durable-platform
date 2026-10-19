@@ -16,6 +16,7 @@ import (
 
 	"github.com/ncecere/pi-durable-platform/internal/agenthost"
 	"github.com/ncecere/pi-durable-platform/internal/agenthost/launcher"
+	"github.com/ncecere/pi-durable-platform/internal/agenthost/provision"
 	"github.com/ncecere/pi-durable-platform/internal/agents"
 	"github.com/ncecere/pi-durable-platform/internal/apikeys"
 	"github.com/ncecere/pi-durable-platform/internal/auth"
@@ -418,6 +419,27 @@ func PruneAgentStorage(ctx context.Context, cfg config.Config, log *slog.Logger,
 	}
 	defer svc.Close()
 	return svc.PruneStorage(ctx, dryRun)
+}
+
+// PruneRoles drops agent roles that belong to no agent and have no schema in
+// the agents database (the prune-roles command). It returns the roles dropped
+// (or, with dryRun, that would be) and the ones it left alone, with reasons.
+func PruneRoles(ctx context.Context, cfg config.Config, log *slog.Logger, dryRun bool) ([]string, []provision.SkippedRole, error) {
+	pool, err := store.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer pool.Close()
+	box, err := secretBox(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	svc, err := newAgents(cfg, pool, box, llm.New(pool, box), mcp.New(pool, box, mcp.ClientPolicy{}), log)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer svc.Close()
+	return svc.PruneRoles(ctx, dryRun)
 }
 
 // prepareAgents hardens the agents database, waiting for it like the platform
