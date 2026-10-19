@@ -18,5 +18,5 @@ metadata:
   {{- end }}
 data:
   pi-durable-platform.json: |-
-    {{- .Files.Get "files/pi-durable-platform-dashboard.json" | nindent 4 }}
+    {{- .Files.Get "files/pi-durable-platform-dashboard.json" | trim | nindent 4 }}
 {{- end }}
