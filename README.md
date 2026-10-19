@@ -137,13 +137,16 @@ pi-durable-platform migrate   apply database migrations and exit
 pi-durable-platform doctor    check the configuration, Postgres, migrations and the agents database
 pi-durable-platform prune-agent-storage [--dry-run]
                               remove agent storage no agent owns
+pi-durable-platform rekey [--dry-run] [--batch N]
+                              re-seal every stored secret under the current ENCRYPTION_KEY
 pi-durable-platform version   print the version
 ```
 
 Configuration comes from environment variables (optionally layered over a YAML file named by `PDP_CONFIG_FILE`).
-[`.env.example`](.env.example) describes the common ones; `internal/config/settings.go` lists every one, including the
-Kubernetes launcher settings (`AGENTS_NAMESPACE`, `AGENTS_IMAGE`, `AGENTS_RUNTIME_CLASS`, `AGENTS_IMAGE_PULL_SECRET`,
-`AGENTS_RUNTIME_DATABASE_HOST`).
+[`.env.example`](.env.example) lists every setting with its default and a one-line explanation (a test fails when a
+setting is read but missing there); `internal/config/settings.go` is the table the platform reads. To rotate
+`ENCRYPTION_KEY`, keep the old key as `ENCRYPTION_KEY_PREVIOUS`, run `rekey`, and remove it once `doctor` reports
+nothing under it (DESIGN.md, "Secrets and key rotation").
 
 ## Layout and conventions
 

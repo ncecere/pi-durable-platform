@@ -296,6 +296,35 @@ it with a random token if missing, and the pool's pods read it), or given to the
 platform alone, so one agent cannot activate another runtime. To rotate it, delete the Secret and the pool's unclaimed
 sandboxes.
 
+## Secrets and key rotation
+
+Two keys protect what the database holds:
+
+- **`ENCRYPTION_KEY`** seals secrets the platform must use again, with AES-256-GCM (`internal/secrets`): model provider
+  keys and headers, MCP server headers, thread MCP server headers, and each agent's database password and runtime
+  token. A sealed value is `version | key id | nonce | ciphertext+tag`, where the key id is the first 8 bytes of the
+  key's SHA-256 and the associated data (the row it belongs to) stops a value being moved to another row. Because a value
+  names its key, "which values are still on the old key" is answered from the stored bytes, in SQL, with no marker
+  column and no migration.
+- **`API_KEY_PEPPER`** keys the HMAC digests of personal API keys, service account keys and OAuth Connect tokens and
+  codes, which are never stored. Digests are not reversible, so they move to a new pepper when they are used
+  (`API_KEY_PEPPER_PREVIOUS` is accepted meanwhile; `doctor` counts what is left).
+
+**Rotating `ENCRYPTION_KEY`**
+
+1. Generate a key (`openssl rand -base64 32`). Set it as `ENCRYPTION_KEY` and the old one as `ENCRYPTION_KEY_PREVIOUS`;
+   restart. New and changed secrets are sealed under the new key, old ones still open.
+2. `pi-durable-platform rekey --dry-run` counts, per sealed column, the values under each key and checks they open.
+3. `pi-durable-platform rekey` re-seals the values under the previous key. It works column by column, in batches (a
+   transaction each, `--batch`, default 200), and replaces a value only if the row still holds the ciphertext it read,
+   so a secret someone saves meanwhile is never overwritten with its old value: it is safe while the platform serves.
+   It does not change a row's revision or `updated_at`, is idempotent, and resumes after an interrupt by running again.
+   Before writing anything it opens every value to be re-sealed: if one opens with neither key (a missing
+   `ENCRYPTION_KEY_PREVIOUS`, a third key, damage) it stops, names the columns and rows (never values) and changes
+   nothing. It records one audit entry (`platform.secrets_rekey`: counts per column).
+4. `pi-durable-platform doctor` (check `keys encryption`) warns while any value is still under the previous key, and
+   fails for values under no configured key. When it reports none, remove `ENCRYPTION_KEY_PREVIOUS`.
+
 ## Verified so far
 
 - `runtime/test/conformance.test.ts`: pi-durable 1.3.0's own storage conformance suite (24 cases) passes on PostgreSQL.
