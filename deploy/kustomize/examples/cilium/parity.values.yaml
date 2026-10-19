@@ -1,0 +1,12 @@
+rolloutOnConfigChange: false
+appUrl: https://agents.example.com
+agents:
+  keepNamespace: false
+oidc:
+  issuer: https://idp.example.com/
+  clientId: pi-durable-platform
+networkPolicy:
+  flavor: cilium
+  database:
+    podLabels:
+      cnpg.io/cluster: pdp-db

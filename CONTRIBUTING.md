@@ -33,6 +33,8 @@ make web-dev                     # optional: Vite with hot reload on :5176, prox
 | `make test-integration` | `make deps-up`, then all Go tests with `-race`, failing instead of skipping without Postgres |
 | `make lint` | `go vet` and the gofmt check |
 | `make actionlint` | Checks the GitHub Actions workflows |
+| `make deploy-check` | Lints and renders the Helm chart and the Kustomize overlays, validates them with kubeconform and checks that the two agree (needs helm, kubeconform, yq, jq) |
+| `deploy/scripts/smoke-kind.sh` | Installs the chart into a kind cluster, provisions an agent and checks the isolation rules |
 | `make web-test` | UI type-check and Vitest tests |
 | `cd runtime && pnpm exec tsc --noEmit && pnpm test` | The agent runtime's type-check and tests (needs the compose Postgres) |
 
@@ -40,6 +42,8 @@ make web-dev                     # optional: Vite with hot reload on :5176, prox
 - The runtime's tests connect to `PDP_TEST_DATABASE_URL` too (default `postgres://pdp:pdp-local-only@127.0.0.1:55432/pdp`) and create and remove their own schemas and roles.
 - In `web/`: `npm run typecheck`, `npm test`, `npm run build`, and the policies `npm run check:styling` (Base UI components, CSS Modules and design tokens only) and `npm run check:size` (source files ≤ 400 lines, tests ≤ 700).
 - Add or update tests with every behaviour change. Bug fixes come with a test that fails without the fix.
+
+Under `deploy/`: the Kustomize base, `overlays/*/sandbox.yaml` and `components/` are generated from the Helm chart. Change the chart, run `deploy/scripts/generate-kustomize.sh`, and commit both; `.github/workflows/deploy.yml` fails when they differ. Releases also publish the chart (`.github/workflows/chart.yml`, from the tag).
 
 CI (`.github/workflows/ci.yml`) runs the runtime's checks, the web checks above, gofmt, `go vet` and the Go tests against a Postgres service, and `make actionlint`. Run the same before opening a pull request.
 
@@ -81,6 +85,7 @@ Commit generated files with the change that caused them, and never edit them by 
 2. Push `main` and wait for CI to pass.
 3. Tag `vX.Y.Z` (or `vX.Y.Z-rc.1`, which becomes a pre-release with the base version's notes) and push the tag. `.github/workflows/image.yml` builds both images for linux/amd64 and linux/arm64, checks and scans them, publishes and signs them, and creates the GitHub Release (`scripts/github-release.sh`; `RELEASE_DRY_RUN=1` with `RELEASE_SBOM_FILE` and `RELEASE_RUNTIME_SBOM_FILE` tries it without publishing).
 4. Fill in the image digests in the release notes.
+5. `.github/workflows/chart.yml` publishes and signs the Helm chart for the same tag (chart version and appVersion are the tag's). Afterwards set `version` and `appVersion` in `deploy/helm/pi-durable-platform/Chart.yaml` to the release (`deploy/scripts/validate.sh` checks `appVersion` against `internal/buildinfo`) and run `deploy/scripts/generate-kustomize.sh`.
 
 Branch pushes publish `sha-<12>` images (linux/amd64) through `.github/workflows/images.yml`; tags never do.
 

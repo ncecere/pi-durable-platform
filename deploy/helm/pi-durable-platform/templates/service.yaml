@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pdp.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "pdp.selectorLabels" . | nindent 4 }}
+  ports:
+    - { name: http, port: {{ .Values.service.port }}, targetPort: http }
+---
+# The gateway agents call for models of proxy-mode providers: a Service of its
+# own, so agents get a name for port 8099 only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pdp.gatewayName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "pdp.selectorLabels" . | nindent 4 }}
+  ports:
+    - { name: gateway, port: 8099, targetPort: gateway }

@@ -1,0 +1,65 @@
+# PostgreSQL 17 for the platform with CloudNativePG (https://cloudnative-pg.io),
+# NOT part of the chart or the Kustomize base. Install the operator first. Any
+# PostgreSQL 17 works as well: see deploy/README.md.
+#
+#   * database pdp, owner pdp: platform metadata (users, teams, agents,
+#     templates, audit). CloudNativePG creates the Secret pdp-db-app; its `uri`
+#     key is the platform's DATABASE_URL.
+#   * database pdp_agents, owner pdp_agents_admin: agent state. The platform
+#     provisions one schema and one login role per agent there with this
+#     CREATEROLE role (AGENTS_DATABASE_URL); agent pods connect with their own
+#     role only and cannot read each other's schema.
+#
+# Create the Secret pdp-agents-admin first (secrets.example.yaml). Adjust
+# storage, instances and resources. Each running agent holds one connection
+# (two while it is replaced): size max_connections for your agents.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pdp-db
+  namespace: pi-durable-platform
+spec:
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:17
+  primaryUpdateStrategy: unsupervised
+  storage:
+    size: 10Gi
+  walStorage:
+    size: 2Gi
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: preferred
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { memory: 1Gi }
+  postgresql:
+    parameters:
+      max_connections: "200"
+  bootstrap:
+    initdb:
+      database: pdp
+      owner: pdp
+  managed:
+    roles:
+      - name: pdp_agents_admin
+        ensure: present
+        login: true
+        createrole: true
+        # Ending a stuck agent's sessions needs it for roles made before the
+        # provisioner granted itself membership.
+        inRoles: [pg_signal_backend]
+        passwordSecret:
+          name: pdp-agents-admin
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: pdp-agents
+  namespace: pi-durable-platform
+spec:
+  cluster:
+    name: pdp-db
+  name: pdp_agents
+  owner: pdp_agents_admin
+  ensure: present
+  databaseReclaimPolicy: retain

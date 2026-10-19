@@ -1,0 +1,8 @@
+# NetworkPolicies off (for clusters whose CNI ignores them: agents are then NOT isolated).
+appUrl: https://agents.example.com
+devAuth: false
+oidc:
+  issuer: https://idp.example.com/
+  clientId: pdp
+networkPolicy:
+  enabled: false

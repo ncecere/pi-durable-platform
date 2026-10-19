@@ -1,0 +1,103 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+{{- $ns := .Values.agents.namespace }}
+# The agents namespace: default deny, then an agent pod (a runtime or a warm
+# pool's standby runtime) is reached by the platform only (port 4100) and
+# reaches only its PostgreSQL schema, the platform's gateway (port 8099) and DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pdp.fullname" . }}-agents-default-deny
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pdp.fullname" . }}-agents-allow-dns
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    {{- include "pdp.dnsEgress" . | nindent 4 }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pdp.fullname" . }}-agents-ingress-from-platform
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "pdp.agentPodLabels" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- include "pdp.platformPeer" . | nindent 8 }}
+      ports:
+        - { protocol: TCP, port: 4100 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pdp.fullname" . }}-agents-egress-database
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "pdp.agentPodLabels" . | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        {{- include "pdp.databasePeers" . | trim | nindent 8 }}
+      ports:
+        - { protocol: TCP, port: {{ $np.database.port }} }
+---
+# Models: agents call the platform's gateway (the model proxy), which adds the
+# provider's key. Direct-mode providers need their own rule (agents.extraEgress).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pdp.fullname" . }}-agents-egress-gateway
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "pdp.agentPodLabels" . | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        {{- include "pdp.platformPeer" . | nindent 8 }}
+      ports:
+        - { protocol: TCP, port: 8099 }
+{{- with $np.agents.extraEgress }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pdp.fullname" $ }}-agents-egress-extra
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pdp.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "pdp.agentPodLabels" $ | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    {{- toYaml . | nindent 4 }}
+{{- end }}
+{{- end }}

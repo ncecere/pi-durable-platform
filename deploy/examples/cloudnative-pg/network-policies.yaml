@@ -1,0 +1,122 @@
+# NetworkPolicies for the CloudNativePG pods in the platform's namespace. The
+# chart and the Kustomize base select only the platform's own pods, so
+# PostgreSQL's pods keep the policies you give them; with none, they take
+# traffic from anywhere. These mirror the platform's: the database takes
+# connections from the platform, the agents (their own roles) and its own
+# instances and operator, and reaches its instances, DNS and the Kubernetes API.
+#
+# The agents' side (egress to this database on 5432) is the chart's
+# networkPolicy.database.podLabels / the base's default: cnpg.io/cluster: pdp-db.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pdp-db-ingress
+  namespace: pi-durable-platform
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: pdp-db
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pi-durable-platform
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: pdp-db
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: pi-durable-agents
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pi-durable-agent
+      ports:
+        - { protocol: TCP, port: 5432 }
+    # The operator: status (8000) and SQL.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cloudnative-pg
+      ports:
+        - { protocol: TCP, port: 5432 }
+        - { protocol: TCP, port: 8000 }
+    # Instances replicate and check each other.
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: pdp-db
+      ports:
+        - { protocol: TCP, port: 8000 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pdp-db-egress
+  namespace: pi-durable-platform
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: pdp-db
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: pdp-db
+      ports:
+        - { protocol: TCP, port: 5432 }
+        - { protocol: TCP, port: 8000 }
+    # Backups to object storage need a rule of their own (an ObjectStore's
+    # service or its CIDR): add it here.
+---
+# The Kubernetes API, standard flavour: instances manage themselves through it.
+# Replace the address (`kubectl get endpoints kubernetes`). On Cilium, use the
+# CiliumNetworkPolicy below instead.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pdp-db-egress-kube-api
+  namespace: pi-durable-platform
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: pdp-db
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 192.0.2.10/32
+      ports:
+        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 6443 }
+---
+# Cilium: delete the NetworkPolicy above and apply this one.
+# apiVersion: cilium.io/v2
+# kind: CiliumNetworkPolicy
+# metadata:
+#   name: pdp-db-egress-kube-api
+#   namespace: pi-durable-platform
+# spec:
+#   endpointSelector:
+#     matchLabels:
+#       cnpg.io/cluster: pdp-db
+#   egress:
+#     - toEntities: [kube-apiserver]
+#       toPorts:
+#         - ports:
+#             - { port: "443", protocol: TCP }
+#             - { port: "6443", protocol: TCP }

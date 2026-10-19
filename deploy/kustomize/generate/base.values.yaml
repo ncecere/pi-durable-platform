@@ -1,0 +1,19 @@
+# The values the Kustomize base is generated from (deploy/scripts/generate-kustomize.sh).
+# Placeholders: patch them in your overlay (see ../examples/production).
+appUrl: https://agents.example.com
+# One cluster's Kustomize base, not a release: no hash in the pod template,
+# the namespace is not kept on delete.
+rolloutOnConfigChange: false
+agents:
+  keepNamespace: false
+oidc:
+  issuer: https://idp.example.com/
+  clientId: pi-durable-platform
+networkPolicy:
+  kubeApiServer:
+    # REPLACE ME: `kubectl get endpoints kubernetes`, as /32s (or use components/cilium).
+    cidrs: [192.0.2.10/32]
+  database:
+    # deploy/examples/cloudnative-pg: a Cluster named pdp-db in pi-durable-platform.
+    podLabels:
+      cnpg.io/cluster: pdp-db

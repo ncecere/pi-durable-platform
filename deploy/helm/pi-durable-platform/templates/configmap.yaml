@@ -1,0 +1,90 @@
+{{- $a := .Values.agents -}}
+{{- $o := .Values.oidc -}}
+{{- if not .Values.appUrl }}{{ fail "appUrl is required: the public origin, for example https://agents.example.com" }}{{ end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pdp.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+data:
+  APP_URL: {{ .Values.appUrl | quote }}
+  LISTEN_ADDR: ":8098"
+  MIGRATE_ON_START: {{ .Values.migrateOnStart | quote }}
+  LOG_FORMAT: {{ .Values.logFormat | quote }}
+  LOG_LEVEL: {{ .Values.logLevel | quote }}
+  INSTANCE_NAME: {{ .Values.instance.name | quote }}
+  {{- with .Values.instance.orgName }}
+  ORG_NAME: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.instance.logoUrl }}
+  UI_LOGO_URL: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.instance.supportUrl }}
+  SUPPORT_URL: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.teamRequestUrl }}
+  TEAM_REQUEST_URL: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.trustedProxies }}
+  TRUSTED_PROXIES: {{ join "," . | quote }}
+  {{- end }}
+  {{- if .Values.devAuth }}
+  DEV_AUTH: "true"
+  {{- end }}
+  {{- with $o.issuer }}
+  OIDC_ISSUER: {{ . | quote }}
+  OIDC_CLIENT_ID: {{ $o.clientId | quote }}
+  OIDC_SCOPES: {{ join "," $o.scopes | quote }}
+  OIDC_EMAIL_CLAIM: {{ $o.emailClaim | quote }}
+  OIDC_GROUPS_CLAIM: {{ $o.groupsClaim | quote }}
+  OIDC_REQUIRE_VERIFIED_EMAIL: {{ $o.requireVerifiedEmail | quote }}
+  {{- with $o.allowedEmailDomains }}
+  OIDC_ALLOWED_EMAIL_DOMAINS: {{ join "," . | quote }}
+  {{- end }}
+  {{- with $o.allowedGroups }}
+  OIDC_ALLOWED_GROUPS: {{ join "," . | quote }}
+  {{- end }}
+  {{- end }}
+  {{- with $o.bootstrapAdminSubject }}
+  BOOTSTRAP_ADMIN_SUBJECT: {{ . | quote }}
+  {{- end }}
+  AGENTS_LAUNCHER: {{ $a.launcher | quote }}
+  AGENTS_NAMESPACE: {{ $a.namespace | quote }}
+  {{- if not (include "pdp.warmPool" .) }}
+  AGENTS_IMAGE: {{ include "pdp.runtimeImage" . | quote }}
+  {{- end }}
+  {{- if include "pdp.warmPool" . }}
+  AGENTS_SANDBOX_WARM_POOL: {{ .Values.agentSandbox.warmPool.name | quote }}
+  AGENTS_SANDBOX_ACTIVATION_SECRET: {{ .Values.agentSandbox.activationSecret | quote }}
+  {{- end }}
+  {{- with $a.runtimeClass }}
+  AGENTS_RUNTIME_CLASS: {{ . | quote }}
+  {{- end }}
+  {{- with $a.imagePullSecret }}
+  AGENTS_IMAGE_PULL_SECRET: {{ . | quote }}
+  {{- end }}
+  {{- with $a.runtimeDatabaseHost }}
+  AGENTS_RUNTIME_DATABASE_HOST: {{ . | quote }}
+  {{- end }}
+  AGENTS_GATEWAY_ADDR: ":8099"
+  AGENTS_GATEWAY_URL: {{ include "pdp.gatewayUrl" . | quote }}
+  {{- with $a.clientMcpHosts }}
+  AGENTS_CLIENT_MCP_HOSTS: {{ join "," . | quote }}
+  {{- end }}
+  AGENTS_CLIENT_MCP_MODE: {{ $a.clientMcpMode | quote }}
+  AGENTS_IDLE_TIMEOUT: {{ $a.idleTimeout | quote }}
+  AGENTS_MODEL_PROVIDER: {{ $a.model.provider | quote }}
+  {{- with $a.model.baseUrl }}
+  AGENTS_MODEL_BASE_URL: {{ . | quote }}
+  {{- end }}
+  {{- with $a.model.id }}
+  AGENTS_MODEL_ID: {{ . | quote }}
+  {{- end }}
+  {{- if $a.model.reasoning }}
+  AGENTS_MODEL_REASONING: "true"
+  {{- end }}
+  {{- range $k, $v := .Values.config }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}

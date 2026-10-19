@@ -1,0 +1,59 @@
+# A throwaway PostgreSQL 17 for the kind smoke test: no persistence, and a
+# password from the Secret smoke-postgres. NOT for real use (see
+# deploy/examples/cloudnative-pg). It meets the restricted Pod Security level,
+# like the namespace it runs in.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: pi-durable-platform
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: postgres
+          image: postgres:17
+          env:
+            - { name: POSTGRES_DB, value: pdp }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: smoke-postgres, key: password }
+          args: ["-c", "max_connections=100"]
+          ports:
+            - { name: postgres, containerPort: 5432 }
+          readinessProbe:
+            exec: { command: [pg_isready, -U, postgres, -d, pdp] }
+            periodSeconds: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+            - { name: run, mountPath: /var/run/postgresql }
+      volumes:
+        - { name: data, emptyDir: {} }
+        - { name: run, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: pi-durable-platform
+spec:
+  selector: { app: postgres }
+  ports:
+    - { name: postgres, port: 5432, targetPort: postgres }

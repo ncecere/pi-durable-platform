@@ -1,0 +1,51 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+# The Kubernetes API (the launcher manages agents through it). A standard
+# NetworkPolicy needs the API server's addresses; Cilium names the entity.
+{{- if eq $np.flavor "cilium" }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "pdp.fullname" . }}-egress-kube-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "pdp.selectorLabels" . | nindent 6 }}
+  egress:
+    - toEntities: [kube-apiserver]
+      toPorts:
+        - ports:
+            {{- range $np.kubeApiServer.ports }}
+            - { port: {{ . | quote }}, protocol: TCP }
+            {{- end }}
+{{- else }}
+{{- if not $np.kubeApiServer.cidrs }}
+{{- fail "networkPolicy.kubeApiServer.cidrs is required with networkPolicy.flavor standard: the API server's addresses (`kubectl get endpoints kubernetes`, as /32s). Use flavor cilium for the kube-apiserver entity, or turn networkPolicy.enabled off." }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pdp.fullname" . }}-egress-kube-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "pdp.selectorLabels" . | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        {{- range $np.kubeApiServer.cidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        {{- range $np.kubeApiServer.ports }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
+{{- end }}
+{{- end }}

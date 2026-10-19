@@ -1,0 +1,93 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+# The platform pods: web traffic from the ingress peers, the gateway port from
+# agents only; egress to DNS, PostgreSQL, the agents (port 4100) and public
+# HTTPS (identity provider, model providers, MCP servers). The Kubernetes API
+# has its own policy. Only the platform pods are selected: other pods in the
+# namespace (PostgreSQL) keep their own policies.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pdp.fullname" . }}-ingress-web
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "pdp.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- toYaml $np.ingress.from | nindent 8 }}
+      ports:
+        - { protocol: TCP, port: 8098 }
+---
+# Agents reach the platform's gateway (the model proxy) and nothing else of it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pdp.fullname" . }}-ingress-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "pdp.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.agents.namespace }}
+          podSelector:
+            matchLabels:
+              {{- include "pdp.agentPodLabels" . | nindent 14 }}
+      ports:
+        - { protocol: TCP, port: 8099 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pdp.fullname" . }}-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "pdp.selectorLabels" . | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    {{- include "pdp.dnsEgress" . | nindent 4 }}
+    - to:
+        {{- include "pdp.databasePeers" . | trim | nindent 8 }}
+      ports:
+        - { protocol: TCP, port: {{ $np.database.port }} }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.agents.namespace }}
+          podSelector:
+            matchLabels:
+              {{- include "pdp.agentPodLabels" . | nindent 14 }}
+      ports:
+        - { protocol: TCP, port: 4100 }
+    {{- if $np.egress.publicHttps.enabled }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            {{- with $np.egress.publicHttps.except }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+      ports:
+        {{- range $np.egress.publicHttps.ports }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
+    {{- end }}
+    {{- with $np.egress.extra }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

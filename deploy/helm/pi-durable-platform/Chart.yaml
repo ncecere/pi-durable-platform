@@ -1,0 +1,24 @@
+apiVersion: v2
+name: pi-durable-platform
+description: Pi Durable Platform, the console and API for teams to deploy, test and manage Pi Durable agents, with the RBAC and NetworkPolicies that isolate the agents
+type: application
+# The release workflow (.github/workflows/chart.yml) replaces version and
+# appVersion with the git tag's version (v0.2.0 -> 0.2.0). In the repository
+# they follow the latest release, so installing from a checkout deploys that
+# release's images. deploy.yml fails when appVersion and
+# internal/buildinfo's version differ.
+version: 0.1.1
+appVersion: "0.1.1"
+kubeVersion: ">=1.27.0-0"
+home: https://github.com/ncecere/pi-durable-platform
+sources:
+  - https://github.com/ncecere/pi-durable-platform
+keywords:
+  - agents
+  - pi-durable
+  - platform
+maintainers:
+  - name: ncecere
+    url: https://github.com/ncecere
+annotations:
+  category: AI
