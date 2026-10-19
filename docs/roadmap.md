@@ -45,6 +45,8 @@ approval screen's app logo, #25, and the agent page's status badge after a wake,
 | v0.4 | O. Scheduled wake-ups: agents run work at a time or on a schedule | M | [#15](https://github.com/ncecere/pi-durable-platform/issues/15) |
 | v0.4 | P. Tool approvals: a person approves sensitive tool calls before they run | L | [#16](https://github.com/ncecere/pi-durable-platform/issues/16) |
 | v0.4 | Q. Runtime resources per template version | S | [#17](https://github.com/ncecere/pi-durable-platform/issues/17) |
+| v0.4 | X. Custom agents, step 1: the runtime as a library, a starter project and a local development loop | M | [#28](https://github.com/ncecere/pi-durable-platform/issues/28) |
+| v0.4 | Y. Custom agents, step 2: deploy your own agent image or package per template version | L | [#29](https://github.com/ncecere/pi-durable-platform/issues/29) |
 | v0.5 | R. Enforce budgets: monthly cost limits for personal workspaces and teams | M | [#18](https://github.com/ncecere/pi-durable-platform/issues/18) |
 | v0.5 | S. Limits for shared teams: maximum agents and maximum running | S | [#19](https://github.com/ncecere/pi-durable-platform/issues/19) |
 | later | T. Run without Kubernetes: a Docker Compose deployment with a bundled identity provider | L | [#20](https://github.com/ncecere/pi-durable-platform/issues/20) |
@@ -230,7 +232,7 @@ An app's usage page (a person's agents by day) makes one request per agent.
 
 ## v0.4: Agents that do more
 
-Agents are text-only, wake only when called, and use every tool they're given without asking. This phase adds files, scheduled work, approvals for sensitive tools and per-template resources.
+Agents are text-only, wake only when called, use every tool they're given without asking, and are all the same program: a template changes the instructions, the model and the MCP tools, never the agent's code. This phase adds files, scheduled work, approvals for sensitive tools, per-template resources and a way to build and run your own Pi Durable agents.
 
 ### N. Files and images in messages, stored on S3-compatible object storage (L, [#14](https://github.com/ncecere/pi-durable-platform/issues/14))
 
@@ -275,6 +277,36 @@ Heavier agents (large tools, big contexts) can't get more memory; light ones can
 - Template versions choose a size from platform-defined classes (small, medium, large), applied by the Kubernetes and Agent Sandbox launchers (warm pools per class).
 
 **Done when:** An agent on a 'large' template version runs with that class's requests and limits.
+
+### X. Custom agents, step 1: the runtime as a library, a starter project and a local development loop (M, [#28](https://github.com/ncecere/pi-durable-platform/issues/28))
+
+**Limitation:** No way to build your own agent: every agent is the one program in `runtime/` (instructions, a model and MCP tools are all a template changes).
+
+Someone who wants an agent with its own tools, its own Pi extensions or its own behaviour has nothing to start from: the runtime is an application, not a package, and it can only be run through the platform. The MCP catalog covers tools that live in a separate server, but not code that belongs inside the agent.
+
+- Make `runtime/` importable: a package that exports `startAgent` and its parts (storage on PostgreSQL, the chat view, thread records and status reports, the MCP client, usage reporting, the standby/activation server), with hooks to add extensions, tools and instructions, so a custom agent is a small program that composes them and the platform's own agent is the default composition.
+- A starter project (scaffold command or template repository): a TypeScript agent with one custom tool, its tests (including the storage conformance suite and a conversation test against a fake model), and a Dockerfile built on the runtime image.
+- A local loop: run the custom agent against the local launcher and a local PostgreSQL, and chat with it in the console's Test tab, so it is developed before anything is deployed.
+- A written contract for what a runtime must do to be run by the platform (the HTTP API under `/threads`, `/status`, standby and `/activate`, thread status and usage reports, ownership by advisory lock, exit on lost storage), with a conformance test anyone can run against their agent.
+- A design note first: the trust model for team-written code (it runs with the agent's database role and its model/MCP gateway key, inside the agents' network boundary) and what step 2 must check.
+
+**Done when:** A person scaffolds an agent, adds a tool, runs it locally against the platform's console, and passes the conformance test, without changing the platform.
+
+### Y. Custom agents, step 2: deploy your own agent image or package per template version (L, [#29](https://github.com/ncecere/pi-durable-platform/issues/29))
+
+**Limitation:** Agent runtime image is one platform-wide setting (AGENTS_IMAGE): templates can't use different agent code.
+
+A custom agent built in step 1 can only be run locally. Teams need to deploy it from a template like any other agent, with versions, upgrades, the catalog and the same isolation and accounting.
+
+- Design note first: choose between a custom container image built on the runtime (full freedom, but a warm pool per image and a heavier review) and a package of extensions loaded into the standard runtime (a smaller trust surface, one warm pool, less freedom). The design may support both.
+- A template version names its agent code: an image by digest (or a package reference), from registries platform admins allow; recorded in the version, so upgrades and rollbacks work as they do for instructions and models.
+- Checks before a version can be used: the image answers the runtime contract (conformance run by the platform against a throwaway instance), optionally a cosign signature from an allowed identity, and an SBOM or vulnerability summary shown to reviewers.
+- Launchers: the Kubernetes and Agent Sandbox launchers start the version's image. Warm pools exist per approved image (a SandboxTemplate and SandboxWarmPool created by the platform), with the cold-start cost stated for images without one.
+- Who may use it: team owners and admins can set it on their team's own templates; a template with custom code can't be submitted to the shared catalog without a platform admin's review of the image, as templates already are.
+- The isolation stays exactly as for every agent (agents reach only their database, the gateway port and DNS; their own database role and schema) and resource classes (#17) apply; documented limits for untrusted code until sandboxing (#21) is in place.
+- Audit entries for who set which image on which version, and a docs section: the contract, a worked example, and what the platform does and doesn't protect.
+
+**Done when:** A team deploys an agent from its own template whose version uses its own agent image, upgrades and rolls it back like any version, and the platform shows which code an agent runs. Depends on #7, #17 and #1.
 
 ## v0.5: Budgets and limits
 
