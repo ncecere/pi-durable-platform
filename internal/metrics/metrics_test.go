@@ -245,6 +245,7 @@ func TestLabelNamesAreAllowlisted(t *testing.T) {
 		"grant_type": true, "error": true, "limiter": true, "loop": true, "pool": true,
 		"version": true, "commit": true, "go_version": true, "le": true, "quantile": true,
 	}
+	allowed["state"] = true // pdp_group_recheck_people: with_token, without_token
 	checked := 0
 	for name, set := range labelNames(t, m) {
 		if !strings.HasPrefix(name, "pdp_") {

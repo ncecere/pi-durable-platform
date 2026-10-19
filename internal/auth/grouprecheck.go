@@ -15,6 +15,8 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/ncecere/pi-durable-platform/internal/audit"
+	"github.com/ncecere/pi-durable-platform/internal/config"
+	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/oauth"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
 	"github.com/ncecere/pi-durable-platform/internal/store"
@@ -88,7 +90,16 @@ func (s *Service) keepIdPToken(ctx context.Context, q *dbgen.Queries, user dbgen
 	if li.Method != "oidc" || !s.groupRecheckOn() {
 		return nil
 	}
-	if li.RefreshToken == "" || s.isBootstrap(li.Subject) {
+	if s.isBootstrap(li.Subject) {
+		return q.DeleteIdPToken(ctx, user.ID)
+	}
+	if li.RefreshToken == "" {
+		// Not an error (fail-open: someone the IdP gave no token must not be locked out),
+		// but this person is never re-checked: say so, where an operator can count it.
+		s.log.InfoContext(ctx, "sign-in under OIDC_ALLOWED_GROUPS brought no refresh token from the identity provider: "+
+			"this person can't be re-checked and keeps access after leaving the group until they sign in again "+
+			"(OIDC_SCOPES needs offline_access, and the provider must issue refresh tokens to this client)", "user", user.ID)
+		s.metrics.GroupRecheck(metrics.RecheckNoToken)
 		return q.DeleteIdPToken(ctx, user.ID)
 	}
 	enc, err := s.box.Seal([]byte(li.RefreshToken), idpTokenAD(user.ID))
@@ -181,6 +192,7 @@ func (s *Service) RunGroupRecheck(ctx context.Context) {
 		_, err := s.RecheckGroups(ctx)
 		if ctx.Err() == nil {
 			done(err)
+			s.reportRecheckPeople(ctx)
 		}
 		if err != nil && ctx.Err() == nil {
 			s.log.Warn("group re-check failed", "err", err)
@@ -191,6 +203,28 @@ func (s *Service) RunGroupRecheck(ctx context.Context) {
 		case <-t.C:
 		}
 	}
+}
+
+// RecheckPeople counts the recently active people the group re-check applies
+// to (the people RecheckGroups considers, due or not; not the bootstrap
+// admin), by whether a refresh token is kept for them: the others are never
+// re-checked.
+func RecheckPeople(ctx context.Context, q *dbgen.Queries, o config.OIDC, now time.Time) (withToken, withoutToken int64, err error) {
+	row, err := q.CountGroupRecheckPeople(ctx, dbgen.CountGroupRecheckPeopleParams{Issuer: o.Issuer,
+		BootstrapSubject: o.BootstrapAdminSubject, ActiveSince: now.Add(-recheckActiveWindow)})
+	return row.WithToken, row.WithoutToken, err
+}
+
+// reportRecheckPeople sets pdp_group_recheck_people.
+func (s *Service) reportRecheckPeople(ctx context.Context) {
+	with, without, err := RecheckPeople(ctx, s.q, s.cfg.OIDC, s.now())
+	if err != nil {
+		if ctx.Err() == nil {
+			s.log.Warn("group re-check: counting the people it can't check failed", "err", err)
+		}
+		return
+	}
+	s.metrics.SetGroupRecheckPeople(with, without)
 }
 
 // liftGroupDenials restores everyone the group rule denied (the rule was
@@ -275,6 +309,7 @@ type answer struct {
 	groups  []string // allowed: their groups now
 	refresh string   // the refresh token the IdP rotated to, to keep ("": the same); set on every answer once it has been given
 	why     string   // unknown: what went wrong (for the log)
+	broken  bool     // unknown because of this platform (the stored token can't be opened), counted as an error
 }
 
 type verdict int
@@ -307,7 +342,7 @@ func (s *Service) checkOne(parent context.Context, row dbgen.ListDueGroupChecksR
 		// access is kept for the grace period and then ends, like an unreachable IdP.
 		log.Warn("group re-check: the stored refresh token could not be opened; if ENCRYPTION_KEY was changed, set " +
 			"ENCRYPTION_KEY_PREVIOUS to the old key and run rekey, or the person must sign in again")
-		s.apply(ctx, log, row, answer{verdict: unknown, why: "the stored refresh token could not be opened"})
+		s.apply(ctx, log, row, answer{verdict: unknown, why: "the stored refresh token could not be opened", broken: true})
 		return
 	}
 	c, err := s.client(ctx)
@@ -408,7 +443,9 @@ func (s *Service) apply(ctx context.Context, log *slog.Logger, row dbgen.ListDue
 		}
 		return s.box.Seal([]byte(a.refresh), idpTokenAD(row.UserID))
 	}
+	result := "" // what is counted: nothing when the person signed in again meanwhile
 	err := store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {
+		result = ""
 		cur, err := q.LockIdPToken(ctx, row.UserID)
 		if errors.Is(store.NotFound(err), store.ErrNotFound) {
 			return nil
@@ -420,6 +457,7 @@ func (s *Service) apply(ctx context.Context, log *slog.Logger, row dbgen.ListDue
 		}
 		switch a.verdict {
 		case allowed:
+			result = metrics.RecheckAllowed
 			enc, err := seal(cur.RefreshTokenEnc)
 			if err != nil {
 				return err
@@ -429,13 +467,19 @@ func (s *Service) apply(ctx context.Context, log *slog.Logger, row dbgen.ListDue
 			}
 			return q.SetUserGroups(ctx, dbgen.SetUserGroupsParams{UserID: row.UserID, Groups: boundGroups(a.groups)})
 		case denied:
+			result = metrics.RecheckDenied
 			log.Info("group re-check: access ended", "reason", a.reason)
 			return s.denyGroupAccess(ctx, q, row.UserID, a.reason)
 		}
 		if grace := s.cfg.OIDC.GroupRecheckGrace; s.now().Sub(cur.VerifiedAt) > grace {
 			log.Warn("group re-check: the identity provider has not vouched for this person within the grace period: access ended",
 				"why", a.why, "grace", grace)
+			result = metrics.RecheckDenied
 			return s.denyGroupAccess(ctx, q, row.UserID, DeniedUnreachable)
+		}
+		result = metrics.RecheckUnknown
+		if a.broken {
+			result = metrics.RecheckError
 		}
 		// Kept for now; but the IdP may have rotated the token meanwhile.
 		if a.refresh != "" {
@@ -453,5 +497,9 @@ func (s *Service) apply(ctx context.Context, log *slog.Logger, row dbgen.ListDue
 	})
 	if err != nil {
 		log.Error("group re-check: recording the answer failed", "err", err)
+		result = metrics.RecheckError
+	}
+	if result != "" {
+		s.metrics.GroupRecheck(result)
 	}
 }

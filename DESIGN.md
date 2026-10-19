@@ -115,8 +115,13 @@ again, with no credentials of its own to the IdP and no SCIM:
   (403 `group_denied`) and nothing changes. Removing `OIDC_ALLOWED_GROUPS` lifts every denial at the next start.
 - *Not covered.* The bootstrap admin and development personas are never re-checked (no refresh token is kept for
   them). People who signed in before the upgrade, or when the IdP issued no refresh token, have nothing to check
-  with: their groups apply at their next sign-in (the platform warns at start when `OIDC_SCOPES` lacks
-  `offline_access`). Refresh tokens that an IdP lets expire for good (an absolute lifetime) end in
+  with: their groups apply at their next sign-in. That is fail-open on purpose (denying everyone without a token
+  would lock everybody out wherever the IdP isn't set up for refresh tokens), so it is made loud instead: the
+  platform warns at start when `OIDC_SCOPES` lacks `offline_access`; each such sign-in logs at Info (the user id,
+  never a token or an email) and counts `pdp_group_recheck_total{result="no_token"}`; the gauge
+  `pdp_group_recheck_people{state="with_token|without_token"}` counts the recently active people the re-check can
+  and can't check; and `pi-durable-platform doctor` warns, with the cause and the fix, while recently active people
+  have no stored token (the same *recently active* test as the loop). Refresh tokens that an IdP lets expire for good (an absolute lifetime) end in
   `idp_refused`: the person signs in again.
 - *Audit.* `user.group_denied` (system; target the person; the reason in words, its code and how many connected
   apps were revoked, each also `oauth.revoke` with reason `access_denied`) and `user.group_restored` (the person
@@ -568,6 +573,8 @@ not part of `api/openapi.yaml`, as the gateway isn't.
 | `oauth_token_errors_total` | `error` (the OAuth error code) | Refused token requests |
 | `oauth_refresh_reuse_revocations_total` | none | Grants revoked for refresh token reuse |
 | `signins_total` | `method` (oidc, dev), `result`, `reason` (none, denied, invalid, unavailable, error) | Sign-ins |
+| `group_recheck_total` | `result` (allowed, denied, unknown, error, no_token) | Group re-check outcomes. `unknown`: the IdP couldn't say, access kept for now; `error`: the stored token can't be opened or the answer couldn't be recorded; `no_token` isn't a check but a sign-in under `OIDC_ALLOWED_GROUPS` that brought no refresh token (that person is never re-checked) |
+| `group_recheck_people` | `state` (with_token, without_token) | Recently active people the group re-check applies to, by whether a refresh token is kept for them (set by the re-check loop; the same on every replica: use `max`) |
 | `rate_limit_rejections_total` | `limiter` (login, user, apikey, service-account, oauth, …) | Requests refused with 429 |
 | `thread_event_subscribers` | none | Open thread event streams on this replica |
 | `background_runs_total`, `background_run_duration_seconds`, `background_last_success_timestamp_seconds` | `loop` (reaper, cleanup, rate_cleanup, group_recheck, thread_events, agent_count), `result` | Background loops; `thread_events` counts only listeners that failed |
