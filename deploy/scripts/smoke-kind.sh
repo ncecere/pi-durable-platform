@@ -12,8 +12,14 @@
 #     web port, the API server or the internet), and a pod outside the platform
 #     cannot reach the agent.
 #
+#   - two platform replicas (ci/kind-smoke.yaml: replicaCount 2 and a
+#     PodDisruptionBudget): both become ready, and through each one's own
+#     port-forward the session, the agent and its conversation are the same
+#     (one replica hibernates what the other started, and either wakes it).
+#
 # Needs kind, kubectl, helm, docker, curl and jq. Environment:
-#   SMOKE_PORT      local port for the platform (default 8098; APP_URL follows)
+#   SMOKE_PORT      local port for the platform (default 8098; APP_URL follows);
+#                   the replicas' own forwards use the next two ports
 #   SMOKE_CLUSTER   kind cluster name (default pdp-smoke)
 #   KEEP_CLUSTER=1  leave the cluster in place afterwards
 #   PLATFORM_IMAGE, RUNTIME_IMAGE  the images to test, as repository[:tag][@sha256:digest]
@@ -41,6 +47,7 @@ base=http://localhost:$port
 export KUBECONFIG=${SMOKE_KUBECONFIG:-$(mktemp -t pdp-smoke-kubeconfig.XXXXXX)}
 jar=$(mktemp -t pdp-smoke-cookies.XXXXXX)
 pf_pid=""
+replica_pids=()
 
 step() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
@@ -73,7 +80,7 @@ diagnostics() {
 cleanup() {
   status=$?
   [ "$status" -eq 0 ] || diagnostics
-  if [ -n "$pf_pid" ]; then kill "$pf_pid" 2>/dev/null || true; wait "$pf_pid" 2>/dev/null || true; fi
+  for pid in ${pf_pid:+"$pf_pid"} ${replica_pids[@]+"${replica_pids[@]}"}; do kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; done
   if [ "${KEEP_CLUSTER:-}" != 1 ]; then kind delete cluster --name "$cluster" >/dev/null 2>&1 || true; fi
   rm -f "$jar"
   exit "$status"
@@ -244,8 +251,42 @@ refuse "agent -/-> another agent pod ($agent_ip:4100)" kubectl -n $agents_ns exe
   s.setTimeout(5000, () => process.exit(1)); s.on("connect", () => process.exit(0)); s.on("error", () => process.exit(1));' "$agent_ip"
 kubectl -n $agents_ns delete pod peer --now >/dev/null
 
+step "two platform replicas"
+# Each replica through its own port-forward (the Service's one goes to a single
+# pod). The session cookie is the same: a session made on one is valid on both.
+read -ra platform_pods <<<"$(kubectl -n $ns get pods -l app.kubernetes.io/name=pi-durable-platform -o jsonpath='{.items[*].metadata.name}')"
+[ "${#platform_pods[@]}" -eq 2 ] || fail "expected 2 platform pods, got: ${platform_pods[*]}"
+kubectl -n $ns wait --for=condition=Ready "pod/${platform_pods[0]}" "pod/${platform_pods[1]}" --timeout=120s
+bases=()
+for i in 0 1; do
+  rport=$((port + 1 + i))
+  kubectl -n $ns port-forward "pod/${platform_pods[$i]}" "$rport":8098 >/dev/null 2>&1 &
+  replica_pids+=("$!")
+  bases+=("http://localhost:$rport")
+done
+for b in "${bases[@]}"; do
+  for _ in $(seq 1 30); do curl -fsS "$b/readyz" >/dev/null 2>&1 && break; sleep 1; done
+  curl -fsS "$b/readyz" >/dev/null || fail "a platform pod is not ready on $b"
+done
+on() { local base=$1; shift; api "$@"; } # on <base> <api args>: through one replica
+for b in "${bases[@]}"; do
+  expect "the session is valid on $b" on "$b" GET /v1/me
+  expect "the agent's conversation reads on $b" on "$b" GET "/v1/agents/$agent/threads/first"
+done
+# A message through each replica, the conversation read through the other.
+on "${bases[0]}" POST "/v1/agents/$agent/threads/shared/messages" '{"text":"from the first","requestId":"shared-1"}' >/dev/null || fail "send through the first replica"
+for _ in $(seq 1 60); do
+  on "${bases[1]}" GET "/v1/agents/$agent/threads/shared" 2>/dev/null | grep -q 'scripted demo model' && break
+  sleep 2
+done
+on "${bases[1]}" GET "/v1/agents/$agent/threads/shared" | grep -q 'scripted demo model' || fail "a reply to a message sent through one replica is not visible on the other"
+echo "ok:   a conversation started on one replica is read on the other"
+expect "the PodDisruptionBudget allows one disruption" \
+  test "$(kubectl -n $ns get pdb $release -o jsonpath='{.status.disruptionsAllowed}')" = 1
+
 step "hibernate and wake"
-api POST "/v1/agents/$agent/hibernate" >/dev/null
+# One replica hibernates the agent, the other wakes it.
+on "${bases[1]}" POST "/v1/agents/$agent/hibernate" >/dev/null
 for _ in $(seq 1 60); do
   kubectl -n $agents_ns get pod "$pod" >/dev/null 2>&1 || break
   sleep 2

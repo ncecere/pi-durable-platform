@@ -110,8 +110,9 @@ The database is yours.
 | `ingress.*` | class, host (default: `appUrl`'s), path, TLS, annotations |
 | `networkPolicy.*` | flavor (`standard` or `cilium`), `kubeApiServer.cidrs`, `database` (pod labels or CIDRs), `ingress.from`, public HTTPS egress, extra egress rules for the platform and for agents |
 | `resources`, `podSecurityContext`, `securityContext` | defaults are restricted: non-root, read-only root, no capabilities, seccomp |
-| `replicaCount` | 1 (the schema refuses more: roadmap item B, issue #2) |
-| `podDisruptionBudget.*` | off by default (one replica: a budget of `minAvailable: 1` blocks node drains) |
+| `replicaCount` | 1 by default; 2 is the supported setup for staying up through drains and rollouts: it rolls one pod at a time with none missing and spreads pods over nodes and zones ([Replicas](../../README.md#replicas), `ci/replicas.yaml`) |
+| `podDisruptionBudget.*` | off by default (one replica: a budget of `minAvailable: 1` blocks node drains); turn it on with `replicaCount: 2`, `minAvailable: 1` |
+| `affinity`, `topologySpreadConstraints` | when set, replace the spreading defaults of `replicaCount` > 1 |
 | `config`, `extraEnv`, `extraEnvFrom`, `extraVolumes` | any other setting of the platform |
 
 The ConfigMap holds every non-secret setting; the pod restarts when it changes (`rolloutOnConfigChange`).

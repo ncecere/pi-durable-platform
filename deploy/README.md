@@ -12,7 +12,7 @@ Also here: [`secrets.example.yaml`](secrets.example.yaml) (the Secrets the platf
 
 ## What gets deployed
 
-- **The platform**: one Deployment (one replica, see below) with two Services: the web/API port (8098, Service port 80)
+- **The platform**: one Deployment (one replica by default, two recommended, see [Replicas](#replicas)) with two Services: the web/API port (8098, Service port 80)
   and, as a Service of its own, the gateway agents call for models (8099), so agents get a name for that port only.
   It runs non-root with a read-only root filesystem, no capabilities and the runtime's default seccomp profile.
 - **The agents namespace** (`pi-durable-agents` by default), with the **restricted** Pod Security level. Agent pods
@@ -81,13 +81,32 @@ kubectl -n pi-durable-platform exec deploy/pi-durable-platform -- /pi-durable-pl
 
 Agents use the scripted `demo` model until you add a provider (Admin > Models) or set `AGENTS_MODEL_*`.
 
+## Replicas
+
+The platform may run as several replicas behind its one Service: sessions, sign-in and OAuth state, rate limits, thread
+events and what each agent is doing are shared through PostgreSQL and the runtimes, so there is no leader, no sticky
+session and no shared disk ([docs/replicas.md](../docs/replicas.md) has the inventory and the design). What to do:
+
+- **Two replicas** (`replicaCount: 2`; the Kustomize component `components/replicas`) is the supported setup for staying
+  up through node drains and rollouts. Updates then roll one pod at a time with none missing, and the pods are spread
+  over nodes and zones (preferred, so a small cluster still schedules them). Set `affinity` or
+  `topologySpreadConstraints` to choose differently.
+- **Add a PodDisruptionBudget** (`podDisruptionBudget.enabled`, `minAvailable: 1`; the Kustomize component
+  `components/pod-disruption-budget`), so a drain evicts one replica at a time.
+- Use the **`kubernetes` or `agent-sandbox` launcher** (the chart has no other). `AGENTS_LAUNCHER=local` runs agents as
+  children of one process and cannot be shared.
+- **PostgreSQL connections** grow with the replicas: each holds a pool (at least four connections), one connection that
+  listens for thread events, and a short-lived one for each advisory lock it takes (starting an agent, the reaper's
+  turn). Behind a pooler, those listener and lock connections must be session connections (not transaction pooling).
+- Event streams end with their replica (a shutdown closes them) and browsers reconnect to another one; the readiness
+  probe fails first, so the Service stops sending new requests before that.
+- `deploy/scripts/smoke-kind.sh` runs two replicas and checks that a session, an agent and its conversation are shared.
+
 ## What the manifests do not include
 
 - **PostgreSQL** and its backups (see above).
 - The **ingress controller, TLS certificates** and DNS.
 - **Agent Sandbox's controller and CRDs** (for that launcher).
-- **Several replicas**: the platform runs one replica; the idle reaper only knows the streams open on its own process
-  (roadmap item B, [#2](https://github.com/ncecere/pi-durable-platform/issues/2)). The chart's schema refuses more.
 - **Metrics**, dashboards and tracing (not built yet).
 - **Direct-mode providers and MCP servers on private addresses**: agents may reach only the database, the gateway and
   DNS. Give them more with `networkPolicy.agents.extraEgress` (and the platform's with `networkPolicy.egress.extra`).
@@ -95,7 +114,8 @@ Agents use the scripted `demo` model until you add a provider (Admin > Models) o
 ## Upgrading
 
 Set the new version (`--version` / the image digests of the release notes) and apply. The platform migrates its
-database on start; the single replica is replaced, not rolled (a short outage). The warm pool replaces its standby
+database on start; a single replica is replaced, not rolled (a short outage), while several roll one at a time with
+none missing (see [Replicas](#replicas)). The warm pool replaces its standby
 runtimes at once; running agents move to the new runtime image when they next wake.
 
 ## How the two stay in step

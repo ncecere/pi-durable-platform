@@ -11,8 +11,9 @@ The same objects as the [Helm chart](../helm/pi-durable-platform/README.md), for
 | `overlays/agent-sandbox-cold/` | Agent Sandbox without a warm pool: a Sandbox per agent |
 | `components/cilium/` | the Kubernetes API egress as a `CiliumNetworkPolicy` (the `kube-apiserver` entity) instead of the base's NetworkPolicy |
 | `components/ingress/` | an Ingress (patch the class and host) |
-| `components/pod-disruption-budget/`, `components/resourcequota/` | a PodDisruptionBudget; a quota for the agents namespace |
-| `examples/production/` | Agent Sandbox + ingress with TLS + PodDisruptionBudget + quota, images by digest, single sign-on settings |
+| `components/replicas/` | two platform replicas: rolling updates with none missing, spread over nodes and zones (hand-written; the parity check compares it with the chart at `replicaCount: 2`) |
+| `components/pod-disruption-budget/`, `components/resourcequota/` | a PodDisruptionBudget (use it with `components/replicas`); a quota for the agents namespace |
+| `examples/production/` | Agent Sandbox + ingress with TLS + two replicas with a PodDisruptionBudget + quota, images by digest, single sign-on settings |
 | `examples/cilium/` | the `kubernetes` launcher on Cilium |
 | `generate/` | the Helm values the generated files come from (do not edit the generated files: edit the chart and run `deploy/scripts/generate-kustomize.sh`) |
 
