@@ -23,7 +23,8 @@ var errSuspended = errors.New("user suspended")
 type loginIdentity struct {
 	Issuer, Subject, Email, Name string
 	Claims                       json.RawMessage
-	// Groups are the IdP groups of this sign-in (bounded; see Groups).
+	// Groups are the IdP groups of this sign-in, all of them (see Groups); only
+	// boundGroups of them are stored.
 	Groups []string
 	// RefreshToken is the IdP's refresh token of this sign-in ("": none was
 	// issued), kept sealed to re-check the person's groups later.

@@ -82,7 +82,8 @@ again, with no credentials of its own to the IdP and no SCIM:
   the provider needs the `offline_access` scope mapping). Every `OIDC_GROUP_RECHECK_INTERVAL` (default 15m; 0 turns
   it off) the platform exchanges it at the token endpoint for fresh claims, takes the groups from the new ID token
   (else from the userinfo endpoint with the new access token) and applies the same rule, `OIDC_ALLOWED_GROUPS`
-  against `OIDC_GROUPS_CLAIM`. The refresh token the IdP rotates replaces the kept one. A background loop (every
+  against `OIDC_GROUPS_CLAIM` (every group the claim lists is matched; only the first 200, sorted, are stored and
+  shown). The refresh token the IdP rotates replaces the kept one. A background loop (every
   replica runs it; people are claimed with `FOR UPDATE SKIP LOCKED`) checks people who are *recently active* (a
   sign-in, a live session, or an API key or connected app used in the last 30 days), so a removal takes effect
   within the interval plus up to a minute. Not chosen: userinfo with the sign-in's access token (it expires in

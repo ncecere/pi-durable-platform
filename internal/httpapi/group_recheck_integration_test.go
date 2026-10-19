@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/cookiejar"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -426,5 +428,39 @@ func TestGroupRecheckSkipsDevPersonas(t *testing.T) {
 	}
 	if scalar(t, app, `SELECT count(*)::text FROM user_idp_tokens`) != "0" {
 		t.Fatal("a token for a dev persona")
+	}
+}
+
+// A person in more groups than are stored (200) is matched against all of
+// them, at sign-in and at every re-check: the allowed group sorts after the
+// first 200 here, and must neither refuse the sign-in nor deny the re-check.
+func TestGroupRuleMatchesBeyondTheStoredBound(t *testing.T) {
+	app, p := groupApp(t, nil)
+	many := make([]string, 0, 301)
+	for i := range 300 {
+		many = append(many, fmt.Sprintf("aaa-%03d", i))
+	}
+	inGroup := append(slices.Clone(many), allowedGroup) // "pdp-users" sorts after every "aaa-" group
+	jo := mustLogin(t, app, p, personClaims("jo", inGroup...))
+	if n := scalar(t, app, `SELECT cardinality(groups)::text FROM users WHERE email = 'jo@example.com'`); n != "200" {
+		t.Fatalf("stored %s groups, want the bound of 200", n)
+	}
+	dueNow(t, app)
+	if n := recheck(t, app); n != 1 {
+		t.Fatalf("checked %d", n)
+	}
+	if code, _ := jo.raw("GET", "/v1/me", nil, nil); code != 200 || denial(t, app, "jo@example.com") != "" {
+		t.Fatalf("a person in an allowed group beyond the 200th was denied at the re-check: %d %q", code, denial(t, app, "jo@example.com"))
+	}
+	// Still refused when none of the 300 is allowed.
+	if _, code := oidcLogin(t, app, p, personClaims("kim", many...)); code != 403 {
+		t.Fatalf("300 groups, none allowed: %d", code)
+	}
+	// And removal is still seen.
+	p.UpdateClaims("jo", personClaims("jo", many...))
+	dueNow(t, app)
+	recheck(t, app)
+	if denial(t, app, "jo@example.com") != "not_in_group" {
+		t.Fatal("removal from the allowed group among 300 was not seen")
 	}
 }
