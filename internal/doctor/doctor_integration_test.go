@@ -3,6 +3,7 @@ package doctor_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/url"
@@ -10,10 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/doctor"
+	"github.com/ncecere/pi-durable-platform/internal/rekey"
+	"github.com/ncecere/pi-durable-platform/internal/secrets"
 	"github.com/ncecere/pi-durable-platform/internal/testutil"
 )
 
@@ -161,5 +165,104 @@ func TestDoctorUnreachableAndUnsafe(t *testing.T) {
 	}
 	if r := doctor.ConfigLoadFailed("serve", errors.Join(errors.New("A: bad"), errors.New("B: bad"))); r.OK || len(r.Checks) != 2 {
 		t.Errorf("load failure = %+v", r)
+	}
+}
+
+// Stored secrets by the key they are sealed with: all current, some still on
+// ENCRYPTION_KEY_PREVIOUS (a warning that doesn't fail doctor, until rekey),
+// previous key removable, and sealed with a key nobody configured.
+func TestDoctorEncryptionKeys(t *testing.T) {
+	pool, dbURL := testutil.NewDB(t)
+	ctx := context.Background()
+	keyA := []byte("0123456789abcdef0123456789abcdeA")
+	keyB := []byte("0123456789abcdef0123456789abcdeB")
+	keyC := []byte("0123456789abcdef0123456789abcdeC")
+	enc := base64.StdEncoding.EncodeToString
+	boxOf := func(k []byte) *secrets.Box {
+		b, err := secrets.New(k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	insert := func(name string, b *secrets.Box) uuid.UUID {
+		id := uuid.New()
+		ct, err := b.Seal([]byte("sk-"+name), []byte("model_provider:"+id.String()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO model_providers (id, name, kind, base_url, api_key_enc) VALUES ($1, $2, 'openai', 'https://x.example.com', $3)`, id, name, ct); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	run := func(current []byte, previous []byte) doctor.Check {
+		cfg := devConfig(dbURL)
+		cfg.EncryptionKey = enc(current)
+		if previous != nil {
+			cfg.EncryptionKeyPrevious = enc(previous)
+		}
+		rep := doctor.Run(ctx, cfg, doctor.Options{Timeout: 10 * time.Second})
+		c, ok := find(rep, "keys", "encryption")
+		if !ok {
+			t.Fatalf("no encryption check: %+v", rep.Checks)
+		}
+		if (c.Status == doctor.Fail) == rep.OK { // only a failing check fails the report here
+			t.Errorf("a %s check and a report with ok=%v: %+v", c.Status, rep.OK, rep.Checks)
+		}
+		return c
+	}
+
+	// Nothing stored: fine with or without a previous key.
+	if c := run(keyA, nil); c.Status != doctor.OK {
+		t.Errorf("empty = %+v", c)
+	}
+	if c := run(keyB, keyA); c.Status != doctor.Info || !strings.Contains(c.Detail, "can be removed") {
+		t.Errorf("empty with a previous key = %+v", c)
+	}
+
+	// Sealed under A; B is current and A previous.
+	insert("a1", boxOf(keyA))
+	insert("a2", boxOf(keyA))
+	if c := run(keyA, nil); c.Status != doctor.OK {
+		t.Errorf("all current = %+v", c)
+	}
+	c := run(keyB, keyA)
+	if c.Status != doctor.Warn || !strings.Contains(c.Detail, "2 stored secret(s) are still sealed with ENCRYPTION_KEY_PREVIOUS") ||
+		!strings.Contains(c.Detail, "model_providers.api_key_enc 2") || !strings.Contains(c.Fix, "rekey") {
+		t.Errorf("previous = %+v", c)
+	}
+	if strings.Contains(c.Detail+c.Fix, "sk-a1") {
+		t.Error("the check shows a value")
+	}
+	// The text report says so and doctor still exits zero (a warning).
+	rep := doctor.Run(ctx, func() config.Config {
+		cfg := devConfig(dbURL)
+		cfg.EncryptionKey, cfg.EncryptionKeyPrevious = enc(keyB), enc(keyA)
+		return cfg
+	}(),
+		doctor.Options{Timeout: 10 * time.Second})
+	var buf bytes.Buffer
+	if err := rep.WriteText(&buf); err != nil || !rep.OK || !strings.Contains(buf.String(), "warn") || !strings.Contains(buf.String(), "1 warning") {
+		t.Errorf("report ok=%v err=%v:\n%s", rep.OK, err, buf.String())
+	}
+
+	// After rekey: nothing left on the previous key.
+	b, _ := secrets.New(keyB, keyA)
+	if _, err := rekey.Run(ctx, pool, b, rekey.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if c := run(keyB, keyA); c.Status != doctor.Info || !strings.Contains(c.Detail, "can be removed") {
+		t.Errorf("after rekey = %+v", c)
+	}
+	if c := run(keyB, nil); c.Status != doctor.OK {
+		t.Errorf("after rekey without a previous key = %+v", c)
+	}
+
+	// A value under a key nobody configured fails the check.
+	insert("c1", boxOf(keyC))
+	c = run(keyB, keyA)
+	if c.Status != doctor.Fail || !strings.Contains(c.Detail, "1 stored secret(s) are sealed with neither") {
+		t.Errorf("unknown key = %+v", c)
 	}
 }
