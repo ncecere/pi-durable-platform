@@ -10,7 +10,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pi-durable-platform
     app.kubernetes.io/instance: pi-durable-platform
-    app.kubernetes.io/version: "0.1.1"
+    app.kubernetes.io/version: "0.1.2"
 spec:
   replicas: 1
   strategy:
@@ -36,7 +36,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: platform
-          image: "ghcr.io/ncecere/pi-durable-platform:v0.1.1"
+          image: "ghcr.io/ncecere/pi-durable-platform:v0.1.2"
           imagePullPolicy: IfNotPresent
           args: [serve]
           ports:

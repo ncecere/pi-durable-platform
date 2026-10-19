@@ -83,6 +83,8 @@ func seed(t testing.TB, pool *pgxpool.Pool, sealer *secrets.Box) *fixture {
 			id, teamID, fmt.Sprintf("agent-%d", i),
 			f.seal(t, "agents", "db_password_enc", id, id.String(), fmt.Sprintf("db-password-%d", i)),
 			f.seal(t, "agents", "runtime_token_enc", id, id.String(), fmt.Sprintf("runtime-token-%d", i)))
+		// A thread's servers hang off its record (thread_mcp_servers_thread_fkey).
+		f.exec(t, `INSERT INTO agent_threads (agent_id, thread_id, title) VALUES ($1, 't1', 'Thread')`, id)
 		thread := uuid.New()
 		f.exec(t, `INSERT INTO thread_mcp_servers (id, agent_id, thread_id, name, slug, url, headers_enc, expires_at)
 			VALUES ($1, $2, 't1', 'Thread server', 'ts', 'https://mcp.example.com', $3, now() + interval '1 day')`,
