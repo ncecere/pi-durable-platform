@@ -119,6 +119,11 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	}
 	loopCtx, stopLoops := context.WithCancel(ctx)
 	defer stopLoops()
+	// With several replicas every replica runs every loop: the clean-ups
+	// delete idempotently, the group re-check claims people with SKIP LOCKED,
+	// each replica's thread events listener feeds its own subscribers, and the
+	// reaper passes are taken one at a time through a database lock
+	// (docs/replicas.md).
 	go cleanupLoop(loopCtx, deps.Auth, deps.OAuth, deps.Agents, log)
 	go deps.Auth.RunGroupRecheck(loopCtx)
 	go rateCounterLoop(loopCtx, deps.RateStore, log)
@@ -415,6 +420,13 @@ func ensureAgentsDatabase(ctx context.Context, pool *pgxpool.Pool, agentsURL str
 		return fmt.Errorf("AGENTS_DATABASE_URL: %w", err)
 	}
 	name := pcfg.ConnConfig.Database
+	// Replicas starting together would both copy the template database, and
+	// the second would fail: one at a time.
+	unlock, err := store.AdvisoryLockText(ctx, pool, "pdp.create-agents-database")
+	if err != nil {
+		return fmt.Errorf("lock to create the agents database: %w", err)
+	}
+	defer unlock()
 	var exists bool
 	if err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)", name).Scan(&exists); err != nil {
 		return err
