@@ -1,0 +1,48 @@
+# Known vulnerabilities in what the platform actually calls (Go, with govulncheck) and in what ships to people
+# (production dependencies of the web app and the agent runtime).
+#
+# It runs weekly and when dependencies change, not on every pull request: an advisory published today must not
+# block unrelated work, but it must not wait for the next release to be noticed either. A failure here means a
+# dependency needs updating (or an advisory needs a documented exception).
+# Every action is pinned by commit SHA; the comment gives the version.
+name: vulncheck
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  push:
+    branches: [main]
+    paths: [go.mod, go.sum, web/package-lock.json, runtime/pnpm-lock.yaml, .github/workflows/vulncheck.yml]
+  pull_request:
+    paths: [go.mod, go.sum, web/package-lock.json, runtime/pnpm-lock.yaml, .github/workflows/vulncheck.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+  javascript:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Web app (production dependencies)
+        working-directory: web
+        run: npm audit --omit=dev --audit-level=low
+      - name: Agent runtime (production dependencies)
+        working-directory: runtime
+        run: |
+          corepack enable
+          pnpm audit --prod --audit-level low
