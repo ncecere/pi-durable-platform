@@ -16,8 +16,18 @@
 #   SMOKE_PORT      local port for the platform (default 8098; APP_URL follows)
 #   SMOKE_CLUSTER   kind cluster name (default pdp-smoke)
 #   KEEP_CLUSTER=1  leave the cluster in place afterwards
-#   PLATFORM_TAG, RUNTIME_TAG  image tags to test (default: the chart's v<appVersion>)
+#   PLATFORM_IMAGE, RUNTIME_IMAGE  the images to test, as repository[:tag][@sha256:digest]
+#                   (for example ghcr.io/ncecere/pi-durable-platform:sha-0123456789ab@sha256:...);
+#                   they set the chart's images.<platform|runtime>.repository, tag and digest.
+#                   Default: the chart's own, ghcr.io/ncecere/...:v<appVersion>, the last release.
+#                   deploy.yml sets them to the images built for the commit under test.
+#   PLATFORM_TAG, RUNTIME_TAG  only a tag, on the chart's repository (not with the image variable
+#                   of the same image)
 #   SMOKE_HELM_ARGS  more `helm install` arguments (to try that a change is caught)
+#
+# The script prints the images it installed. Nothing it checks depends on the
+# images being released ones: it does not look at the version the platform
+# reports (an image built for a commit says sha-<12>, not the chart's appVersion).
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -34,6 +44,23 @@ pf_pid=""
 
 step() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+
+# image_args <platform|runtime> <reference> <tag>: the helm arguments for one image,
+# from a reference (repository[:tag][@digest]) or else a bare tag.
+image_args() {
+  local key=images.$1 ref=$2 tag=$3 digest="" repo up
+  up=$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')
+  if [ -n "$ref" ]; then
+    [ -z "$tag" ] || fail "set either ${up}_IMAGE or ${up}_TAG, not both"
+    repo=$ref
+    case $repo in *@*) digest=${repo#*@}; repo=${repo%%@*} ;; esac
+    case ${repo##*/} in *:*) tag=${repo##*:}; repo=${repo%:*} ;; esac
+    [ -n "$repo" ] || fail "${up}_IMAGE '$ref' has no repository"
+    printf '%s\n' --set-string "$key.repository=$repo"
+    [ -z "$digest" ] || printf '%s\n' --set-string "$key.digest=$digest"
+  fi
+  [ -z "$tag" ] || printf '%s\n' --set-string "$key.tag=$tag"
+}
 
 diagnostics() {
   echo "---- diagnostics" >&2
@@ -79,14 +106,25 @@ kubectl -n $ns rollout status deploy/postgres --timeout=180s
 step "install the chart"
 apiserver=$(kubectl get endpointslices -l kubernetes.io/service-name=kubernetes -o jsonpath='{.items[0].endpoints[0].addresses[0]}')
 [ -n "$apiserver" ] || fail "no API server address"
-tags=()
-[ -z "${PLATFORM_TAG:-}" ] || tags+=(--set-string "images.platform.tag=$PLATFORM_TAG")
-[ -z "${RUNTIME_TAG:-}" ] || tags+=(--set-string "images.runtime.tag=$RUNTIME_TAG")
+# (not in a process substitution: a failure there would not stop the script)
+platform_args=$(image_args platform "${PLATFORM_IMAGE:-}" "${PLATFORM_TAG:-}") || exit 1
+runtime_args=$(image_args runtime "${RUNTIME_IMAGE:-}" "${RUNTIME_TAG:-}") || exit 1
+images=()
+while IFS= read -r line; do [ -z "$line" ] || images+=("$line"); done <<ARGS
+$platform_args
+$runtime_args
+ARGS
 helm install $release "$chart" -n $ns -f "$chart/ci/kind-smoke.yaml" \
   --set-string "appUrl=$base" \
   --set "networkPolicy.kubeApiServer.cidrs={$apiserver/32}" \
-  ${tags[@]+"${tags[@]}"} ${SMOKE_HELM_ARGS:-} --wait --timeout 5m
+  ${images[@]+"${images[@]}"} ${SMOKE_HELM_ARGS:-} --wait --timeout 5m
 kubectl -n $ns get pods -o wide
+# What was installed (the chart's v<appVersion> when nothing was set above).
+tested_platform=$(kubectl -n $ns get deploy/$release -o jsonpath='{.spec.template.spec.containers[0].image}')
+tested_runtime=$(kubectl -n $ns get configmap/$release -o jsonpath='{.data.AGENTS_IMAGE}')
+echo "images under test:"
+echo "  platform: $tested_platform"
+echo "  runtime:  $tested_runtime"
 
 step "doctor"
 kubectl -n $ns exec deploy/$release -- /pi-durable-platform doctor
@@ -151,7 +189,7 @@ echo "ok:   the agent answered"
 pod=$(kubectl -n $agents_ns get pods -l "pi-durable-platform/agent-id=$agent" -o jsonpath='{.items[0].metadata.name}')
 [ -n "$pod" ] || fail "no agent pod"
 kubectl -n $agents_ns wait --for=condition=Ready "pod/$pod" --timeout=60s
-echo "agent pod $pod"
+echo "agent pod $pod runs $(kubectl -n $agents_ns get pod "$pod" -o jsonpath='{.status.containerStatuses[0].imageID}')"
 kubectl -n $agents_ns get pod "$pod" -o jsonpath='{.spec.automountServiceAccountToken}' | grep -qx false || fail "the agent pod mounts a service account token"
 
 step "isolation: what an agent pod can reach"

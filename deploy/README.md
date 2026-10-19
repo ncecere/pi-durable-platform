@@ -114,7 +114,27 @@ deploy/scripts/validate.sh        # lint, render, kubeconform, generated files, 
 deploy/scripts/smoke-kind.sh      # a kind cluster: install, an agent answers, isolation holds
 ```
 
+By default the smoke test installs the images the chart names, the last release (`v<appVersion>`). To test others,
+set (they become `images.platform` and `images.runtime`'s `repository`, `tag` and `digest`):
+
+| Variable | Meaning |
+|---|---|
+| `PLATFORM_IMAGE`, `RUNTIME_IMAGE` | A full reference, `repository[:tag][@sha256:digest]`, for example `ghcr.io/ncecere/pi-durable-platform:sha-0123456789ab@sha256:...` |
+| `PLATFORM_TAG`, `RUNTIME_TAG` | Only a tag, on the chart's repository (not together with the `*_IMAGE` of the same image) |
+| `SMOKE_PORT`, `SMOKE_CLUSTER`, `KEEP_CLUSTER=1`, `SMOKE_HELM_ARGS` | Local port (8098), kind cluster name (`pdp-smoke`), keep the cluster, more `helm install` arguments |
+
+The script prints the images it installed (the platform's, the runtime's and the digest the agent pod ran). Nothing it
+checks depends on the images being released ones: the platform's reported version is not checked, and an image built
+for a commit says `sha-<12>`.
+
+In CI, [`wait-for-images.sh`](scripts/wait-for-images.sh) waits for the `sha-<12>` images that `images.yml` pushes for
+every branch commit (up to 20 minutes, anonymous registry reads) and prints `PLATFORM_IMAGE` and `RUNTIME_IMAGE`,
+pinned by digest. So the smoke job tests the commit's own code, and a release commit passes before its tag exists.
+A pull request is tested at its head commit; a pull request from a fork has no images (they need registry
+credentials), so the smoke job is skipped and `validate` is the check. By hand, `workflow_dispatch` takes `images`
+(`release`, the default, or `sha` for the commit of the branch it runs on) or a free-form `tag`.
+
 [`validate.sh`](scripts/validate.sh) needs helm, kubectl, kubeconform, yq and jq (`scripts/install-tools.sh` installs
-pinned versions on Linux). The smoke test also needs kind and docker; it pulls the released images the chart names.
+pinned versions on Linux). The smoke test also needs kind and docker; it pulls the images it is given (see above), by default the released ones.
 `.github/workflows/deploy.yml` runs both for changes under `deploy/`, and `.github/workflows/chart.yml` publishes and
 signs the chart for `v*` tags.

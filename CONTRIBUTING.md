@@ -34,7 +34,7 @@ make web-dev                     # optional: Vite with hot reload on :5176, prox
 | `make lint` | `go vet` and the gofmt check |
 | `make actionlint` | Checks the GitHub Actions workflows |
 | `make deploy-check` | Lints and renders the Helm chart and the Kustomize overlays, validates them with kubeconform and checks that the two agree (needs helm, kubeconform, yq, jq) |
-| `deploy/scripts/smoke-kind.sh` | Installs the chart into a kind cluster, provisions an agent and checks the isolation rules |
+| `deploy/scripts/smoke-kind.sh` | Installs the chart into a kind cluster, provisions an agent and checks the isolation rules; the released images unless `PLATFORM_IMAGE` and `RUNTIME_IMAGE` name others (CI tests the commit's own `sha-<12>` images) |
 | `make web-test` | UI type-check and Vitest tests |
 | `cd runtime && pnpm exec tsc --noEmit && pnpm test` | The agent runtime's type-check and tests (needs the compose Postgres) |
 
@@ -82,12 +82,12 @@ Commit generated files with the change that caused them, and never edit them by 
 ## Releasing
 
 1. Write `docs/releases/vX.Y.Z.md`, turn the changelog's Unreleased section into `[X.Y.Z] - <date>`, and make `Version` in `internal/buildinfo/buildinfo.go`, `version` in `runtime/package.json` and `web/package.json` (and its lock file's two entries), and `version` and `appVersion` in `deploy/helm/pi-durable-platform/Chart.yaml` the release version, in the same commit; then run `deploy/scripts/generate-kustomize.sh`, change the image tags in `deploy/kustomize/examples/production/kustomization.yaml` and `deploy/kustomize/README.md`, and check with `make deploy-check` (`deploy/scripts/validate.sh` fails when `appVersion` and `internal/buildinfo` differ). The release workflow refuses a tag that doesn't match the version files, or one without notes.
-2. Push `main` and wait for CI to pass.
+2. Push `main` and wait for CI to pass. The `deploy` workflow's smoke job installs the chart with the images built for that commit (`sha-<12>`, pushed by `images.yml`; the job waits up to 20 minutes for them), not with the `v<appVersion>` images the chart names by default, which are only published after the tag. So the release commit's smoke test runs before the tag exists and tests the code being released; if it fails with missing images, look at that commit's `images` run.
 3. Tag `vX.Y.Z` (or `vX.Y.Z-rc.1`, which becomes a pre-release with the base version's notes) and push the tag. `.github/workflows/image.yml` builds both images for linux/amd64 and linux/arm64, checks and scans them, publishes and signs them, and creates the GitHub Release (`scripts/github-release.sh`; `RELEASE_DRY_RUN=1` with `RELEASE_SBOM_FILE` and `RELEASE_RUNTIME_SBOM_FILE` tries it without publishing).
 4. Fill in the image digests in the release notes.
 5. `.github/workflows/chart.yml` publishes and signs the Helm chart for the same tag (chart version and appVersion are the tag's).
 
-Branch pushes publish `sha-<12>` images (linux/amd64) through `.github/workflows/images.yml`; tags never do.
+Branch pushes publish `sha-<12>` images (linux/amd64) through `.github/workflows/images.yml`; tags never do. Pull requests from forks get no images (no registry credentials), so the smoke job skips itself for them and only `validate` runs.
 
 ## License
 
