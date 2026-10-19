@@ -4,8 +4,10 @@
 // The key comes from ENCRYPTION_KEY (32 random bytes, base64). For rotation,
 // set the new key as ENCRYPTION_KEY and the old one as
 // ENCRYPTION_KEY_PREVIOUS: new writes use the new key and old values still
-// decrypt. NeedsRotation tells which stored values are still on the old key
-// (re-entering a value re-encrypts it; there is no bulk rotate command yet).
+// decrypt. NeedsRotation tells which stored values are still on the old key;
+// `pi-durable-platform rekey` (internal/rekey) re-seals them all under the
+// new key, and `doctor` counts what is left, both from the key id alone
+// (CurrentPrefix and PreviousPrefixes are what a SQL filter compares).
 //
 // Ciphertext layout (format version 1, the only format ever written):
 //
@@ -26,6 +28,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 )
 
 const (
@@ -108,7 +111,8 @@ func newKey(raw []byte) (key, error) {
 }
 
 // New builds a Box from the current key and optional previous keys. A
-// previous key equal to the current one is ignored.
+// previous key equal to the current one (or to another previous one) is
+// ignored.
 func New(current []byte, previous ...[]byte) (*Box, error) {
 	cur, err := newKey(current)
 	if err != nil {
@@ -120,7 +124,7 @@ func New(current []byte, previous ...[]byte) (*Box, error) {
 		if err != nil {
 			return nil, err
 		}
-		if k.id != cur.id {
+		if !slices.ContainsFunc(b.keys, func(have key) bool { return have.id == k.id }) {
 			b.keys = append(b.keys, k)
 		}
 	}
@@ -129,6 +133,27 @@ func New(current []byte, previous ...[]byte) (*Box, error) {
 
 // CurrentKeyID is the id of ENCRYPTION_KEY, carried by every new ciphertext.
 func (b *Box) CurrentKeyID() []byte { return append([]byte(nil), b.current.id[:]...) }
+
+// Prefix returns the bytes that begin every ciphertext sealed with the key
+// whose id is id: the format version and the key id.
+func Prefix(id []byte) []byte { return append([]byte{version}, id...) }
+
+// PrefixLen is the length of Prefix: substring(col FROM 1 FOR PrefixLen) in
+// SQL is what to compare with it.
+const PrefixLen = 1 + IDLen
+
+// CurrentPrefix is the Prefix of every ciphertext Seal produces.
+func (b *Box) CurrentPrefix() []byte { return Prefix(b.current.id[:]) }
+
+// PreviousPrefixes are the Prefixes of ciphertexts sealed with the previous
+// keys the box still opens (none without ENCRYPTION_KEY_PREVIOUS).
+func (b *Box) PreviousPrefixes() [][]byte {
+	out := [][]byte{}
+	for _, k := range b.keys[1:] {
+		out = append(out, Prefix(k.id[:]))
+	}
+	return out
+}
 
 // HasPrevious reports whether a previous key (different from the current
 // one) is configured.
