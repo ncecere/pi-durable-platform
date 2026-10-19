@@ -1,0 +1,13 @@
+# The platform's namespace (the chart does not create the release namespace).
+# Restricted Pod Security: the platform pod meets it. PostgreSQL pods placed in
+# this namespace must meet it too (CloudNativePG's do).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pi-durable-platform
+  labels:
+    app.kubernetes.io/name: pi-durable-platform
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

@@ -1,0 +1,39 @@
+# A Sandbox per agent (no warm pool), PostgreSQL outside the cluster, a
+# sandboxing RuntimeClass, direct-mode provider egress, extra settings.
+appUrl: https://agents.example.com
+fullnameOverride: pdp
+oidc:
+  issuer: https://idp.example.com/
+  clientId: pdp
+agents:
+  launcher: agent-sandbox
+  namespace: pdp-agents
+  runtimeClass: gvisor
+  imagePullSecret: registry-credentials
+  runtimeDatabaseHost: db.example.com:5432
+  model:
+    provider: openai-compatible
+    baseUrl: https://litellm.example.com/v1
+    id: gpt-example
+agentSandbox:
+  warmPool:
+    enabled: false
+secrets:
+  name: pdp-secrets
+  databaseUrl: { name: pdp-db-app, key: uri }
+config:
+  SESSION_TTL: 24h
+  REQUESTS_PER_MINUTE: "300"
+extraEnv:
+  - { name: EXAMPLE_FLAG, value: "1" }
+networkPolicy:
+  kubeApiServer:
+    cidrs: [192.0.2.10/32, 192.0.2.11/32]
+  database:
+    cidrs: [203.0.113.0/24]
+  agents:
+    extraEgress:
+      - to:
+          - ipBlock: { cidr: 198.51.100.7/32 }
+        ports:
+          - { protocol: TCP, port: 443 }

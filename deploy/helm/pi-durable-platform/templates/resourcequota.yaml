@@ -1,0 +1,13 @@
+{{- if .Values.agents.resourceQuota.enabled }}
+# A bound on runaway agents (warm pool runtimes included).
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ include "pdp.fullname" . }}-agents
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+spec:
+  hard:
+    {{- toYaml .Values.agents.resourceQuota.hard | nindent 4 }}
+{{- end }}

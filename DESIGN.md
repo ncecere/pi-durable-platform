@@ -296,6 +296,23 @@ it with a random token if missing, and the pool's pods read it), or given to the
 platform alone, so one agent cannot activate another runtime. To rotate it, delete the Secret and the pool's unclaimed
 sandboxes.
 
+## Deployment
+
+`deploy/` ships a Helm chart and a Kustomize base with overlays ([deploy/README.md](deploy/README.md)); the chart is the
+source and the Kustomize resources are generated from it, with a parity check in CI. What they deploy follows from the
+launchers above:
+
+- **RBAC in the agents namespace only.** The platform's ServiceAccount gets a Role there, with the verbs its launcher
+  uses and no more (`kubernetes`: pods and secrets; `agent-sandbox` with a warm pool: sandbox claims, and the
+  activation Secret; without: sandboxes, pods get and secrets). Nothing is cluster-wide.
+- **Agent isolation is NetworkPolicy.** The agents namespace denies everything; an agent pod takes traffic from the
+  platform pods (port 4100) and reaches only PostgreSQL, the platform's gateway (8099) and DNS. The platform pods take
+  web traffic from the ingress peers and the gateway port from agent pods, and reach DNS, PostgreSQL, the agents, the
+  Kubernetes API (an address list for standard policies, the `kube-apiserver` entity for Cilium) and public HTTPS. The
+  policies need a CNI that enforces them; `deploy/scripts/smoke-kind.sh` (run in CI) checks the rules on kind.
+- **Pod Security `restricted`** for the agents namespace; the platform pod meets it too.
+- One platform replica (above, and roadmap item B); the chart's schema refuses more.
+
 ## Verified so far
 
 - `runtime/test/conformance.test.ts`: pi-durable 1.3.0's own storage conformance suite (24 cases) passes on PostgreSQL.

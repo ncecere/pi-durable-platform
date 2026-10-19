@@ -1,0 +1,106 @@
+# The platform: API, web UI, agent lifecycle. One replica (the idle reaper and
+# the open event streams are tracked in the process), replaced, not rolled.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pdp.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "pdp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pdp.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- if or .Values.rolloutOnConfigChange .Values.podAnnotations }}
+      annotations:
+        {{- if .Values.rolloutOnConfigChange }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "pdp.serviceAccountName" . }}
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: platform
+          image: {{ include "pdp.platformImage" . | quote }}
+          imagePullPolicy: {{ .Values.images.platform.pullPolicy }}
+          args: [serve]
+          ports:
+            - { name: http, containerPort: 8098 }
+            # The gateway agents call (the model proxy); nothing else listens here.
+            - { name: gateway, containerPort: 8099 }
+          envFrom:
+            - configMapRef:
+                name: {{ include "pdp.fullname" . }}
+            {{- with .Values.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            {{- include "pdp.secretEnv" (dict "root" . "env" "DATABASE_URL" "ref" .Values.secrets.databaseUrl) | nindent 12 }}
+            {{- include "pdp.secretEnv" (dict "root" . "env" "AGENTS_DATABASE_URL" "ref" .Values.secrets.agentsDatabaseUrl) | nindent 12 }}
+            {{- include "pdp.secretEnv" (dict "root" . "env" "ENCRYPTION_KEY" "ref" .Values.secrets.encryptionKey) | nindent 12 }}
+            {{- include "pdp.secretEnv" (dict "root" . "env" "API_KEY_PEPPER" "ref" .Values.secrets.apiKeyPepper) | nindent 12 }}
+            {{- include "pdp.secretEnv" (dict "root" . "env" "OIDC_CLIENT_SECRET" "ref" .Values.secrets.oidcClientSecret "optional" true) | nindent 12 }}
+            {{- include "pdp.secretEnv" (dict "root" . "env" "ENCRYPTION_KEY_PREVIOUS" "ref" .Values.secrets.encryptionKeyPrevious "optional" true) | nindent 12 }}
+            {{- include "pdp.secretEnv" (dict "root" . "env" "API_KEY_PEPPER_PREVIOUS" "ref" .Values.secrets.apiKeyPepperPrevious "optional" true) | nindent 12 }}
+            {{- include "pdp.secretEnv" (dict "root" . "env" "AGENTS_MODEL_API_KEY" "ref" .Values.secrets.modelApiKey "optional" true) | nindent 12 }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 3
+            failureThreshold: 60
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -61,9 +61,20 @@ The platform needs PostgreSQL 17 (two databases: the platform's and the agents')
 Run `pi-durable-platform migrate` and then `serve` from the platform image, set `AGENTS_IMAGE` to the runtime image (both
 pinned by digest), and check the result with `pi-durable-platform doctor`.
 
-This repository ships no deployment manifests: no Helm chart, Kustomize base or NetworkPolicies. Agent pods must be
-isolated by NetworkPolicies you write (traffic from the platform only; egress to the platform's gateway and the agents
-database). Deployment guidance is on the [documentation site](https://docs.pdp.bitop.dev).
+The repository ships a [Helm chart](deploy/helm/pi-durable-platform/README.md) and a [Kustomize base with overlays](deploy/kustomize/README.md)
+(both in [`deploy/`](deploy/README.md), kept in step by CI): the platform Deployment and Services, the agents namespace
+with restricted Pod Security, a Role limited to the agents namespace with exactly the verbs the launcher needs, and
+the NetworkPolicies that isolate agents (an agent reaches only its PostgreSQL, the platform's gateway port and DNS; only
+the platform reaches an agent). The chart is published, signed, as `oci://ghcr.io/ncecere/charts/pi-durable-platform`:
+
+```sh
+helm install pi-durable-platform oci://ghcr.io/ncecere/charts/pi-durable-platform --version <version> \
+  -n pi-durable-platform -f values.yaml
+```
+
+PostgreSQL, the ingress controller and Agent Sandbox's controller are not included (`deploy/examples/cloudnative-pg` has a
+CloudNativePG example), and the NetworkPolicies need a CNI that enforces them. Further guidance is on the
+[documentation site](https://docs.pdp.bitop.dev).
 
 ## Quick start (development)
 
@@ -101,6 +112,7 @@ Other targets (`make help` lists them all):
 | `make web-test` | Web type-check and Vitest tests |
 | `make web-dev` | Vite with hot reload on :5176, proxying the API to :8098 |
 | `make doctor` | Checks the configuration, Postgres, migrations and the agents database |
+| `make deploy-check` | Lints and renders the Helm chart and Kustomize overlays, and checks they agree (`deploy/scripts/validate.sh`) |
 | `make docker`, `make docker-runtime` | Build the two images locally |
 | `make deps-down` | Stops Postgres (keeps its data) |
 
@@ -150,6 +162,7 @@ Kubernetes launcher settings (`AGENTS_NAMESPACE`, `AGENTS_IMAGE`, `AGENTS_RUNTIM
 | Path | What |
 |---|---|
 | `api/openapi.yaml` | The management API contract. Change it first, then `make generate`. A test fails if served routes and the spec differ, and the authorization matrix covers every operation. |
+| `deploy/` | The Helm chart, the Kustomize base and overlays (generated from the chart), example PostgreSQL manifests, and the scripts CI runs on them (`validate.sh`, `smoke-kind.sh`) |
 | `migrations/` | Forward-only goose migrations (embedded). Never edit an applied migration; add the next number. |
 | `internal/store/queries/` | SQL for sqlc → `internal/store/dbgen` |
 | `internal/authz` | Pure authorization rules (platform and team roles) |

@@ -1,0 +1,12 @@
+# Kubernetes Agent Sandbox (AGENTS_LAUNCHER=agent-sandbox) with a warm pool: the
+# SandboxTemplate and SandboxWarmPool (generated from the Helm chart), the
+# launcher settings and the Role the launcher needs for sandbox claims. Agent
+# Sandbox's controller and CRDs must be installed first.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - sandbox.yaml
+patches:
+  - path: config.patch.yaml
+  - path: role.patch.yaml

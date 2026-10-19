@@ -1,0 +1,14 @@
+# The kind smoke test (deploy/scripts/smoke-kind.sh): development sign-in on a
+# loopback APP_URL, a test PostgreSQL in the release namespace, the demo model.
+# The script adds appUrl, the API server's address and the image tags.
+devAuth: true
+logFormat: text
+config:
+  AGENTS_CREATE_DATABASE: "true"
+networkPolicy:
+  database:
+    podLabels:
+      app: postgres
+  ingress:
+    from:
+      - namespaceSelector: {}

@@ -1,0 +1,11 @@
+# A warm pool needs no AGENTS_IMAGE: the SandboxTemplate names the runtime image.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pi-durable-platform
+  namespace: pi-durable-platform
+data:
+  AGENTS_LAUNCHER: agent-sandbox
+  AGENTS_IMAGE: null
+  AGENTS_SANDBOX_WARM_POOL: pdp-runtimes
+  AGENTS_SANDBOX_ACTIVATION_SECRET: pdp-runtime-activation

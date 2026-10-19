@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pi-durable-platform
+  namespace: pi-durable-platform
+data:
+  AGENTS_LAUNCHER: agent-sandbox

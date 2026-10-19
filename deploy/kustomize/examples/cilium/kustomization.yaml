@@ -1,0 +1,9 @@
+# The kubernetes launcher on a Cilium cluster: the Kubernetes API egress is a
+# CiliumNetworkPolicy (the kube-apiserver entity), so no API server address is
+# needed. Network policies on Cilium work as the base's; only this rule differs.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../overlays/kubernetes
+components:
+  - ../../components/cilium

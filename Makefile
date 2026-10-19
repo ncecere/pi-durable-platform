@@ -14,7 +14,7 @@ export PDP_TEST_DATABASE_URL ?= postgres://pdp:pdp-local-only@127.0.0.1:55432/po
 # Go sources checked by gofmt (runtime/ is the TypeScript agent runtime).
 GOFMT_PATHS := cmd internal migrations web/embed.go
 
-.PHONY: help deps-up deps-down generate check-generated build run migrate doctor test test-integration test-ci lint actionlint fmt web web-test web-dev docker docker-runtime
+.PHONY: deploy-check help deps-up deps-down generate check-generated build run migrate doctor test test-integration test-ci lint actionlint fmt web web-test web-dev docker docker-runtime
 
 help: ## Show targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -67,6 +67,9 @@ ACTIONLINT_VERSION ?= v1.7.12
 
 actionlint: ## Check the GitHub Actions workflows
 	$(GO) run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
+
+deploy-check: ## Lint and render deploy/ (Helm chart, Kustomize), kubeconform, parity (needs helm, kubeconform, yq, jq)
+	deploy/scripts/validate.sh
 
 fmt: ## Format Go code
 	gofmt -w $(GOFMT_PATHS)

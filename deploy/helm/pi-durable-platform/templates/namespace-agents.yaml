@@ -1,0 +1,17 @@
+{{- if .Values.agents.createNamespace }}
+# The namespace agent pods run in: restricted Pod Security (agent pods meet it).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "pdp.labels" . | nindent 4 }}
+    pod-security.kubernetes.io/enforce: {{ .Values.agents.podSecurity }}
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: {{ .Values.agents.podSecurity }}
+    pod-security.kubernetes.io/warn: {{ .Values.agents.podSecurity }}
+  {{- if .Values.agents.keepNamespace }}
+  annotations:
+    helm.sh/resource-policy: keep
+  {{- end }}
+{{- end }}
