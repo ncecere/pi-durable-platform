@@ -1030,7 +1030,7 @@ type AdminAgentThread struct {
 	TitleHidden  bool                `json:"titleHidden"`
 	UpdatedAt    int64               `json:"updatedAt"`
 
-	// Visibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen with the first message; it never changes.
+	// Visibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen when the thread starts (createAgentThread, its first message, or its MCP servers being set); it never changes.
 	Visibility ThreadVisibility `json:"visibility"`
 }
 
@@ -1261,8 +1261,16 @@ type AgentThread struct {
 	// UpdatedAt Unix milliseconds; moves when a message is sent and when a reply finishes
 	UpdatedAt int64 `json:"updatedAt"`
 
-	// Visibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen with the first message; it never changes.
+	// Visibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen when the thread starts (createAgentThread, its first message, or its MCP servers being set); it never changes.
 	Visibility ThreadVisibility `json:"visibility"`
+}
+
+// AgentThreadCreate defines model for AgentThreadCreate.
+type AgentThreadCreate struct {
+	Title *string `json:"title,omitempty"`
+
+	// Visibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen when the thread starts (createAgentThread, its first message, or its MCP servers being set); it never changes.
+	Visibility *ThreadVisibility `json:"visibility,omitempty"`
 }
 
 // AgentThreadEvent defines model for AgentThreadEvent.
@@ -2344,7 +2352,7 @@ type ThreadPrincipal struct {
 // ThreadPrincipalKind defines model for ThreadPrincipal.Kind.
 type ThreadPrincipalKind string
 
-// ThreadVisibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen with the first message; it never changes.
+// ThreadVisibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen when the thread starts (createAgentThread, its first message, or its MCP servers being set); it never changes.
 type ThreadVisibility string
 
 // TrustedClient defines model for TrustedClient.
@@ -2762,6 +2770,9 @@ type StreamAgentThreadParams struct {
 // SetThreadMcpServersJSONBody defines parameters for SetThreadMcpServers.
 type SetThreadMcpServersJSONBody struct {
 	Servers []ClientMcpServer `json:"servers"`
+
+	// Visibility Only used when this call starts the thread (default shared). Send it before the first message when the thread is to be private.
+	Visibility *ThreadVisibility `json:"visibility,omitempty"`
 }
 
 // GetMeParams defines parameters for GetMe.
@@ -2930,6 +2941,9 @@ type CreateTemplateVersionJSONRequestBody = AgentTemplateVersionCreate
 
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = AgentUpdate
+
+// CreateAgentThreadJSONRequestBody defines body for CreateAgentThread for application/json ContentType.
+type CreateAgentThreadJSONRequestBody = AgentThreadCreate
 
 // UpdateAgentThreadJSONRequestBody defines body for UpdateAgentThread for application/json ContentType.
 type UpdateAgentThreadJSONRequestBody = AgentThreadUpdate

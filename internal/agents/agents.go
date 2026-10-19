@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -840,9 +841,18 @@ func (s *Service) AuthenticateMCP(ctx context.Context, agentID uuid.UUID, token 
 }
 
 // SetThreadMCP replaces the MCP servers an app gives one of the agent's
-// threads (anyone who may use the agent and reach the thread; its template
-// version must allow it).
-func (s *Service) SetThreadMCP(ctx context.Context, a authz.Actor, agentID uuid.UUID, threadID string, servers []mcp.ClientServer) error {
+// threads: anyone who may use the agent and reach the thread, with a
+// template version that allows it.
+//
+// Servers belong to a thread whose creator is known (thread_mcp_servers
+// reference agent_threads). Setting servers on a thread the platform has no
+// record of therefore starts it: the caller becomes its creator, with the
+// visibility given ("" is shared), as its first message would. The thread
+// is reserved until a message is accepted (listed for the creator only).
+// Another person's private thread is not found, and a visibility that
+// differs from an existing thread's is refused (visibility_fixed). An empty
+// list on an unknown thread starts nothing.
+func (s *Service) SetThreadMCP(ctx context.Context, a authz.Actor, agentID uuid.UUID, threadID, visibility string, servers []mcp.ClientServer) error {
 	ag, err := s.load(ctx, s.q, agentID)
 	if err != nil {
 		return err
@@ -854,14 +864,35 @@ func (s *Service) SetThreadMCP(ctx context.Context, a authz.Actor, agentID uuid.
 	if err := authz.CheckAgentUse(sub); err != nil {
 		return err
 	}
-	if err := s.ThreadAccess(ctx, a, agentID, threadID); err != nil {
+	if err := checkVisibility(visibility); err != nil {
 		return err
 	}
 	tv, err := version(ctx, s.q, ag.TemplateID, ag.TemplateVersion)
 	if err != nil {
 		return err
 	}
-	return s.mcp.SetThreadServers(ctx, agentID, threadID, tv.ClientMcp, servers)
+	// Refuse bad servers before a thread is started for them.
+	if err := s.mcp.CheckThreadServers(tv.ClientMcp, servers); err != nil {
+		return err
+	}
+	if len(servers) == 0 {
+		if err := s.ThreadAccess(ctx, a, agentID, threadID); err != nil {
+			return err
+		}
+		return s.mcp.SetThreadServers(ctx, agentID, threadID, tv.ClientMcp, nil)
+	}
+	t, created, err := s.claim(ctx, a, agentID, threadID, visibility, DefaultTitle, true, time.Now())
+	if err != nil {
+		return err
+	}
+	if err := s.mcp.SetThreadServers(ctx, agentID, threadID, tv.ClientMcp, servers); err != nil {
+		s.Unclaim(ctx, Claim{Thread: t, Created: created})
+		return err
+	}
+	if created {
+		s.announce(ctx, t)
+	}
+	return nil
 }
 
 // ThreadMCP lists the MCP servers apps gave a thread (names and URLs only).

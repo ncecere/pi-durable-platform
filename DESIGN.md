@@ -242,12 +242,41 @@ team's audit log.
 
 ## Threads
 
-A conversation with an agent is a thread, named by the client (`/v1/agents/{id}/threads/{threadId}`). The runtime
-keeps the conversation; the platform keeps a record of each thread (`agent_threads`) so listing doesn't wake the
-agent, and announces changes on `GET /v1/agents/events`.
+A conversation with an agent is a thread (`/v1/agents/{id}/threads/{threadId}`). The runtime keeps the conversation;
+the platform keeps a record of each thread (`agent_threads`) so listing doesn't wake the agent, and announces changes
+on `GET /v1/agents/events`.
 
-- **Shared or private.** The first message chooses (`visibility`, default `shared`; it never changes: a different
-  value later is 409 `visibility_fixed`). A shared thread is seen by everyone who may use the agent. A private one is
+- **Thread IDs.** `POST /v1/agents/{id}/threads` starts a thread under an ID the platform chooses (`t_` and 128
+  random bits, base64url) and returns it; anyone who may use the (turned-on) agent may, as for sending a message. The
+  body is optional: `visibility` and `title`. Clients may keep choosing IDs (`[A-Za-z0-9_-]{1,64}`), and the
+  first message under an unused ID starts the thread as before, but only a platform-chosen ID can't be guessed: whoever
+  uses an ID first starts that thread, and anyone allowed on the agent who learns a shared thread's ID may join it.
+  This supersedes the v0.1.0 limitation "Thread IDs are chosen by clients" (the
+  [release notes](docs/releases/v0.1.0.md) keep describing v0.1.0).
+- **A thread has a creator before it has servers.** A thread starts (its record is written, the caller is its
+  creator) with its first message, with `POST …/threads`, or when someone sets its MCP servers: `PUT …/mcp-servers`
+  on an ID with no record, and a message's `mcpServers`, start the thread under that ID like its first message
+  would (`visibility` is part of the PUT body, default `shared`). Servers are never kept for a thread without a
+  record: `thread_mcp_servers` references `agent_threads` (deleting a thread deletes its servers), and the migration
+  dropped the servers of unrecorded threads (the v0.1.x pre-seeding hole: A sets servers on an ID, B's later private
+  thread with that ID inherited them). Now whoever uses the ID later gets the normal rules of the thread they find:
+  shared (they may join it, and see that it is someone's and which servers it has: names and URLs, never headers) or
+  private (404 `thread_not_found` on every route, 409 `visibility_fixed` for a conflicting `visibility`). Reading
+  and changing a thread's servers takes the same access as reading the thread: the creator for a private one, anyone
+  who may use the agent for a shared one. An empty list on an unknown ID starts nothing; bad servers (host, template
+  without `clientMcp`) start nothing.
+  *Why claim rather than refuse.* Refusing servers for unrecorded threads (404) would break apps that set servers
+  before the first message (the documented flow) and would need a second, identical step; claiming keeps that flow
+  working and still binds the servers to a known creator. Platform-chosen IDs make the attack impossible rather
+  than merely handled, and apps that want private threads with servers set up front can use them.
+- **Reserved threads.** A thread started without a message (by `POST …/threads` or by its servers being set) is
+  *reserved*: listed and announced to its creator only (anyone allowed on the agent may still use a shared one by its
+  ID), titled "New chat" until its first message names it (a title given at creation stays), kept when the
+  runtime lists the threads it has (it knows none of them), and deleted after 30 days without a message (with its
+  servers; `agents.Cleanup`, which also prunes expired thread servers). The first accepted message ends the
+  reservation.
+- **Shared or private.** The first message (or `POST …/threads`, or the servers `PUT`) chooses (`visibility`, default
+  `shared`; it never changes: a different value later is 409 `visibility_fixed`). A shared thread is seen by everyone who may use the agent. A private one is
   listed and read only by the person or service account that started it: not other members, not the team's owners
   or admins, not another person's test chat in the console. On every thread route (read, send, stop, events, rename,
   delete, the thread's MCP servers), in listings and in event streams, another's private thread reads as not found
@@ -329,6 +358,6 @@ enforcement, text-only messages, no paging, …). The design-level ones:
   the conformance suite guards every upgrade.
 - Scheduled work while an agent hibernates needs the platform to know the next wake time (not built yet).
 - Hostile-code isolation (gVisor/Kata on Talos) is required before self-service uploads.
-- Thread IDs are chosen by clients. Anyone who may use an agent can set the MCP servers of a thread that doesn't exist
-  yet (`PUT .../mcp-servers`), which a later private thread with that ID would inherit; clients should use random
-  thread IDs.
+- Client-chosen thread IDs are guessable if the client picks guessable ones: whoever uses an ID first starts that
+  thread (a shared one anyone allowed on the agent may join; a private one is 404 for everyone else). Use
+  `POST …/threads` or random IDs. (The v0.1.0 pre-seeding of thread MCP servers is closed: see Threads.)

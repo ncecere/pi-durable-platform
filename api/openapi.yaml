@@ -2954,7 +2954,12 @@ paths:
       description: >-
         For template versions with clientMcp, on hosts the platform allows (AGENTS_CLIENT_MCP_HOSTS). Headers, such
         as the user's token, are stored encrypted until the server expires (default a day). The same list can be sent
-        with a message as mcpServers.
+        with a message as mcpServers. Servers belong to a thread whose creator is known: setting servers on a thread ID
+        the platform has no record of starts the thread (the caller is its creator, with the `visibility` sent here,
+        default shared), exactly as its first message would. A thread that exists must be one the caller may reach:
+        another person's private thread is 404 thread_not_found, and a `visibility` that differs from the thread's is
+        409 visibility_fixed. The servers go with the thread when it is deleted. An empty list on an unknown thread
+        changes nothing.
       requestBody:
         required: true
         content:
@@ -2968,6 +2973,12 @@ paths:
                   maxItems: 10
                   items:
                     $ref: '#/components/schemas/ClientMcpServer'
+                visibility:
+                  allOf:
+                  - $ref: '#/components/schemas/ThreadVisibility'
+                  description: >-
+                    Only used when this call starts the thread (default shared). Send it before the first message when
+                    the thread is to be private.
       responses:
         '200':
           description: Servers of the thread
@@ -3532,6 +3543,50 @@ paths:
           $ref: '#/components/responses/ErrorReply'
         '503':
           $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - agents
+      operationId: createAgentThread
+      summary: Start a conversation with a thread ID the platform chooses
+      description: >-
+        Records a new thread (the caller is its creator) under a random, unguessable ID and returns it; send the
+        first message to `.../threads/{threadId}/messages`. Authorized like sending a message (anyone who may use the
+        agent; 409 agent_disabled for a turned-off one). Both fields are optional: `visibility` (default shared) is
+        fixed from now on, and `title` (default "New chat") is replaced by the first message's first line while it
+        is still the default. A thread nobody sends to is removed after 30 days. Until its first message a thread is
+        listed only for its creator. Clients may still choose thread IDs themselves (the first message or the
+        thread's MCP servers start the thread under that ID), but only a platform-chosen ID is unguessable.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentThreadCreate'
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location:
+              description: The thread's path
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgentThread'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
   /v1/agents/{agentId}/threads/{threadId}:
     parameters:
     - $ref: '#/components/parameters/AgentIdParam'
@@ -4070,7 +4125,9 @@ components:
       name: threadId
       in: path
       required: true
-      description: Client-chosen thread ID (1-64 letters, digits, dashes or underscores)
+      description: >-
+        Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client
+        chooses (use a random one: whoever uses an ID first starts that thread)
       schema:
         type: string
         pattern: '^[A-Za-z0-9_-]{1,64}$'
@@ -5330,7 +5387,8 @@ components:
       enum: [shared, private]
       description: >-
         shared: everyone who may use the agent sees the thread. private: only the person or service account that started
-        it (not other members, not the team's owners or admins). Chosen with the first message; it never changes.
+        it (not other members, not the team's owners or admins). Chosen when the thread starts (createAgentThread, its
+        first message, or its MCP servers being set); it never changes.
     ThreadPrincipal:
       type: object
       required: [kind, id, name]
@@ -5413,6 +5471,14 @@ components:
       type: object
       required: [title]
       properties:
+        title:
+          type: string
+          maxLength: 200
+    AgentThreadCreate:
+      type: object
+      properties:
+        visibility:
+          $ref: '#/components/schemas/ThreadVisibility'
         title:
           type: string
           maxLength: 200

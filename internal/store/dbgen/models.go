@@ -71,6 +71,7 @@ type AgentThread struct {
 	LastError        *string
 	StatusAt         time.Time
 	Visibility       string
+	Reserved         bool
 }
 
 type AgentThreadParticipant struct {

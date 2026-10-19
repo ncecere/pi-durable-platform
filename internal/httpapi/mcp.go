@@ -262,12 +262,13 @@ func (a *api) setThreadMCPServers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Servers []apitypes.ClientMcpServer `json:"servers"`
+		Servers    []apitypes.ClientMcpServer `json:"servers"`
+		Visibility string                     `json:"visibility"`
 	}
 	if !httpx.Decode(w, r, &in) {
 		return
 	}
-	if failed(w, r, a.Agents.SetThreadMCP(r.Context(), a.actor(r), id, thread, clientServers(in.Servers))) {
+	if failed(w, r, a.Agents.SetThreadMCP(r.Context(), a.actor(r), id, thread, in.Visibility, clientServers(in.Servers))) {
 		return
 	}
 	rows, err := a.Agents.ThreadMCP(r.Context(), a.actor(r), id, thread)
