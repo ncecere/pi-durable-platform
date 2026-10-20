@@ -123,7 +123,7 @@ await runAgentProcess(
 
 | Export | What it is |
 |---|---|
-| `defineAgent(definition)` | Checks and returns an agent definition: `name`, `extensions` (an array, or a function of the agent's context: `agentId`, `name`, the template's `instructions`, `env`), `documents`, `expose` (the documents apps may read, see [Custom state for apps](#custom-state-for-apps)), `conversationCreated`, `settings` (pi-durable's settings without `extensions`, or a function of the context), `waitsForPerson` (task kinds that stand for a wait on a person's answer: they keep the agent awake neither as a busy thread nor as background work, see [hibernation.md](hibernation.md#waiting-for-a-person)). |
+| `defineAgent(definition)` | Checks and returns an agent definition: `name`, `extensions` (an array, or a function of the agent's context: `agentId`, `name`, the template's `instructions`, `env`), `documents`, `expose` (the documents apps may read, see [Custom state for apps](#custom-state-for-apps)), `conversationCreated`, `settings` (pi-durable's settings without `extensions`, or a function of the context), `waitsForPerson` (task kinds that stand for a wait on a person's answer: they keep the agent awake neither as a busy thread nor as background work, see [hibernation.md](hibernation.md#waiting-for-a-person))., `schedules` (default true: the schedule tools when the template version allows them; false leaves them out). |
 | `runAgentProcess(definition)` | Runs the definition as an agent process: from environment variables or in standby, with the exit codes and signals of the [contract](runtime-contract.md). A custom agent's entry point. |
 | `startAgent(config, definition, options)` | Starts one agent in this process and returns its HTTP handler, harness and thread store. `options` replaces storage, models or the fatal-error handler (for tests). |
 | `assistantExtension(instructions)`, `assistantAgent` | The platform's own agent: the template's instructions as the prompt's preamble and `get_time`. `assistantAgent` is `defineAgent({ extensions: ({ instructions }) => [assistantExtension(instructions)] })`, what `src/main.ts` runs. |
@@ -151,6 +151,10 @@ the facade adapts it where it can.
   could not be reached for a thread's servers, and in threads that began before the guard existed (tested in
   `runtime/test/guards.test.ts`). The default selection, which a conversation gets when nothing chose for it (one a
   tool creates), is the definition's extensions and the template's MCP servers, never another thread's servers.
+- **The schedule tools** (`schedule`, `list_schedules`, `cancel_schedule`, extension `pdp-schedules`): when the
+  template version lets its agents schedule (`PLATFORM_SCHEDULES`), every thread selects them after the definition's
+  extensions, unless the definition says `schedules: false`. They call the gateway with the agent's own credential;
+  the platform decides what is allowed ([triggers.md](triggers.md#agent-made-schedules)).
 - **Subagents keep the guards.** `defineSubagent` computes the child's selection from the caller's resolved selection
   (leaving out only its own extension), never from an `{ add, remove }` edit, which would start from the host default.
 - **Declared documents exist.** Each conversation document in `documents` is created in every conversation (threads,

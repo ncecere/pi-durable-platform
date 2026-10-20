@@ -1,4 +1,7 @@
-/* The Overview's Tools row: the MCP servers the agent's template version gives it, and whether apps may add their own. */
+/*
+ * The Overview's Tools row: the MCP servers the agent's template version gives it, whether apps may add their own, and
+ * whether it may schedule its own reminders.
+ */
 import { useQuery } from "@tanstack/react-query";
 import { mcpSummary } from "../../../api/mcp";
 import { templateVersionsQuery } from "../../../api/templates";
@@ -26,6 +29,7 @@ export function AgentToolsValue({ agent }: { agent: Agent }) {
         </span>
       )}
       {version.clientMcp ? <span className={s.secondary}>Apps may add MCP servers for a thread.</span> : null}
+      {version.agentSchedules ? <span className={s.secondary}>It may schedule its own reminders and recurring work (listed under Triggers).</span> : null}
     </span>
   );
 }

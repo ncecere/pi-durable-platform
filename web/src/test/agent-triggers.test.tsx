@@ -6,6 +6,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Schemas } from "../api/client";
+import { actorName } from "../components/audit/labels";
 import { authorName } from "../pages/team/agents/message-meta";
 import { runDuration } from "../pages/team/agents/runs-tab";
 import { agent, agentId, team } from "./fixtures";
@@ -48,6 +49,8 @@ const trigger = (extra: Partial<Trigger> = {}): Trigger => ({
   kind: "schedule",
   name: "Daily digest",
   source: "person",
+  once: false,
+  originThreadId: null,
   paused: false,
   threadId: null,
   messageTemplate: "Summarise yesterday",
@@ -168,6 +171,48 @@ describe("an agent's triggers", () => {
       expect(patch?.body).toEqual({ paused: true });
       expect(patch?.headers.get("If-Match")).toBe('"1"');
     });
+  });
+});
+
+describe("schedules the agent made itself", () => {
+  const reminder = trigger({
+    id: "32323232-3232-4323-8323-323232323232",
+    name: "Reminder 2026-10-21 09:00 Europe/Paris",
+    source: "agent",
+    once: true,
+    originThreadId: "t_chat",
+    threadId: "t_chat",
+    messageTemplate: "Check the deploy",
+    schedule: { cron: "0 9 21 10 *", timezone: "Europe/Paris", missedPolicy: "run_once", nextFireAt: "2099-10-21T07:00:00Z" },
+  });
+
+  it("are marked as the agent's, with the conversation they were set in", async () => {
+    platform("member", { [`GET /v1/agents/${agentId}/triggers`]: () => [trigger(), reminder] });
+    renderApp(`/teams/${team.slug}/agents/${agentId}?tab=triggers`);
+    expect(await screen.findByText(reminder.name)).toBeInTheDocument();
+    expect(screen.getByText("Made by the agent")).toBeInTheDocument();
+    expect(screen.getByText("Once (Europe/Paris)")).toBeInTheDocument();
+    expect(screen.getByText(/fires there/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "a conversation" })).toHaveAttribute("href", `/teams/${team.slug}/agents/${agentId}?tab=test&thread=t_chat`);
+    // A person's trigger isn't.
+    expect(screen.getAllByText("Made by the agent")).toHaveLength(1);
+  });
+
+  it("can be deleted by an owner", async () => {
+    const u = userEvent.setup();
+    const calls = platform("owner", {
+      [`GET /v1/agents/${agentId}/triggers`]: () => [reminder],
+      [`DELETE /v1/agents/${agentId}/triggers/${reminder.id}`]: () => ({ ok: true }),
+    });
+    renderApp(`/teams/${team.slug}/agents/${agentId}?tab=triggers`);
+    await u.click(await screen.findByRole("button", { name: `Delete ${reminder.name}` }));
+    await u.click(await screen.findByRole("button", { name: "Delete trigger" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.url === `/v1/agents/${agentId}/triggers/${reminder.id}`)).toBe(true));
+  });
+
+  it("are audited with the agent as the actor", () => {
+    expect(actorName({ kind: "agent", agentId, displayName: "Planner" })).toBe("Agent Planner");
+    expect(actorName({ kind: "agent" })).toBe("An agent");
   });
 });
 

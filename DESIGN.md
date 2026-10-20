@@ -581,6 +581,13 @@ design, threat model and limits are in [docs/triggers.md](docs/triggers.md).
   `internal/teamnet`, retried) carries the run's status, cost, a 500-character excerpt of the last reply and a link.
 - **Audit**: `trigger.create|update|delete|secret_rotate`, `trigger.run` (system) and `trigger.fire` (Run now),
   `trigger.run_stop`, `trigger.auto_pause`, `trigger_settings.update`.
+- **Agent-made schedules**: a template version's `agentSchedules` flag gives its agents the runtime library's
+  `schedule`, `list_schedules` and `cancel_schedule` tools, which call the gateway (`/schedules`) with the agent's own
+  credential. Each is a schedule trigger of that agent (`source: agent`, the thread it was set in, `once` for a
+  one-time reminder, which removes itself when its run ends), within `TRIGGERS_AGENT_MAX` and
+  `TRIGGERS_AGENT_MIN_INTERVAL` and every trigger limit; it fires in the thread it was set in when that thread may take
+  a trigger's message (in a personal workspace, the owner's private threads too), else in a new thread. Audited with
+  the agent as the actor (actor kind `agent`). See docs/triggers.md.
 
 ## Tool approvals
 
@@ -978,12 +985,13 @@ event streams and steering since v0.3, see above). The design-level ones:
 - Commit latency is a network round trip; Pi's `settings.progress` intervals can be raised if needed.
 - pi-durable is experimental and pinned to 1.3.0; the SQL facade rejects SQLite constructs it does not translate, and
   the conformance suite guards every upgrade.
-- Scheduled work: the platform's triggers wake agents (see Triggers); an agent can't yet set its own schedule (the
-  `schedule` tool waits for the runtime library, #28; its gateway API is designed in docs/triggers.md). A triggered
-  run's cost counts all the agent's usage while it ran (usage isn't tagged by thread).
-- An agent can't yet ask to be woken at a time it chooses: pi-durable's coming wake-up API is the way (see
-  [docs/hibernation.md](docs/hibernation.md#when-pi-durable-ships-a-wake-up-api)). Background work that runs keeps an
-  agent awake, up to `AGENTS_BACKGROUND_MAX`.
+- Scheduled work: the platform's triggers wake agents (see Triggers), and an agent whose template version allows it
+  sets its own (the library's `schedule` tool). A triggered run's cost counts all the agent's usage while it ran
+  (usage isn't tagged by thread).
+- An agent's own tasks can't yet sleep until a time inside the runtime: its reminders go through the platform's
+  triggers (the `schedule` tool). pi-durable's coming wake-up API will let the platform wake an agent for its own
+  sleeps (see [docs/hibernation.md](docs/hibernation.md#when-pi-durable-ships-a-wake-up-api)). Background work that
+  runs keeps an agent awake, up to `AGENTS_BACKGROUND_MAX`.
 - Hostile-code isolation (gVisor/Kata on Talos) is required before self-service uploads.
 - Usage per connected app (OAuth Connect) is attributed by which app's person an agent is answering at the moment
   of each model or tool request, and only when that is unambiguous: an agent answering two apps (or an app and the

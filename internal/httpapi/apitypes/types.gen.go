@@ -206,6 +206,7 @@ func (e ApprovalDeciderKind) Valid() bool {
 
 // Defines values for AuditActorKind.
 const (
+	AuditActorKindAgent          AuditActorKind = "agent"
 	AuditActorKindApiKey         AuditActorKind = "api_key"
 	AuditActorKindOauth          AuditActorKind = "oauth"
 	AuditActorKindServiceAccount AuditActorKind = "service_account"
@@ -216,6 +217,8 @@ const (
 // Valid indicates whether the value is a known member of the AuditActorKind enum.
 func (e AuditActorKind) Valid() bool {
 	switch e {
+	case AuditActorKindAgent:
+		return true
 	case AuditActorKindApiKey:
 		return true
 	case AuditActorKindOauth:
@@ -233,6 +236,7 @@ func (e AuditActorKind) Valid() bool {
 
 // Defines values for AuditEntryActorKind.
 const (
+	AuditEntryActorKindAgent  AuditEntryActorKind = "agent"
 	AuditEntryActorKindApiKey AuditEntryActorKind = "api_key"
 	AuditEntryActorKindOauth  AuditEntryActorKind = "oauth"
 	AuditEntryActorKindSystem AuditEntryActorKind = "system"
@@ -242,6 +246,8 @@ const (
 // Valid indicates whether the value is a known member of the AuditEntryActorKind enum.
 func (e AuditEntryActorKind) Valid() bool {
 	switch e {
+	case AuditEntryActorKindAgent:
+		return true
 	case AuditEntryActorKindApiKey:
 		return true
 	case AuditEntryActorKindOauth:
@@ -1854,6 +1860,9 @@ type AgentTemplateStatus string
 
 // AgentTemplateCreate defines model for AgentTemplateCreate.
 type AgentTemplateCreate struct {
+	// AgentSchedules Let its agents set their own reminders and recurring work (the schedule tool)
+	AgentSchedules *bool `json:"agentSchedules,omitempty"`
+
 	// Approvals Tools that ask a person first (version 1; default none)
 	Approvals *ToolApprovalPolicyInput `json:"approvals,omitempty"`
 
@@ -1894,6 +1903,9 @@ type AgentTemplateUpdate struct {
 
 // AgentTemplateVersion defines model for AgentTemplateVersion.
 type AgentTemplateVersion struct {
+	// AgentSchedules Its agents may set their own schedules (the runtime's schedule tool)
+	AgentSchedules *bool `json:"agentSchedules,omitempty"`
+
 	// Approvals Which tools of a template version ask a person before they run (docs/approvals.md)
 	Approvals     *ToolApprovalPolicy `json:"approvals,omitempty"`
 	ClientMcp     *bool               `json:"clientMcp,omitempty"`
@@ -1912,6 +1924,9 @@ type AgentTemplateVersion struct {
 
 // AgentTemplateVersionCreate defines model for AgentTemplateVersionCreate.
 type AgentTemplateVersionCreate struct {
+	// AgentSchedules Let its agents set their own reminders and recurring work (the schedule tool; omitted keeps the current version's)
+	AgentSchedules *bool `json:"agentSchedules,omitempty"`
+
 	// Approvals Tools that ask a person first (omitted keeps the current version's, and so does a field omitted inside)
 	Approvals *ToolApprovalPolicyInput `json:"approvals,omitempty"`
 
@@ -2178,6 +2193,9 @@ type ApprovalDeciderKind string
 
 // AuditActor Who made the change, resolved when the log is read
 type AuditActor struct {
+	// AgentId The agent (agent actors, which change only their own schedules)
+	AgentId *openapi_types.UUID `json:"agentId,omitempty"`
+
 	// ApiKeyName The API key used (api_key actors)
 	ApiKeyName  *string        `json:"apiKeyName,omitempty"`
 	DisplayName *string        `json:"displayName,omitempty"`
@@ -3467,7 +3485,13 @@ type Trigger struct {
 	// MessageTemplate The message, with placeholders {{payload}}, {{payload.<path>}} (webhooks), {{trigger.name}}, {{trigger.kind}}, {{fire.id}} and {{fire.time}}
 	MessageTemplate string `json:"messageTemplate"`
 	Name            string `json:"name"`
-	Paused          bool   `json:"paused"`
+
+	// Once A one-time reminder (agent-made), removed when it fires
+	Once bool `json:"once"`
+
+	// OriginThreadId The thread the agent made it in (agent-made triggers)
+	OriginThreadId *string `json:"originThreadId"`
+	Paused         bool    `json:"paused"`
 
 	// PausedReason Paused by a person, or by the platform after failed runs in a row
 	PausedReason *TriggerPausedReason `json:"pausedReason,omitempty"`
@@ -3476,7 +3500,7 @@ type Trigger struct {
 	Revision Revision         `json:"revision"`
 	Schedule *TriggerSchedule `json:"schedule,omitempty"`
 
-	// Source Who made it - a person, or (later) the agent itself
+	// Source Who made it - a person, or the agent itself (its schedule tool, when its template version lets it). An agent-made trigger can be paused, resumed, run now or deleted; nothing else about it changes.
 	Source TriggerSource `json:"source"`
 
 	// ThreadId The thread every fire sends to (null - a new thread at every fire)
@@ -3493,7 +3517,7 @@ type Trigger struct {
 // TriggerPausedReason Paused by a person, or by the platform after failed runs in a row
 type TriggerPausedReason string
 
-// TriggerSource Who made it - a person, or (later) the agent itself
+// TriggerSource Who made it - a person, or the agent itself (its schedule tool, when its template version lets it). An agent-made trigger can be paused, resumed, run now or deleted; nothing else about it changes.
 type TriggerSource string
 
 // TriggerCreate defines model for TriggerCreate.

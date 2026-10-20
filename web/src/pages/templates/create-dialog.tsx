@@ -6,6 +6,7 @@ import { templatesKey } from "../../api/templates";
 import { api, ApiError, errorMessage, unwrap } from "../../api/client";
 import { FormDialog } from "../../components/form-dialog";
 import { McpPicker, mcpProblem } from "../../components/mcp-picker";
+import { AgentSchedulesField } from "../../components/templates/agent-schedules-field";
 import { ModelSelect } from "../../components/model-select";
 import type { McpAttach } from "../../api/mcp";
 import { Field } from "@/components/ui/field/field";
@@ -33,6 +34,7 @@ export function CreateTemplateDialog({
   const servers = useTemplateMcpServers(team);
   const [mcp, setMcp] = useState<McpAttach[]>([]);
   const [clientMcp, setClientMcp] = useState(false);
+  const [agentSchedules, setAgentSchedules] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [taken, setTaken] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -61,6 +63,7 @@ export function CreateTemplateDialog({
         modelId: modelId || undefined,
         mcp: mcp.length ? mcp : undefined,
         clientMcp: clientMcp || undefined,
+        agentSchedules: agentSchedules || undefined,
       };
       const created = team
         ? unwrap(
@@ -168,6 +171,7 @@ export function CreateTemplateDialog({
         onClientMcpChange={setClientMcp}
         showErrors={submitted}
       />
+      <AgentSchedulesField checked={agentSchedules} onCheckedChange={setAgentSchedules} />
     </FormDialog>
   );
 }

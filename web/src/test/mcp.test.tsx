@@ -189,6 +189,7 @@ describe("a template's MCP servers", () => {
       notes: "Tools",
       mcp: [{ serverId, name: "Fake Tools", slug: "fake_tools", tools: ["echo", "search"] }],
       clientMcp: true,
+      agentSchedules: true,
       createdAt: "2026-10-02T10:00:00Z",
     },
     { version: 1, instructions: "Be helpful.", notes: "Initial version", mcp: [{ serverId, name: "Fake Tools", slug: "fake_tools" }], createdAt: "2026-10-01T10:00:00Z" },
@@ -221,12 +222,15 @@ describe("a template's MCP servers", () => {
     await u.click(within(dialog).getByRole("checkbox", { name: "echo" }));
     await u.click(within(dialog).getByRole("checkbox", { name: "search" }));
     await u.click(within(dialog).getByRole("checkbox", { name: /Let apps give agents their own MCP servers/ }));
+    expect(within(dialog).getByRole("checkbox", { name: /schedule their own reminders/ })).not.toBeChecked();
+    await u.click(within(dialog).getByRole("checkbox", { name: /schedule their own reminders/ }));
     await u.click(within(dialog).getByRole("button", { name: "Create template" }));
     await waitFor(() => expect(made(calls, "POST", `/v1/teams/${team.slug}/agent-templates`)).toHaveLength(1));
     expect(made(calls, "POST", `/v1/teams/${team.slug}/agent-templates`)[0]!.body).toMatchObject({
       slug: "helper",
       mcp: [{ serverId, tools: ["echo", "search"] }],
       clientMcp: true,
+      agentSchedules: true,
     });
   });
 
@@ -237,6 +241,7 @@ describe("a template's MCP servers", () => {
     expect(await screen.findByText("Fake Tools: echo, search")).toBeInTheDocument();
     expect(screen.getByText("Fake Tools: all tools")).toBeInTheDocument();
     expect(screen.getByText("Apps may add MCP servers")).toBeInTheDocument();
+    expect(screen.getAllByText("Agents may schedule")).toHaveLength(1);
     const post = () => made(calls, "POST", `/v1/agent-templates/${templateId}/versions`);
 
     await u.click(screen.getByRole("button", { name: "New version" }));
@@ -245,18 +250,21 @@ describe("a template's MCP servers", () => {
     expect(within(dialog).getByRole("checkbox", { name: "echo" })).toBeChecked();
     expect(within(dialog).getByRole("checkbox", { name: "delete_all" })).not.toBeChecked();
     expect(within(dialog).getByRole("checkbox", { name: /Let apps give agents/ })).toBeChecked();
+    expect(within(dialog).getByRole("checkbox", { name: /schedule their own reminders/ })).toBeChecked();
     await u.click(within(dialog).getByRole("button", { name: "Save v3" }));
     await waitFor(() => expect(post()).toHaveLength(1));
     expect(post()[0]!.body).not.toHaveProperty("mcp");
     expect(post()[0]!.body).not.toHaveProperty("clientMcp");
+    expect(post()[0]!.body).not.toHaveProperty("agentSchedules");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "New version of Helper" })).toBeNull());
 
     await u.click(screen.getByRole("button", { name: "New version" }));
     dialog = await screen.findByRole("dialog", { name: "New version of Helper" });
     await u.click(await within(dialog).findByRole("radio", { name: "All tools" }));
+    await u.click(within(dialog).getByRole("checkbox", { name: /schedule their own reminders/ }));
     await u.click(within(dialog).getByRole("button", { name: "Save v3" }));
     await waitFor(() => expect(post()).toHaveLength(2));
-    expect(post()[1]!.body).toMatchObject({ mcp: [{ serverId }] });
+    expect(post()[1]!.body).toMatchObject({ mcp: [{ serverId }], agentSchedules: false });
     expect(post()[1]!.body).not.toHaveProperty("clientMcp");
   });
 });

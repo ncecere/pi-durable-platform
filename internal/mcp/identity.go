@@ -27,6 +27,9 @@ var threadIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 //   - A shared thread, an unknown thread, no thread, a private thread a
 //     service account started: nobody.
 //
+// person_present is false when no thread is named, or the thread is working
+// on a triggered run (a pending or running trigger run).
+//
 // The person must be active (not suspended, not denied by the group
 // re-check) and, outside a personal workspace, still a member of the
 // agent's team; otherwise nobody is named.
@@ -63,9 +66,10 @@ func (s *Service) identityToken(ctx context.Context, ag Agent, t target, thread,
 			if t.email {
 				claims.Person.Email = p.Email
 			}
-			// Work outside any thread (background, a future trigger) is
-			// work nobody is present for.
-			claims.PersonPresent = thread != ""
+			// Work outside any thread (background), and a thread working on a
+			// triggered run (a schedule, the agent's own included), is work
+			// nobody is present for.
+			claims.PersonPresent = thread != "" && !c.Triggered
 		}
 	}
 	aud := t.audience

@@ -132,7 +132,8 @@ func newEnv(t *testing.T) *env {
 	}
 	t.Cleanup(db.Close)
 	e := &env{t: t, db: db, url: url, clock: &clock{t: time.Date(2026, 10, 20, 10, 1, 0, 0, time.UTC)},
-		cfg: config.Triggers{Interval: 10 * time.Second, MaxRunTime: 30 * time.Minute, MaxConcurrentRuns: 5, PauseAfterFailures: 3}}
+		cfg: config.Triggers{Interval: 10 * time.Second, MaxRunTime: 30 * time.Minute, MaxConcurrentRuns: 5, PauseAfterFailures: 3,
+			AgentMax: 3, AgentMinInterval: 5 * time.Minute}}
 	e.runner = &fakeRunner{db: db, excerpt: "All done."}
 	e.svc = e.newService(appPool)
 	e.teamID = uuid.New()

@@ -2051,7 +2051,7 @@
       "type": "timeseries",
       "id": 39,
       "title": "Loop runs per second",
-      "description": "reaper (idle agents), cleanup (sessions, OAuth, threads), rate_cleanup, group_recheck, thread_events (a run is a listener that failed), agent_count.",
+      "description": "reaper (idle agents), cleanup (sessions, OAuth, threads), rate_cleanup, group_recheck, thread_events (a run is a listener that failed), agent_count, triggers (schedules due, deliveries, runs in progress, callbacks; agent-made schedules included; one replica at a time does the work).",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -2108,7 +2108,7 @@
       "type": "timeseries",
       "id": 40,
       "title": "Seconds since each loop last succeeded",
-      "description": "reaper runs every 30 s, cleanup every 15 min, agent_count every 30 s.",
+      "description": "reaper runs every 30 s, cleanup every 15 min, agent_count every 30 s, triggers every TRIGGERS_INTERVAL (10 s by default; a replica that skips the pass because another holds the lock counts as a success). A triggers line that keeps rising means due schedules and agents' own reminders are not firing.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -2165,7 +2165,7 @@
       "type": "timeseries",
       "id": 41,
       "title": "Loop run duration p95",
-      "description": "",
+      "description": "A triggers pass waits for the agents it delivers runs to (a cold start is within a pass); a long one delays due schedules.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"

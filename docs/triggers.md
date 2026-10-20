@@ -234,17 +234,66 @@ thread; the callback is sent when it ends. Nothing in this design assumes a run 
 means the thread's reply ended, whenever that is. Not built: a `waiting` run status of its own (the run shows
 `running`).
 
-## Agent-made schedules (later, with the library, #28)
+## Agent-made schedules
 
-A `schedule` tool in the runtime library will let an agent set a reminder for itself. Planned shape, not built:
+An agent sets its own reminders and recurring work with the runtime library's `schedule` tool (with `list_schedules`
+and `cancel_schedule`). Each one is an ordinary schedule trigger of that agent, marked as made by it.
 
-- The runtime calls the gateway with its own credential (`pdpm.<agent>.<token>`): `POST /triggers` with
-  `{name, cron | at, timezone, threadId?, message}` (a plain message, no template), `GET /triggers`, `DELETE
-  /triggers/{id}`, for its own agent only (the credential names it), schedules only, never webhooks or callbacks.
-- Recorded as an ordinary trigger with `source: agent` (the column exists now), listed and removable in the console
-  like any other, under the same limits, runs and audit (actor: the agent). Bounds: at most 20 agent-made triggers per
-  agent, none more often than every 5 minutes, one-off `at` times at most a year ahead; agent settings may turn it off.
-- `at` (a one-off time) needs `next_fire_at` without `cron`; the trigger is removed after it fires.
+**Who may.** A template version's `agentSchedules` flag (off by default; the template editor's *Schedules* setting)
+lets its agents schedule. The platform then gives the runtime `PLATFORM_SCHEDULES=true`, and the library adds the
+tools (an extension named `pdp-schedules`) to every thread after the definition's own extensions: the default
+assistant and any custom agent built with `defineAgent` (`schedules: false` leaves them out). The gateway checks the
+version again when the agent schedules. Service-managed agents (an app's agent for one of its users) and an archived
+team's agents can't.
+
+**The tool.** `schedule({when, timezone?, message, thread?, name?})`: `when` is an ISO 8601 date and time for a
+one-time reminder (`2026-10-21T09:00` in `timezone`, default UTC, or with an offset) or a cron expression for
+recurring work (the schedules' rules above); `message` is what the agent is told when it fires, as plain text (never a
+template: nothing in it is a placeholder); `thread` is `this` (the default) or `new`. The answer says when it fires,
+where, and its ID; a refusal is the platform's message, as an error the model reads (what to change).
+
+**The gateway API.** The runtime calls the gateway with its own credential (`PLATFORM_KEY`, as it reports thread
+status), never a person's: the credential names the agent, and every operation is on that agent's own agent-made
+triggers.
+
+| Route | What |
+|---|---|
+| `POST /schedules` | Body `{at \| cron, timezone?, message, thread?, name?, threadId?}` (`threadId`: the thread the tool was called in, which the library knows). `201 {schedule, where: "this" \| "new", whyNotHere?}` |
+| `GET /schedules` | The agent's own schedules (not the triggers people made) |
+| `DELETE /schedules/{id}` | Cancel one of them; another agent's, or a person's, is `404 trigger_not_found` |
+
+A schedule is `{id, name, once, cron?, timezone, message, threadId, originThreadId, nextFireAt, paused, pausedReason?}`.
+These routes are the gateway's (the agents' listener), not the public API.
+
+**Limits**, refused with a message for the model: at most `TRIGGERS_AGENT_MAX` (20) agent-made schedules per agent
+(`too_many_schedules`), within the 50 triggers an agent may have; a recurring one fires at most once every
+`TRIGGERS_AGENT_MIN_INTERVAL` (5 minutes; `too_frequent`, checked over its next fires); a one-time reminder is in the
+future (`time_passed`) and at most a year ahead (`too_far_ahead`); a message of 1-8,000 characters. Every trigger limit
+holds for their runs: the agent's pause, runs at once, budgets, back-off and the automatic pause.
+
+**Where it fires.** In the thread it was set in when that thread may take a trigger's message (the rules above: not
+reserved, no app's MCP servers, not private, and known to the platform), otherwise in a new thread at every fire;
+`whyNotHere` says why. One relaxation: in a personal workspace, a private thread its owner started may take it (the
+workspace and its agent are the owner's; their MCP identity token names them with `person_present: false` while the
+thread works on a triggered run). The thread is checked again at each fire: one that can no longer take it (made
+private, given an app's servers) gets a new thread instead.
+
+**One-time reminders** (`once`) store their time in `next_fire_at` and, so the record reads as any schedule, a cron
+naming the same minute in its zone. They use the `run_once` missed-fire policy (a reminder missed while the platform
+was down still runs, once). When it fires the reminder has no next time; it removes itself when its run ends (a run
+that is skipped, by a limit or a paused agent, removes it at once), audited as `trigger.delete` by the system
+(`reason: fired`). Paused and resumed after its time, it fires at the next pass.
+
+**Records and control.** `agent_triggers.source = 'agent'`, with `once` and `origin_thread_id` (migration 00025), and
+`created_by` null; each run keeps `trigger_source`. The console's Triggers tab lists them with *Made by the agent* and
+a link to the conversation; the team's owners and admins (a personal workspace's owner) pause, resume, run now or
+delete them like any trigger, but can't change them (`409 agent_made_trigger`). Names come from the agent or from the
+time (`Reminder 2026-10-21 09:00 Europe/Paris`, `Schedule 0 9 * * 1 UTC`), never from the message: names are in the
+audit log, messages never are.
+
+**Audit.** The agent's changes are `trigger.create` and `trigger.delete` with actor kind `agent` (the agent in the
+entry's metadata, `agentActorId` and `agentActorName`; the console shows *Agent Planner*). Runs are recorded as every
+trigger's.
 
 ## Not covered
 

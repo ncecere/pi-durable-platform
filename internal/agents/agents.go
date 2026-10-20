@@ -797,6 +797,12 @@ func (s *Service) spec(ctx context.Context, ag dbgen.Agent) (launcher.Spec, erro
 	// Where the runtime reports its threads' status and approvals (the gateway).
 	env["PLATFORM_GATEWAY_URL"] = strings.TrimRight(s.cfg.GatewayURL, "/")
 	env["PLATFORM_KEY"] = llm.ProxyCredential(ag.ID.String(), string(token))
+	// The schedule tool (docs/triggers.md, agent-made schedules): only when the
+	// version allows it, so a runtime that doesn't know the variable never sees
+	// it. The gateway checks the version again on every call.
+	if tv.AgentSchedules && !ag.ServiceManaged {
+		env["PLATFORM_SCHEDULES"] = "true"
+	}
 	return launcher.Spec{
 		Disabled: !ag.Enabled,
 		AgentID:  ag.ID.String(), Name: ag.Name, Instructions: tv.Instructions,

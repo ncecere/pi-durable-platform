@@ -16,6 +16,7 @@ import {
 	resolveSettings,
 } from "./define.ts";
 import { AgentMcp } from "./mcp.ts";
+import { scheduleExtension } from "./schedule.ts";
 import { createAgentModels } from "./models.ts";
 import { createRuntimeServer } from "./server.ts";
 import { AgentOwnedElsewhereError, openPostgresAgentStorage } from "./storage/postgres.ts";
@@ -98,7 +99,27 @@ export async function startAgent(config: AgentConfig, definition: AgentDefinitio
 	// the context. Bound to the harness once it is open.
 	const approvals = new Approvals(parseApprovalPolicy(config.modelEnv.TOOL_APPROVALS));
 	const context: AgentContext = { agentId: config.agentId, name: config.name, instructions: config.instructions, env: config.modelEnv, approvals };
-	const extensions = resolveExtensions(definition, context);
+	// The schedule tools, when the platform allows them for the agent's template version (and the definition doesn't
+	// leave them out): after the definition's extensions, before the MCP servers'. They name their thread through the
+	// thread store, which exists once the harness is open.
+	let threadStore: ThreadStore | undefined;
+	const scheduling =
+		definition.schedules !== false &&
+		config.modelEnv.PLATFORM_SCHEDULES === "true" &&
+		!!config.modelEnv.PLATFORM_GATEWAY_URL &&
+		!!config.modelEnv.PLATFORM_KEY;
+	const extensions = [
+		...resolveExtensions(definition, context),
+		...(scheduling
+			? [
+					scheduleExtension({
+						gatewayUrl: config.modelEnv.PLATFORM_GATEWAY_URL!,
+						key: config.modelEnv.PLATFORM_KEY!,
+						threadOf: async (conversationId) => threadStore?.threadOf(conversationId),
+					}),
+				]
+			: []),
+	];
 	const settings = resolveSettings(definition, context);
 	const documents = definition.documents ?? [];
 	const exposed = exposedDocuments(definition);
@@ -109,7 +130,7 @@ export async function startAgent(config: AgentConfig, definition: AgentDefinitio
 
 	const created = options.models ? { ...options.models, source: "given", usage: undefined } : createAgentModels(config.modelEnv);
 	const { models, model, usage } = created;
-	log(`model ${model.provider}/${model.modelId} via ${created.source}${definition.name ? `; agent ${definition.name}` : ""}`);
+	log(`model ${model.provider}/${model.modelId} via ${created.source}${definition.name ? `; agent ${definition.name}` : ""}${scheduling ? "; schedules on" : ""}`);
 
 	const storage =
 		options.storage ??
@@ -158,6 +179,7 @@ export async function startAgent(config: AgentConfig, definition: AgentDefinitio
 
 	const current: ModelRef = { provider: model.provider, modelId: model.modelId };
 	const threads = new ThreadStore(harness, () => ({ model: current, extensions: base() }));
+	threadStore = threads;
 	// Calls to the template's MCP servers through the platform name their thread, so the platform can say who they are for.
 	mcp.threadOf = (conversationId) => threads.threadOf(conversationId);
 	const env = config.modelEnv;

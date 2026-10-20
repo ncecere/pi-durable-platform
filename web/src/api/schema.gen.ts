@@ -2320,10 +2320,14 @@ export interface components {
             kind: components["schemas"]["TriggerKind"];
             name: string;
             /**
-             * @description Who made it - a person, or (later) the agent itself
+             * @description Who made it - a person, or the agent itself (its schedule tool, when its template version lets it). An agent-made trigger can be paused, resumed, run now or deleted; nothing else about it changes.
              * @enum {string}
              */
             source: "person" | "agent";
+            /** @description A one-time reminder (agent-made), removed when it fires */
+            once: boolean;
+            /** @description The thread the agent made it in (agent-made triggers) */
+            originThreadId: string | null;
             paused: boolean;
             /**
              * @description Paused by a person, or by the platform after failed runs in a row
@@ -3024,6 +3028,8 @@ export interface components {
             clientMcp?: boolean;
             /** @description Tools that ask a person first (version 1; default none) */
             approvals?: components["schemas"]["ToolApprovalPolicyInput"];
+            /** @description Let its agents set their own reminders and recurring work (the schedule tool) */
+            agentSchedules?: boolean;
         };
         AgentTemplateUpdate: {
             name?: string;
@@ -3046,6 +3052,8 @@ export interface components {
             mcp?: components["schemas"]["McpAttached"][];
             clientMcp?: boolean;
             approvals?: components["schemas"]["ToolApprovalPolicy"];
+            /** @description Its agents may set their own schedules (the runtime's schedule tool) */
+            agentSchedules?: boolean;
             /** Format: date-time */
             createdAt: string;
         };
@@ -3061,6 +3069,8 @@ export interface components {
             clientMcp?: boolean;
             /** @description Tools that ask a person first (omitted keeps the current version's, and so does a field omitted inside) */
             approvals?: components["schemas"]["ToolApprovalPolicyInput"];
+            /** @description Let its agents set their own reminders and recurring work (the schedule tool; omitted keeps the current version's) */
+            agentSchedules?: boolean;
         };
         AgentTemplateReview: {
             /** @enum {string} */
@@ -3636,9 +3646,14 @@ export interface components {
         /** @description Who made the change, resolved when the log is read */
         AuditActor: {
             /** @enum {string} */
-            kind: "user" | "api_key" | "service_account" | "oauth" | "system";
+            kind: "user" | "api_key" | "service_account" | "oauth" | "system" | "agent";
             /** Format: uuid */
             userId?: string;
+            /**
+             * Format: uuid
+             * @description The agent (agent actors, which change only their own schedules)
+             */
+            agentId?: string;
             displayName?: string;
             email?: string;
             /** @description The API key used (api_key actors) */
@@ -3652,7 +3667,7 @@ export interface components {
             /** Format: date-time */
             occurredAt: string;
             /** @enum {string} */
-            actorKind: "user" | "api_key" | "oauth" | "system";
+            actorKind: "user" | "api_key" | "oauth" | "system" | "agent";
             /** Format: uuid */
             actorUserId?: string | null;
             /** Format: uuid */

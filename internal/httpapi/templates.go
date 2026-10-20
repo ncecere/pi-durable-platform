@@ -59,12 +59,12 @@ func toAPITemplateVersion(vv agents.VersionView) apitypes.AgentTemplateVersion {
 			attached[i].Tools = &tools
 		}
 	}
-	clientMCP := v.ClientMcp
+	clientMCP, schedules := v.ClientMcp, v.AgentSchedules
 	policy := agents.ApprovalPolicy{Tools: v.ApprovalTools, Role: v.ApprovalRole, TimeoutSeconds: v.ApprovalTimeoutSeconds}
 	if policy.Tools == nil {
 		policy.Tools = []string{}
 	}
-	out := apitypes.AgentTemplateVersion{Mcp: &attached, ClientMcp: &clientMCP, Version: v.Version, Instructions: v.Instructions, Notes: v.Notes, CreatedByName: v.CreatedByName,
+	out := apitypes.AgentTemplateVersion{Mcp: &attached, ClientMcp: &clientMCP, AgentSchedules: &schedules, Version: v.Version, Instructions: v.Instructions, Notes: v.Notes, CreatedByName: v.CreatedByName,
 		CreatedAt: v.CreatedAt, ModelName: v.ModelName, ModelProviderName: v.ModelProviderName,
 		Approvals: &apitypes.ToolApprovalPolicy{Tools: policy.Tools, Role: apitypes.ToolApprovalPolicyRole(policy.Role), TimeoutSeconds: policy.TimeoutSeconds}}
 	if v.ModelID.Valid {
@@ -106,6 +106,7 @@ func decodeTemplateCreate(w http.ResponseWriter, r *http.Request) (agents.Templa
 	ti := agents.TemplateInput{Slug: in.Slug, Name: in.Name, Instructions: in.Instructions, ModelID: in.ModelId, MCP: attachments(in.Mcp)}
 	setIf(&ti.ClientMCP, in.ClientMcp)
 	ti.Approvals = approvalPolicyInput(in.Approvals)
+	setIf(&ti.AgentSchedules, in.AgentSchedules)
 	setIf(&ti.Description, in.Description)
 	setIf(&ti.Notes, in.Notes)
 	return ti, true
@@ -169,7 +170,7 @@ func (a *api) createTemplateVersion(w http.ResponseWriter, r *http.Request) {
 	if !httpx.Decode(w, r, &in) {
 		return
 	}
-	vi := agents.VersionInput{Instructions: in.Instructions, ModelID: in.ModelId, ClientMCP: in.ClientMcp}
+	vi := agents.VersionInput{Instructions: in.Instructions, ModelID: in.ModelId, ClientMCP: in.ClientMcp, AgentSchedules: in.AgentSchedules}
 	if in.Mcp != nil {
 		attach := attachments(in.Mcp)
 		vi.MCP = &attach

@@ -22,6 +22,9 @@ const (
 	// Connect): ActorUserID is the person.
 	ActorOAuth  = "oauth"
 	ActorSystem = "system"
+	// ActorAgent is an agent changing its own schedules (its schedule tool):
+	// Metadata names it (agentActorId, agentActorName).
+	ActorAgent = "agent"
 )
 
 // Entry is one audited event. Before/After hold configuration snapshots and

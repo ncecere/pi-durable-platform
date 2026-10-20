@@ -3,11 +3,14 @@
 -- the trigger loop can be tested with a clock of its own.
 
 -- name: InsertTrigger :one
-INSERT INTO agent_triggers (agent_id, kind, name, source, thread_id, message_template, cron, timezone, missed_policy,
-                            next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals,
-                            callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, created_by,
-                            created_at, updated_at)
-VALUES (sqlc.arg(agent_id), sqlc.arg(kind), sqlc.arg(name), 'person', sqlc.narg(thread_id), sqlc.arg(message_template),
+-- source: person (the console) or agent (its schedule tool: once and
+-- origin_thread_id are the agent's).
+INSERT INTO agent_triggers (agent_id, kind, name, source, once, origin_thread_id, thread_id, message_template, cron,
+                            timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix,
+                            filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix,
+                            daily_budget_usd, created_by, created_at, updated_at)
+VALUES (sqlc.arg(agent_id), sqlc.arg(kind), sqlc.arg(name), sqlc.arg(source), sqlc.arg(once), sqlc.narg(origin_thread_id),
+        sqlc.narg(thread_id), sqlc.arg(message_template),
         sqlc.narg(cron), sqlc.narg(timezone), sqlc.narg(missed_policy), sqlc.narg(next_fire_at), sqlc.narg(hook_id),
         sqlc.narg(webhook_secret_enc), sqlc.narg(webhook_secret_prefix), sqlc.narg(filter_path), sqlc.narg(filter_equals),
         sqlc.narg(callback_url), sqlc.narg(callback_secret_enc), sqlc.narg(callback_secret_prefix),
@@ -39,6 +42,26 @@ SELECT * FROM agent_triggers WHERE agent_id = $1 ORDER BY created_at, id;
 
 -- name: CountAgentTriggers :one
 SELECT count(*) FROM agent_triggers WHERE agent_id = $1;
+
+-- name: ListAgentMadeTriggers :many
+-- The triggers the agent made itself (its schedule tool).
+SELECT * FROM agent_triggers WHERE agent_id = $1 AND source = 'agent' ORDER BY created_at, id;
+
+-- name: CountAgentMadeTriggers :one
+SELECT count(*) FROM agent_triggers WHERE agent_id = $1 AND source = 'agent';
+
+-- name: TriggerThreadInfo :one
+-- What decides whether one of the agent's threads may take an agent-made
+-- trigger's message: the agent's team (a personal workspace's owner), and the
+-- thread as the platform records it (no record: known is false), with
+-- whether an app gave it MCP servers.
+SELECT a.team_id, t.kind AS team_kind, t.personal_owner, (th.thread_id IS NOT NULL)::boolean AS known,
+       th.visibility, coalesce(th.reserved, false)::boolean AS reserved, th.created_by_user,
+       EXISTS (SELECT 1 FROM thread_mcp_servers s WHERE s.agent_id = a.id AND s.thread_id = sqlc.arg(thread_id)::text)::boolean AS has_servers
+FROM agents a
+JOIN teams t ON t.id = a.team_id
+LEFT JOIN agent_threads th ON th.agent_id = a.id AND th.thread_id = sqlc.arg(thread_id)::text
+WHERE a.id = sqlc.arg(agent_id);
 
 -- name: DeleteAgentTriggers :execrows
 -- A moved agent's triggers (docs/triggers.md: they belonged to the old team).
@@ -122,10 +145,10 @@ SELECT coalesce(sum(cost_usd), 0)::float8 FROM trigger_runs WHERE agent_id = sql
 
 -- name: InsertRun :one
 -- A fire's run, unless one with its fire ID exists (nothing returned then).
-INSERT INTO trigger_runs (fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id,
-                          status, reason, scheduled_for, created_at, finished_at)
+INSERT INTO trigger_runs (fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, trigger_source, fired_by,
+                          thread_id, status, reason, scheduled_for, created_at, finished_at)
 VALUES (sqlc.arg(fire_id), sqlc.narg(trigger_id), sqlc.arg(agent_id), sqlc.arg(team_id), sqlc.arg(trigger_name),
-        sqlc.arg(trigger_kind), sqlc.arg(fired_by), sqlc.narg(thread_id), sqlc.arg(status), sqlc.narg(reason),
+        sqlc.arg(trigger_kind), sqlc.arg(trigger_source), sqlc.arg(fired_by), sqlc.narg(thread_id), sqlc.arg(status), sqlc.narg(reason),
         sqlc.narg(scheduled_for), sqlc.arg(now)::timestamptz, sqlc.narg(finished_at))
 ON CONFLICT (fire_id) DO NOTHING
 RETURNING *;

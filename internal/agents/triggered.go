@@ -16,6 +16,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/authz"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
+	"github.com/ncecere/pi-durable-platform/internal/teams"
 )
 
 // Runs that triggers start (internal/triggers; docs/triggers.md). A
@@ -41,6 +42,41 @@ type TriggerMessage struct {
 	TriggerName string
 	// At is when the message is sent (the thread's status time).
 	At time.Time
+	// AgentMade: the trigger is one the agent made itself (its schedule
+	// tool), which may also reach its personal workspace owner's private
+	// threads (TriggerThreadRefusal).
+	AgentMade bool
+}
+
+// TriggerThreadRefusal is why one of an agent's threads may not take a
+// triggered message ("" when it may), from what the platform records of it
+// (TriggerThreadInfo): a thread that is someone's (private, or reserved for
+// its creator's first message) or that an app gave MCP servers (its person's
+// credentials) never does. agentMade relaxes one rule: in a personal
+// workspace, a private thread its owner started may take a message from a
+// schedule the agent made itself (the workspace and the agent are the
+// owner's; the MCP identity token names them with person_present false).
+// known is required of an agent-made trigger's thread: it was set in a
+// thread the platform knows.
+func TriggerThreadRefusal(info dbgen.TriggerThreadInfoRow, agentMade bool) string {
+	switch {
+	case !info.Known:
+		if agentMade {
+			return "thread_unknown"
+		}
+		return "" // a fixed thread not used yet: the run starts it, shared
+	case info.Reserved:
+		return "thread_reserved"
+	case info.HasServers:
+		return "thread_mcp_servers"
+	case info.Visibility != nil && *info.Visibility == VisibilityPrivate:
+		if agentMade && info.TeamKind == teams.KindPersonal && info.PersonalOwner.Valid && info.CreatedByUser.Valid &&
+			info.CreatedByUser.UUID == info.PersonalOwner.UUID {
+			return ""
+		}
+		return "thread_private"
+	}
+	return ""
 }
 
 // TriggerError is why a triggered message wasn't delivered: Permanent when
@@ -102,8 +138,18 @@ func (s *Service) SendTriggered(ctx context.Context, m TriggerMessage) error {
 		}
 	}
 	switch {
+	case t.Visibility == VisibilityPrivate && m.AgentMade:
+		info, err := s.q.TriggerThreadInfo(ctx, dbgen.TriggerThreadInfoParams{AgentID: ag.ID, ThreadID: m.ThreadID})
+		if err != nil {
+			return err
+		}
+		if code := TriggerThreadRefusal(info, true); code != "" {
+			return permanent(code)
+		}
 	case t.Visibility == VisibilityPrivate:
 		return permanent("thread_private")
+	}
+	switch {
 	case t.Reserved:
 		return permanent("thread_reserved")
 	}

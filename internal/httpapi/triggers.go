@@ -48,7 +48,7 @@ func (a *api) triggerRoutes() []route {
 func toAPITrigger(v triggers.View) apitypes.Trigger {
 	t := v.Trigger
 	out := apitypes.Trigger{Id: t.ID, AgentId: t.AgentID, Kind: apitypes.TriggerKind(t.Kind), Name: t.Name,
-		Source: apitypes.TriggerSource(t.Source), Paused: t.Paused, ThreadId: t.ThreadID, MessageTemplate: t.MessageTemplate,
+		Source: apitypes.TriggerSource(t.Source), Once: t.Once, OriginThreadId: t.OriginThreadID, Paused: t.Paused, ThreadId: t.ThreadID, MessageTemplate: t.MessageTemplate,
 		WebhookSecretPrefix: t.WebhookSecretPrefix, CallbackUrl: t.CallbackUrl, CallbackSecretPrefix: t.CallbackSecretPrefix,
 		ConsecutiveFailures: t.ConsecutiveFailures, BackoffUntil: t.BackoffUntil, LastFiredAt: t.LastFiredAt,
 		CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt, Revision: t.Revision}

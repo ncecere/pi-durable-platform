@@ -75,6 +75,7 @@ type AgentTemplateVersion struct {
 	ApprovalTools          []string
 	ApprovalRole           string
 	ApprovalTimeoutSeconds int32
+	AgentSchedules         bool
 }
 
 type AgentThread struct {
@@ -132,6 +133,8 @@ type AgentTrigger struct {
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 	Revision             int64
+	Once                 bool
+	OriginThreadID       *string
 }
 
 type AgentTriggerSetting struct {
@@ -561,6 +564,7 @@ type TriggerRun struct {
 	CallbackStatus   *string
 	CallbackAttempts int32
 	CallbackNextAt   *time.Time
+	TriggerSource    string
 }
 
 type User struct {

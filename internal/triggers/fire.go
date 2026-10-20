@@ -136,7 +136,7 @@ func (s *Service) record(ctx context.Context, q *dbgen.Queries, f fire, now time
 		}
 	}
 	p := dbgen.InsertRunParams{FireID: f.fireID, TriggerID: uuid.NullUUID{UUID: f.trig.ID, Valid: true}, AgentID: f.trig.AgentID,
-		TeamID: f.teamID, TriggerName: f.trig.Name, TriggerKind: f.trig.Kind, FiredBy: f.firedBy, Status: StatusPending,
+		TeamID: f.teamID, TriggerName: f.trig.Name, TriggerKind: f.trig.Kind, TriggerSource: f.trig.Source, FiredBy: f.firedBy, Status: StatusPending,
 		ScheduledFor: f.at, Now: now}
 	if reason != "" {
 		p.Status, p.Reason, p.FinishedAt = StatusSkipped, &reason, &now
@@ -144,6 +144,17 @@ func (s *Service) record(ctx context.Context, q *dbgen.Queries, f fire, now time
 		thread := newThreadID()
 		if f.trig.ThreadID != nil {
 			thread = *f.trig.ThreadID
+			// An agent-made schedule's thread may have changed since it was set
+			// (made private, given an app's MCP servers): then a new thread.
+			if f.trig.Source == SourceAgent {
+				info, err := q.TriggerThreadInfo(ctx, dbgen.TriggerThreadInfoParams{AgentID: f.trig.AgentID, ThreadID: thread})
+				if err != nil {
+					return dbgen.TriggerRun{}, false, err
+				}
+				if agents.TriggerThreadRefusal(info, true) != "" {
+					thread = newThreadID()
+				}
+			}
 		}
 		p.ThreadID = &thread
 	}
@@ -263,7 +274,7 @@ func (s *Service) deliver(ctx context.Context, id uuid.UUID) {
 		return
 	}
 	err = s.runner.SendTriggered(ctx, agents.TriggerMessage{AgentID: run.AgentID, ThreadID: *run.ThreadID, Text: string(text),
-		RequestID: run.FireID, TriggerID: run.TriggerID.UUID, TriggerName: run.TriggerName, At: now})
+		RequestID: run.FireID, TriggerID: run.TriggerID.UUID, TriggerName: run.TriggerName, At: now, AgentMade: run.TriggerSource == SourceAgent})
 	if err == nil {
 		if _, err := s.q.RunStarted(context.WithoutCancel(ctx), dbgen.RunStartedParams{ID: run.ID, At: now}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			s.log.Warn("triggers: record a run's start", "run", id, "err", err)
@@ -337,6 +348,10 @@ func (s *Service) finish(ctx context.Context, run dbgen.TriggerRun, status, reas
 			if err := audit.Record(ctx, q, e); err != nil {
 				return err
 			}
+		}
+		// A one-time reminder's run ended: the reminder is done.
+		if trig != nil && trig.Once && run.FiredBy == FiredBySchedule {
+			return removeFired(ctx, q, *trig, run.TeamID, run.ID)
 		}
 		if trig == nil || (status == StatusStopped && reason != ReasonMaxRunTime) {
 			return nil

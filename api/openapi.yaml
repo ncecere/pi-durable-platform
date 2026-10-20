@@ -5534,7 +5534,7 @@ components:
           nullable: true
     Trigger:
       type: object
-      required: [id, agentId, kind, name, source, paused, threadId, messageTemplate, consecutiveFailures, createdAt, updatedAt, revision]
+      required: [id, agentId, kind, name, source, once, originThreadId, paused, threadId, messageTemplate, consecutiveFailures, createdAt, updatedAt, revision]
       properties:
         id:
           type: string
@@ -5549,7 +5549,16 @@ components:
         source:
           type: string
           enum: [person, agent]
-          description: Who made it - a person, or (later) the agent itself
+          description: >-
+            Who made it - a person, or the agent itself (its schedule tool, when its template version lets it). An
+            agent-made trigger can be paused, resumed, run now or deleted; nothing else about it changes.
+        once:
+          type: boolean
+          description: A one-time reminder (agent-made), removed when it fires
+        originThreadId:
+          type: string
+          nullable: true
+          description: The thread the agent made it in (agent-made triggers)
         paused:
           type: boolean
         pausedReason:
@@ -6746,6 +6755,9 @@ components:
           allOf:
           - $ref: '#/components/schemas/ToolApprovalPolicyInput'
           description: Tools that ask a person first (version 1; default none)
+        agentSchedules:
+          type: boolean
+          description: Let its agents set their own reminders and recurring work (the schedule tool)
     AgentTemplateUpdate:
       type: object
       properties:
@@ -6790,6 +6802,9 @@ components:
           type: boolean
         approvals:
           $ref: '#/components/schemas/ToolApprovalPolicy'
+        agentSchedules:
+          type: boolean
+          description: Its agents may set their own schedules (the runtime's schedule tool)
         createdAt:
           type: string
           format: date-time
@@ -6819,6 +6834,11 @@ components:
           allOf:
           - $ref: '#/components/schemas/ToolApprovalPolicyInput'
           description: Tools that ask a person first (omitted keeps the current version's, and so does a field omitted inside)
+        agentSchedules:
+          type: boolean
+          description: >-
+            Let its agents set their own reminders and recurring work (the schedule tool; omitted keeps the current
+            version's)
     AgentTemplateReview:
       type: object
       required: [decision]
@@ -7757,9 +7777,14 @@ components:
           - service_account
           - oauth
           - system
+          - agent
         userId:
           type: string
           format: uuid
+        agentId:
+          type: string
+          format: uuid
+          description: The agent (agent actors, which change only their own schedules)
         displayName:
           type: string
         email:
@@ -7798,6 +7823,7 @@ components:
           - api_key
           - oauth
           - system
+          - agent
         actorUserId:
           type: string
           format: uuid

@@ -148,7 +148,7 @@ func (q *Queries) CallbacksDue(ctx context.Context, now time.Time) ([]uuid.UUID,
 const claimCallback = `-- name: ClaimCallback :one
 UPDATE trigger_runs SET callback_next_at = $1::timestamptz
 WHERE id = $2 AND callback_status = 'pending' AND callback_next_at <= $3::timestamptz
-RETURNING id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at
+RETURNING id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at, trigger_source
 `
 
 type ClaimCallbackParams struct {
@@ -185,6 +185,7 @@ func (q *Queries) ClaimCallback(ctx context.Context, arg ClaimCallbackParams) (T
 		&i.CallbackStatus,
 		&i.CallbackAttempts,
 		&i.CallbackNextAt,
+		&i.TriggerSource,
 	)
 	return i, err
 }
@@ -192,7 +193,7 @@ func (q *Queries) ClaimCallback(ctx context.Context, arg ClaimCallbackParams) (T
 const claimRunDelivery = `-- name: ClaimRunDelivery :one
 UPDATE trigger_runs SET attempts = attempts + 1, next_attempt_at = $1::timestamptz
 WHERE id = $2 AND status = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= $3::timestamptz)
-RETURNING id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at
+RETURNING id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at, trigger_source
 `
 
 type ClaimRunDeliveryParams struct {
@@ -230,8 +231,20 @@ func (q *Queries) ClaimRunDelivery(ctx context.Context, arg ClaimRunDeliveryPara
 		&i.CallbackStatus,
 		&i.CallbackAttempts,
 		&i.CallbackNextAt,
+		&i.TriggerSource,
 	)
 	return i, err
+}
+
+const countAgentMadeTriggers = `-- name: CountAgentMadeTriggers :one
+SELECT count(*) FROM agent_triggers WHERE agent_id = $1 AND source = 'agent'
+`
+
+func (q *Queries) CountAgentMadeTriggers(ctx context.Context, agentID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countAgentMadeTriggers, agentID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const countAgentTriggers = `-- name: CountAgentTriggers :one
@@ -276,7 +289,7 @@ func (q *Queries) DeleteTrigger(ctx context.Context, arg DeleteTriggerParams) (i
 }
 
 const dueSchedules = `-- name: DueSchedules :many
-SELECT t.id, t.agent_id, t.kind, t.name, t.source, t.paused, t.paused_reason, t.thread_id, t.message_template, t.cron, t.timezone, t.missed_policy, t.next_fire_at, t.hook_id, t.webhook_secret_enc, t.webhook_secret_prefix, t.filter_path, t.filter_equals, t.callback_url, t.callback_secret_enc, t.callback_secret_prefix, t.daily_budget_usd, t.consecutive_failures, t.backoff_until, t.last_fired_at, t.created_by, t.created_at, t.updated_at, t.revision, a.team_id, a.enabled AS agent_enabled, tm.status AS team_status
+SELECT t.id, t.agent_id, t.kind, t.name, t.source, t.paused, t.paused_reason, t.thread_id, t.message_template, t.cron, t.timezone, t.missed_policy, t.next_fire_at, t.hook_id, t.webhook_secret_enc, t.webhook_secret_prefix, t.filter_path, t.filter_equals, t.callback_url, t.callback_secret_enc, t.callback_secret_prefix, t.daily_budget_usd, t.consecutive_failures, t.backoff_until, t.last_fired_at, t.created_by, t.created_at, t.updated_at, t.revision, t.once, t.origin_thread_id, a.team_id, a.enabled AS agent_enabled, tm.status AS team_status
 FROM agent_triggers t
 JOIN agents a ON a.id = t.agent_id
 JOIN teams tm ON tm.id = a.team_id
@@ -334,6 +347,8 @@ func (q *Queries) DueSchedules(ctx context.Context, now time.Time) ([]DueSchedul
 			&i.AgentTrigger.CreatedAt,
 			&i.AgentTrigger.UpdatedAt,
 			&i.AgentTrigger.Revision,
+			&i.AgentTrigger.Once,
+			&i.AgentTrigger.OriginThreadID,
 			&i.TeamID,
 			&i.AgentEnabled,
 			&i.TeamStatus,
@@ -355,7 +370,7 @@ SET status = $1, reason = $2, finished_at = $3::timestamptz, cost_usd = $4,
     callback_status = CASE WHEN $6::boolean THEN 'pending' END,
     callback_next_at = CASE WHEN $6::boolean THEN $3::timestamptz END
 WHERE id = $7 AND status IN ('pending', 'running')
-RETURNING id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at
+RETURNING id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at, trigger_source
 `
 
 type FinishRunParams struct {
@@ -405,12 +420,13 @@ func (q *Queries) FinishRun(ctx context.Context, arg FinishRunParams) (TriggerRu
 		&i.CallbackStatus,
 		&i.CallbackAttempts,
 		&i.CallbackNextAt,
+		&i.TriggerSource,
 	)
 	return i, err
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at FROM trigger_runs WHERE id = $1 AND agent_id = $2
+SELECT id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at, trigger_source FROM trigger_runs WHERE id = $1 AND agent_id = $2
 `
 
 type GetRunParams struct {
@@ -445,12 +461,13 @@ func (q *Queries) GetRun(ctx context.Context, arg GetRunParams) (TriggerRun, err
 		&i.CallbackStatus,
 		&i.CallbackAttempts,
 		&i.CallbackNextAt,
+		&i.TriggerSource,
 	)
 	return i, err
 }
 
 const getRunByFireID = `-- name: GetRunByFireID :one
-SELECT id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at FROM trigger_runs WHERE fire_id = $1
+SELECT id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at, trigger_source FROM trigger_runs WHERE fire_id = $1
 `
 
 func (q *Queries) GetRunByFireID(ctx context.Context, fireID string) (TriggerRun, error) {
@@ -480,12 +497,13 @@ func (q *Queries) GetRunByFireID(ctx context.Context, fireID string) (TriggerRun
 		&i.CallbackStatus,
 		&i.CallbackAttempts,
 		&i.CallbackNextAt,
+		&i.TriggerSource,
 	)
 	return i, err
 }
 
 const getRunByID = `-- name: GetRunByID :one
-SELECT id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at FROM trigger_runs WHERE id = $1
+SELECT id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at, trigger_source FROM trigger_runs WHERE id = $1
 `
 
 func (q *Queries) GetRunByID(ctx context.Context, id uuid.UUID) (TriggerRun, error) {
@@ -515,12 +533,13 @@ func (q *Queries) GetRunByID(ctx context.Context, id uuid.UUID) (TriggerRun, err
 		&i.CallbackStatus,
 		&i.CallbackAttempts,
 		&i.CallbackNextAt,
+		&i.TriggerSource,
 	)
 	return i, err
 }
 
 const getTrigger = `-- name: GetTrigger :one
-SELECT id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision FROM agent_triggers WHERE id = $1 AND agent_id = $2
+SELECT id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision, once, origin_thread_id FROM agent_triggers WHERE id = $1 AND agent_id = $2
 `
 
 type GetTriggerParams struct {
@@ -561,12 +580,14 @@ func (q *Queries) GetTrigger(ctx context.Context, arg GetTriggerParams) (AgentTr
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Revision,
+		&i.Once,
+		&i.OriginThreadID,
 	)
 	return i, err
 }
 
 const getTriggerByHook = `-- name: GetTriggerByHook :one
-SELECT id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision FROM agent_triggers WHERE hook_id = $1 AND kind = 'webhook'
+SELECT id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision, once, origin_thread_id FROM agent_triggers WHERE hook_id = $1 AND kind = 'webhook'
 `
 
 func (q *Queries) GetTriggerByHook(ctx context.Context, hookID *string) (AgentTrigger, error) {
@@ -602,12 +623,14 @@ func (q *Queries) GetTriggerByHook(ctx context.Context, hookID *string) (AgentTr
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Revision,
+		&i.Once,
+		&i.OriginThreadID,
 	)
 	return i, err
 }
 
 const getTriggerByID = `-- name: GetTriggerByID :one
-SELECT id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision FROM agent_triggers WHERE id = $1
+SELECT id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision, once, origin_thread_id FROM agent_triggers WHERE id = $1
 `
 
 func (q *Queries) GetTriggerByID(ctx context.Context, id uuid.UUID) (AgentTrigger, error) {
@@ -643,6 +666,8 @@ func (q *Queries) GetTriggerByID(ctx context.Context, id uuid.UUID) (AgentTrigge
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Revision,
+		&i.Once,
+		&i.OriginThreadID,
 	)
 	return i, err
 }
@@ -667,29 +692,30 @@ func (q *Queries) GetTriggerSettings(ctx context.Context, agentID uuid.UUID) (Ag
 }
 
 const insertRun = `-- name: InsertRun :one
-INSERT INTO trigger_runs (fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id,
-                          status, reason, scheduled_for, created_at, finished_at)
+INSERT INTO trigger_runs (fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, trigger_source, fired_by,
+                          thread_id, status, reason, scheduled_for, created_at, finished_at)
 VALUES ($1, $2, $3, $4, $5,
-        $6, $7, $8, $9, $10,
-        $11, $12::timestamptz, $13)
+        $6, $7, $8, $9, $10, $11,
+        $12, $13::timestamptz, $14)
 ON CONFLICT (fire_id) DO NOTHING
-RETURNING id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at
+RETURNING id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at, trigger_source
 `
 
 type InsertRunParams struct {
-	FireID       string
-	TriggerID    uuid.NullUUID
-	AgentID      uuid.UUID
-	TeamID       uuid.UUID
-	TriggerName  string
-	TriggerKind  string
-	FiredBy      string
-	ThreadID     *string
-	Status       string
-	Reason       *string
-	ScheduledFor *time.Time
-	Now          time.Time
-	FinishedAt   *time.Time
+	FireID        string
+	TriggerID     uuid.NullUUID
+	AgentID       uuid.UUID
+	TeamID        uuid.UUID
+	TriggerName   string
+	TriggerKind   string
+	TriggerSource string
+	FiredBy       string
+	ThreadID      *string
+	Status        string
+	Reason        *string
+	ScheduledFor  *time.Time
+	Now           time.Time
+	FinishedAt    *time.Time
 }
 
 // A fire's run, unless one with its fire ID exists (nothing returned then).
@@ -701,6 +727,7 @@ func (q *Queries) InsertRun(ctx context.Context, arg InsertRunParams) (TriggerRu
 		arg.TeamID,
 		arg.TriggerName,
 		arg.TriggerKind,
+		arg.TriggerSource,
 		arg.FiredBy,
 		arg.ThreadID,
 		arg.Status,
@@ -734,28 +761,33 @@ func (q *Queries) InsertRun(ctx context.Context, arg InsertRunParams) (TriggerRu
 		&i.CallbackStatus,
 		&i.CallbackAttempts,
 		&i.CallbackNextAt,
+		&i.TriggerSource,
 	)
 	return i, err
 }
 
 const insertTrigger = `-- name: InsertTrigger :one
 
-INSERT INTO agent_triggers (agent_id, kind, name, source, thread_id, message_template, cron, timezone, missed_policy,
-                            next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals,
-                            callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, created_by,
-                            created_at, updated_at)
-VALUES ($1, $2, $3, 'person', $4, $5,
-        $6, $7, $8, $9, $10,
-        $11, $12, $13, $14,
-        $15, $16, $17,
-        $18, $19, $20::timestamptz, $20::timestamptz)
-RETURNING id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision
+INSERT INTO agent_triggers (agent_id, kind, name, source, once, origin_thread_id, thread_id, message_template, cron,
+                            timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix,
+                            filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix,
+                            daily_budget_usd, created_by, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6,
+        $7, $8,
+        $9, $10, $11, $12, $13,
+        $14, $15, $16, $17,
+        $18, $19, $20,
+        $21, $22, $23::timestamptz, $23::timestamptz)
+RETURNING id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision, once, origin_thread_id
 `
 
 type InsertTriggerParams struct {
 	AgentID              uuid.UUID
 	Kind                 string
 	Name                 string
+	Source               string
+	Once                 bool
+	OriginThreadID       *string
 	ThreadID             *string
 	MessageTemplate      string
 	Cron                 *string
@@ -778,11 +810,16 @@ type InsertTriggerParams struct {
 // Triggers, their agents' limits, and their runs (internal/triggers;
 // docs/triggers.md). Times come from the caller's clock (sqlc.arg(now)::timestamptz), so
 // the trigger loop can be tested with a clock of its own.
+// source: person (the console) or agent (its schedule tool: once and
+// origin_thread_id are the agent's).
 func (q *Queries) InsertTrigger(ctx context.Context, arg InsertTriggerParams) (AgentTrigger, error) {
 	row := q.db.QueryRow(ctx, insertTrigger,
 		arg.AgentID,
 		arg.Kind,
 		arg.Name,
+		arg.Source,
+		arg.Once,
+		arg.OriginThreadID,
 		arg.ThreadID,
 		arg.MessageTemplate,
 		arg.Cron,
@@ -832,12 +869,71 @@ func (q *Queries) InsertTrigger(ctx context.Context, arg InsertTriggerParams) (A
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Revision,
+		&i.Once,
+		&i.OriginThreadID,
 	)
 	return i, err
 }
 
+const listAgentMadeTriggers = `-- name: ListAgentMadeTriggers :many
+SELECT id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision, once, origin_thread_id FROM agent_triggers WHERE agent_id = $1 AND source = 'agent' ORDER BY created_at, id
+`
+
+// The triggers the agent made itself (its schedule tool).
+func (q *Queries) ListAgentMadeTriggers(ctx context.Context, agentID uuid.UUID) ([]AgentTrigger, error) {
+	rows, err := q.db.Query(ctx, listAgentMadeTriggers, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentTrigger{}
+	for rows.Next() {
+		var i AgentTrigger
+		if err := rows.Scan(
+			&i.ID,
+			&i.AgentID,
+			&i.Kind,
+			&i.Name,
+			&i.Source,
+			&i.Paused,
+			&i.PausedReason,
+			&i.ThreadID,
+			&i.MessageTemplate,
+			&i.Cron,
+			&i.Timezone,
+			&i.MissedPolicy,
+			&i.NextFireAt,
+			&i.HookID,
+			&i.WebhookSecretEnc,
+			&i.WebhookSecretPrefix,
+			&i.FilterPath,
+			&i.FilterEquals,
+			&i.CallbackUrl,
+			&i.CallbackSecretEnc,
+			&i.CallbackSecretPrefix,
+			&i.DailyBudgetUsd,
+			&i.ConsecutiveFailures,
+			&i.BackoffUntil,
+			&i.LastFiredAt,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Revision,
+			&i.Once,
+			&i.OriginThreadID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAgentRuns = `-- name: ListAgentRuns :many
-SELECT id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at FROM trigger_runs
+SELECT id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at, trigger_source FROM trigger_runs
 WHERE agent_id = $1
   AND ($2::uuid IS NULL OR trigger_id = $2::uuid)
   AND ($3::text IS NULL OR status = $3::text)
@@ -899,6 +995,7 @@ func (q *Queries) ListAgentRuns(ctx context.Context, arg ListAgentRunsParams) ([
 			&i.CallbackStatus,
 			&i.CallbackAttempts,
 			&i.CallbackNextAt,
+			&i.TriggerSource,
 		); err != nil {
 			return nil, err
 		}
@@ -911,7 +1008,7 @@ func (q *Queries) ListAgentRuns(ctx context.Context, arg ListAgentRunsParams) ([
 }
 
 const listAgentTriggers = `-- name: ListAgentTriggers :many
-SELECT id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision FROM agent_triggers WHERE agent_id = $1 ORDER BY created_at, id
+SELECT id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision, once, origin_thread_id FROM agent_triggers WHERE agent_id = $1 ORDER BY created_at, id
 `
 
 func (q *Queries) ListAgentTriggers(ctx context.Context, agentID uuid.UUID) ([]AgentTrigger, error) {
@@ -953,6 +1050,8 @@ func (q *Queries) ListAgentTriggers(ctx context.Context, agentID uuid.UUID) ([]A
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Revision,
+			&i.Once,
+			&i.OriginThreadID,
 		); err != nil {
 			return nil, err
 		}
@@ -965,7 +1064,7 @@ func (q *Queries) ListAgentTriggers(ctx context.Context, agentID uuid.UUID) ([]A
 }
 
 const listTeamRuns = `-- name: ListTeamRuns :many
-SELECT id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at FROM trigger_runs
+SELECT id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at, trigger_source FROM trigger_runs
 WHERE team_id = $1 AND agent_id = ANY($2::uuid[])
   AND ($3::text IS NULL OR status = $3::text)
   AND ($4::timestamptz IS NULL
@@ -1026,6 +1125,7 @@ func (q *Queries) ListTeamRuns(ctx context.Context, arg ListTeamRunsParams) ([]T
 			&i.CallbackStatus,
 			&i.CallbackAttempts,
 			&i.CallbackNextAt,
+			&i.TriggerSource,
 		); err != nil {
 			return nil, err
 		}
@@ -1049,7 +1149,7 @@ func (q *Queries) LockAgentRuns(ctx context.Context, agentID uuid.UUID) error {
 }
 
 const lockTrigger = `-- name: LockTrigger :one
-SELECT id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision FROM agent_triggers WHERE id = $1 AND agent_id = $2 FOR UPDATE
+SELECT id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision, once, origin_thread_id FROM agent_triggers WHERE id = $1 AND agent_id = $2 FOR UPDATE
 `
 
 type LockTriggerParams struct {
@@ -1090,6 +1190,8 @@ func (q *Queries) LockTrigger(ctx context.Context, arg LockTriggerParams) (Agent
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Revision,
+		&i.Once,
+		&i.OriginThreadID,
 	)
 	return i, err
 }
@@ -1138,7 +1240,7 @@ func (q *Queries) RunRetryAt(ctx context.Context, arg RunRetryAtParams) error {
 const runStarted = `-- name: RunStarted :one
 UPDATE trigger_runs SET status = 'running', started_at = $1::timestamptz, message_enc = NULL, next_attempt_at = NULL
 WHERE id = $2 AND status = 'pending'
-RETURNING id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at
+RETURNING id, fire_id, trigger_id, agent_id, team_id, trigger_name, trigger_kind, fired_by, thread_id, message_enc, status, reason, scheduled_for, attempts, next_attempt_at, created_at, started_at, finished_at, cost_usd, requests, callback_status, callback_attempts, callback_next_at, trigger_source
 `
 
 type RunStartedParams struct {
@@ -1174,12 +1276,13 @@ func (q *Queries) RunStarted(ctx context.Context, arg RunStartedParams) (Trigger
 		&i.CallbackStatus,
 		&i.CallbackAttempts,
 		&i.CallbackNextAt,
+		&i.TriggerSource,
 	)
 	return i, err
 }
 
 const runningRuns = `-- name: RunningRuns :many
-SELECT r.id, r.fire_id, r.trigger_id, r.agent_id, r.team_id, r.trigger_name, r.trigger_kind, r.fired_by, r.thread_id, r.message_enc, r.status, r.reason, r.scheduled_for, r.attempts, r.next_attempt_at, r.created_at, r.started_at, r.finished_at, r.cost_usd, r.requests, r.callback_status, r.callback_attempts, r.callback_next_at, th.busy AS thread_busy, th.status_at AS thread_status_at, th.last_error AS thread_last_error,
+SELECT r.id, r.fire_id, r.trigger_id, r.agent_id, r.team_id, r.trigger_name, r.trigger_kind, r.fired_by, r.thread_id, r.message_enc, r.status, r.reason, r.scheduled_for, r.attempts, r.next_attempt_at, r.created_at, r.started_at, r.finished_at, r.cost_usd, r.requests, r.callback_status, r.callback_attempts, r.callback_next_at, r.trigger_source, th.busy AS thread_busy, th.status_at AS thread_status_at, th.last_error AS thread_last_error,
        s.max_run_seconds, s.daily_budget_usd AS agent_daily_budget_usd, t.daily_budget_usd AS trigger_daily_budget_usd
 FROM trigger_runs r
 LEFT JOIN agent_threads th ON th.agent_id = r.agent_id AND th.thread_id = r.thread_id
@@ -1235,6 +1338,7 @@ func (q *Queries) RunningRuns(ctx context.Context) ([]RunningRunsRow, error) {
 			&i.TriggerRun.CallbackStatus,
 			&i.TriggerRun.CallbackAttempts,
 			&i.TriggerRun.CallbackNextAt,
+			&i.TriggerRun.TriggerSource,
 			&i.ThreadBusy,
 			&i.ThreadStatusAt,
 			&i.ThreadLastError,
@@ -1302,7 +1406,7 @@ SET consecutive_failures = $1, backoff_until = $2,
     paused = paused OR $3::boolean,
     paused_reason = CASE WHEN $3::boolean AND NOT paused THEN 'failures' ELSE paused_reason END
 WHERE id = $4
-RETURNING id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision
+RETURNING id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision, once, origin_thread_id
 `
 
 type TriggerOutcomeParams struct {
@@ -1353,6 +1457,8 @@ func (q *Queries) TriggerOutcome(ctx context.Context, arg TriggerOutcomeParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Revision,
+		&i.Once,
+		&i.OriginThreadID,
 	)
 	return i, err
 }
@@ -1375,6 +1481,52 @@ type TriggerSetSecretsParams struct {
 func (q *Queries) TriggerSetSecrets(ctx context.Context, arg TriggerSetSecretsParams) error {
 	_, err := q.db.Exec(ctx, triggerSetSecrets, arg.WebhookSecretEnc, arg.CallbackSecretEnc, arg.ID)
 	return err
+}
+
+const triggerThreadInfo = `-- name: TriggerThreadInfo :one
+SELECT a.team_id, t.kind AS team_kind, t.personal_owner, (th.thread_id IS NOT NULL)::boolean AS known,
+       th.visibility, coalesce(th.reserved, false)::boolean AS reserved, th.created_by_user,
+       EXISTS (SELECT 1 FROM thread_mcp_servers s WHERE s.agent_id = a.id AND s.thread_id = $1::text)::boolean AS has_servers
+FROM agents a
+JOIN teams t ON t.id = a.team_id
+LEFT JOIN agent_threads th ON th.agent_id = a.id AND th.thread_id = $1::text
+WHERE a.id = $2
+`
+
+type TriggerThreadInfoParams struct {
+	ThreadID string
+	AgentID  uuid.UUID
+}
+
+type TriggerThreadInfoRow struct {
+	TeamID        uuid.UUID
+	TeamKind      string
+	PersonalOwner uuid.NullUUID
+	Known         bool
+	Visibility    *string
+	Reserved      bool
+	CreatedByUser uuid.NullUUID
+	HasServers    bool
+}
+
+// What decides whether one of the agent's threads may take an agent-made
+// trigger's message: the agent's team (a personal workspace's owner), and the
+// thread as the platform records it (no record: known is false), with
+// whether an app gave it MCP servers.
+func (q *Queries) TriggerThreadInfo(ctx context.Context, arg TriggerThreadInfoParams) (TriggerThreadInfoRow, error) {
+	row := q.db.QueryRow(ctx, triggerThreadInfo, arg.ThreadID, arg.AgentID)
+	var i TriggerThreadInfoRow
+	err := row.Scan(
+		&i.TeamID,
+		&i.TeamKind,
+		&i.PersonalOwner,
+		&i.Known,
+		&i.Visibility,
+		&i.Reserved,
+		&i.CreatedByUser,
+		&i.HasServers,
+	)
+	return i, err
 }
 
 const updateRunCost = `-- name: UpdateRunCost :exec
@@ -1403,7 +1555,7 @@ SET name = $1, paused = $2, paused_reason = $3,
     daily_budget_usd = $17, consecutive_failures = $18,
     backoff_until = $19, revision = revision + 1, updated_at = $20::timestamptz
 WHERE id = $21
-RETURNING id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision
+RETURNING id, agent_id, kind, name, source, paused, paused_reason, thread_id, message_template, cron, timezone, missed_policy, next_fire_at, hook_id, webhook_secret_enc, webhook_secret_prefix, filter_path, filter_equals, callback_url, callback_secret_enc, callback_secret_prefix, daily_budget_usd, consecutive_failures, backoff_until, last_fired_at, created_by, created_at, updated_at, revision, once, origin_thread_id
 `
 
 type UpdateTriggerParams struct {
@@ -1486,6 +1638,8 @@ func (q *Queries) UpdateTrigger(ctx context.Context, arg UpdateTriggerParams) (A
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Revision,
+		&i.Once,
+		&i.OriginThreadID,
 	)
 	return i, err
 }

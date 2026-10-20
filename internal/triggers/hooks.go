@@ -113,7 +113,7 @@ func (s *Service) Fire(ctx context.Context, a authz.Actor, agentID, id uuid.UUID
 			return errNotFound
 		}
 		f := fire{trig: t, teamID: ag.TeamID, firedBy: FiredByManual, fireID: manualFireID(), manual: &a}
-		f.message = render(t.MessageTemplate, fireVars{TriggerName: t.Name, TriggerKind: t.Kind, FireID: f.fireID, FireTime: now})
+		f.message = messageFor(t, fireVars{TriggerName: t.Name, TriggerKind: t.Kind, FireID: f.fireID, FireTime: now})
 		run, _, err = s.record(ctx, q, f, now)
 		return err
 	})

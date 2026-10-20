@@ -171,6 +171,8 @@ var settings = []setting{
 	{key: "TRIGGERS_MAX_RUN_TIME", apply: duration(func(c *Config) *time.Duration { return &c.Triggers.MaxRunTime }, time.Minute, 24*time.Hour)},
 	{key: "TRIGGERS_MAX_CONCURRENT_RUNS", apply: integer(func(c *Config) *int { return &c.Triggers.MaxConcurrentRuns }, 1, 100)},
 	{key: "TRIGGERS_PAUSE_AFTER_FAILURES", apply: integer(func(c *Config) *int { return &c.Triggers.PauseAfterFailures }, 1, 100)},
+	{key: "TRIGGERS_AGENT_MAX", apply: integer(func(c *Config) *int { return &c.Triggers.AgentMax }, 1, 50)},
+	{key: "TRIGGERS_AGENT_MIN_INTERVAL", apply: duration(func(c *Config) *time.Duration { return &c.Triggers.AgentMinInterval }, time.Minute, 7*24*time.Hour)},
 	{key: "AGENTS_MODEL_PROVIDER", apply: str(func(c *Config) *string { return &c.Agents.ModelProvider })},
 	{key: "AGENTS_MODEL_BASE_URL", apply: str(func(c *Config) *string { return &c.Agents.ModelBaseURL })},
 	{key: "AGENTS_MODEL_API_KEY", secret: true, apply: str(func(c *Config) *string { return &c.Agents.ModelAPIKey })},
