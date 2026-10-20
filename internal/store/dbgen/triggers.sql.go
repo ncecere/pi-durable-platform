@@ -40,6 +40,25 @@ func (q *Queries) AdvanceSchedule(ctx context.Context, arg AdvanceScheduleParams
 	return err
 }
 
+const agentMadeRunsSince = `-- name: AgentMadeRunsSince :one
+SELECT count(*) FROM trigger_runs
+WHERE agent_id = $1 AND created_at >= $2 AND trigger_source = 'agent' AND status <> 'skipped'
+`
+
+type AgentMadeRunsSinceParams struct {
+	AgentID uuid.UUID
+	Since   time.Time
+}
+
+// The agent's runs of its own schedules since a time that weren't skipped
+// (TRIGGERS_AGENT_DAILY_RUNS).
+func (q *Queries) AgentMadeRunsSince(ctx context.Context, arg AgentMadeRunsSinceParams) (int64, error) {
+	row := q.db.QueryRow(ctx, agentMadeRunsSince, arg.AgentID, arg.Since)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const agentRunCostSince = `-- name: AgentRunCostSince :one
 SELECT coalesce(sum(cost_usd), 0)::float8 FROM trigger_runs WHERE agent_id = $1 AND created_at >= $2
 `

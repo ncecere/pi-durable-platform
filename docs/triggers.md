@@ -281,6 +281,13 @@ These routes are the gateway's (the agents' listener), not the public API.
 future (`time_passed`) and at most a year ahead (`too_far_ahead`); a message of 1-8,000 characters. Every trigger limit
 holds for their runs: the agent's pause, runs at once, budgets, back-off and the automatic pause.
 
+**Runs per day.** One-time reminders have no minimum interval ("remind me in two minutes" works), so a run could set
+the next reminder a minute ahead, and that one the next, without end. The agent's own schedules start at most
+`TRIGGERS_AGENT_DAILY_RUNS` (300) runs per UTC day, counted over all of them (runs that were skipped don't count); a
+fire beyond it is `skipped` with reason `agent_daily_runs`, and a skipped one-time reminder is removed, which ends the
+chain. A person's *Run now* is neither counted nor held. Set a daily budget on the agent too to bound what those runs
+cost.
+
 **Not from a private conversation.** A schedule set in a shared team's private thread (someone's own conversation with
 the agent) is refused, whether it would fire there or in a new thread (`403 schedule_private_thread`, with what to do):
 its message is written by the agent from that conversation, a new thread is shared, and the team's owners and admins

@@ -584,8 +584,9 @@ design, threat model and limits are in [docs/triggers.md](docs/triggers.md).
 - **Agent-made schedules**: a template version's `agentSchedules` flag gives its agents the runtime library's
   `schedule`, `list_schedules` and `cancel_schedule` tools, which call the gateway (`/schedules`) with the agent's own
   credential. Each is a schedule trigger of that agent (`source: agent`, the thread it was set in, `once` for a
-  one-time reminder, which removes itself when its run ends), within `TRIGGERS_AGENT_MAX` and
-  `TRIGGERS_AGENT_MIN_INTERVAL` and every trigger limit; it fires in the thread it was set in when that thread may take
+  one-time reminder, which removes itself when its run ends), within `TRIGGERS_AGENT_MAX`,
+  `TRIGGERS_AGENT_MIN_INTERVAL`, `TRIGGERS_AGENT_DAILY_RUNS` (runs per UTC day of the agent's own schedules, which
+  bounds a chain of reminders) and every trigger limit; it fires in the thread it was set in when that thread may take
   a trigger's message (in a personal workspace, the owner's private threads too), else in a new thread. A shared
   team's private thread can't set one (its text would reach the team), and the message is withheld from platform staff
   and from anyone who can't read the thread it was set in. Audited with the agent as the actor (actor kind `agent`).

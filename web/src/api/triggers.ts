@@ -100,6 +100,7 @@ const reasons: Record<string, string> = {
   concurrency: "too many runs at once",
   budget: "over the daily budget",
   backoff: "backing off after a failure",
+  agent_daily_runs: "the agent's own schedules ran their most for the day",
   missed: "missed while the platform was down",
   max_run_time: "ran past its maximum time",
   reply_error: "the reply failed",

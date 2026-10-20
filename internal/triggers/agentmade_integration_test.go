@@ -457,3 +457,49 @@ func TestAgentMadeMessagesAreWithheld(t *testing.T) {
 	check("an auditor in a personal workspace", e.staff, map[uuid.UUID]string{mine.Trigger.ID: "", fromNowhere.Trigger.ID: ""})
 	check("a platform admin in a personal workspace", admin, map[uuid.UUID]string{mine.Trigger.ID: "", fromNowhere.Trigger.ID: ""})
 }
+
+// A chain of reminders, each run setting the next a minute ahead, is
+// bounded: the agent's own schedules start at most TRIGGERS_AGENT_DAILY_RUNS
+// runs a UTC day; beyond it a fire is skipped (and a one-time reminder
+// removed, ending the chain). The next day counts afresh.
+func TestAChainOfRemindersIsBounded(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.allowSchedules(true)
+	e.cfg.AgentDailyRuns = 3
+	svc := e.replica()
+	e.thread(e.agentID, "chat1", "shared", nil)
+	chain := func() (sent bool, id uuid.UUID) {
+		t.Helper()
+		before := len(e.runner.sends())
+		at := e.clock.Now().Add(time.Minute).UTC().Format(time.RFC3339)
+		made, err := svc.AgentCreate(ctx, e.agentID, triggers.AgentScheduleInput{At: at, Message: "Do the next step, then remind yourself", ThreadID: "chat1"})
+		if err != nil {
+			t.Fatalf("the reminder: %v", err)
+		}
+		e.clock.Add(time.Minute + 5*time.Second)
+		e.tick(svc)
+		e.replyEnds("chat1", false)
+		e.clock.Add(time.Second)
+		e.tick(svc)
+		return len(e.runner.sends()) > before, made.Trigger.ID
+	}
+	for i := 0; i < 3; i++ {
+		if sent, _ := chain(); !sent {
+			t.Fatalf("run %d of the chain wasn't sent", i+1)
+		}
+	}
+	sent, id := chain()
+	if sent {
+		t.Fatal("the chain went past the daily runs")
+	}
+	if n := e.scalar(`SELECT count(*)::text FROM agent_triggers WHERE id = $1`, id); n != "0" {
+		t.Fatal("the skipped reminder is still there")
+	}
+	wantStatus(t, e.runs()[0], triggers.StatusSkipped, triggers.ReasonAgentDailyRuns)
+	// The next UTC day: the agent's schedules run again.
+	e.clock.Set(time.Date(2026, 10, 21, 8, 0, 0, 0, time.UTC))
+	if sent, _ := chain(); !sent {
+		t.Fatal("the next day's reminder wasn't sent")
+	}
+}

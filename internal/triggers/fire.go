@@ -48,6 +48,9 @@ const (
 	ReasonReplyError    = "reply_error"
 	ReasonThreadDeleted = "thread_deleted"
 	ReasonDelivery      = "delivery_failed"
+	// ReasonAgentDailyRuns: the agent's own schedules ran
+	// TRIGGERS_AGENT_DAILY_RUNS times this UTC day.
+	ReasonAgentDailyRuns = "agent_daily_runs"
 )
 
 const (
@@ -218,6 +221,18 @@ func (s *Service) skipReason(ctx context.Context, q *dbgen.Queries, f fire, now 
 		return ReasonConcurrency, nil
 	}
 	since := dayStart(now)
+	// The agent's own schedules (a chain of reminders, each setting the
+	// next) run at most AgentDailyRuns times a UTC day; a person's Run now
+	// is not counted against it, nor held by it.
+	if f.manual == nil && f.trig.Source == SourceAgent && s.cfg.AgentDailyRuns > 0 {
+		n, err := q.AgentMadeRunsSince(ctx, dbgen.AgentMadeRunsSinceParams{AgentID: f.trig.AgentID, Since: since})
+		if err != nil {
+			return "", err
+		}
+		if n >= int64(s.cfg.AgentDailyRuns) {
+			return ReasonAgentDailyRuns, nil
+		}
+	}
 	if f.trig.DailyBudgetUsd.Valid {
 		spent, err := q.TriggerCostSince(ctx, dbgen.TriggerCostSinceParams{TriggerID: uuid.NullUUID{UUID: f.trig.ID, Valid: true}, Since: since})
 		if err != nil {
