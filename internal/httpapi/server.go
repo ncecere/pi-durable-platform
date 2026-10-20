@@ -24,6 +24,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
 	"github.com/ncecere/pi-durable-platform/internal/mcp"
+	"github.com/ncecere/pi-durable-platform/internal/mcpidentity"
 	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/oauth"
 	"github.com/ncecere/pi-durable-platform/internal/platform"
@@ -56,6 +57,9 @@ type Deps struct {
 	Models *llm.Service
 	// MCP is the MCP catalog, apps' thread servers and the MCP proxy.
 	MCP *mcp.Service
+	// MCPIdentity signs the identity tokens the MCP proxy sends servers,
+	// and publishes its keys (nil: none).
+	MCPIdentity *mcpidentity.Keys
 	// Secrets seals values stored in the database with ENCRYPTION_KEY
 	// (nil in tests that don't need it).
 	Secrets *secrets.Box
@@ -111,7 +115,7 @@ func apiRoutes(d Deps) []route {
 	// Add a new area's route groups here (and its paths to api/openapi.yaml).
 	for _, group := range [][]route{a.authRoutes(), a.teamRoutes(), a.platformAdminRoutes(), a.apiKeyRoutes(),
 		a.serviceAccountRoutes(), a.serviceAccountAdminRoutes(), a.agentRoutes(), a.templateRoutes(), a.modelRoutes(), a.teamModelRoutes(), a.mcpRoutes(), a.personalRoutes(),
-		a.oauthRoutes(), a.oauthRESTRoutes(), a.oauthAppRoutes()} {
+		a.oauthRoutes(), a.oauthRESTRoutes(), a.oauthAppRoutes(), a.mcpIdentityRoutes()} {
 		routes = append(routes, group...)
 	}
 	return routes

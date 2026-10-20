@@ -6,6 +6,7 @@
 //	pi-durable-platform doctor    check the configuration, Postgres, migrations and the agents database
 //	pi-durable-platform prune-roles           drop agent database roles no agent owns
 //	pi-durable-platform rekey     re-seal every stored secret under the current ENCRYPTION_KEY
+//	pi-durable-platform rotate-mcp-identity-key   add a new key for MCP identity tokens
 //	pi-durable-platform version   print the version
 package main
 
@@ -25,6 +26,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/buildinfo"
 	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/doctor"
+	"github.com/ncecere/pi-durable-platform/internal/mcpidentity"
 	"github.com/ncecere/pi-durable-platform/internal/rekey"
 )
 
@@ -42,6 +44,9 @@ commands:
             agents database (--dry-run, --help)
   rekey     re-seal every stored secret under the current ENCRYPTION_KEY
             (--dry-run, --batch, --help)
+  rotate-mcp-identity-key
+            add a new key for the identity tokens MCP servers receive
+            (--prepublish, --now, --drop-previous, --help)
   version   print the version
 
 Configuration comes from environment variables and the optional YAML file
@@ -78,6 +83,8 @@ func run(args []string) error {
 		return runPruneRoles(args[1:], os.Stdout)
 	case "rekey":
 		return runRekey(args[1:], os.Stdout)
+	case "rotate-mcp-identity-key":
+		return runRotateMCPIdentityKey(args[1:], os.Stdout)
 	case app.ModeServe, app.ModeMigrate:
 	default:
 		fmt.Fprint(os.Stderr, usage)
@@ -242,7 +249,8 @@ func runRekey(args []string, stdout io.Writer) error {
 	fs.Usage = func() {
 		fmt.Fprint(fs.Output(), "usage: pi-durable-platform rekey [--dry-run] [--batch N]\n\n"+
 			"Re-seals every stored secret (model provider keys and headers, MCP server and\n"+
-			"thread MCP server headers, each agent's database password and runtime token)\n"+
+			"thread MCP server headers, each agent's database password and runtime token,\n"+
+			"people's IdP refresh tokens, the MCP identity token's signing keys)\n"+
 			"under ENCRYPTION_KEY, so that ENCRYPTION_KEY_PREVIOUS can be removed. Rotation:\n"+
 			"set the new key as ENCRYPTION_KEY and the old one as ENCRYPTION_KEY_PREVIOUS,\n"+
 			"restart, run this, check `doctor` reports nothing under the previous key.\n\n"+
@@ -270,6 +278,51 @@ func runRekey(args []string, stdout io.Writer) error {
 	res, err := app.Rekey(ctx, cfg, rekey.Options{DryRun: *dryRun, Batch: *batch})
 	writeRekey(stdout, res)
 	return err
+}
+
+// runRotateMCPIdentityKey implements `pi-durable-platform
+// rotate-mcp-identity-key [--prepublish D] [--now [--drop-previous]]`.
+func runRotateMCPIdentityKey(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("rotate-mcp-identity-key", flag.ContinueOnError)
+	prepublish := fs.Duration("prepublish", mcpidentity.DefaultPrepublish, "how long the new key is published before it signs (at least 10m)")
+	now := fs.Bool("now", false, "sign with the new key at once")
+	drop := fs.Bool("drop-previous", false, "with --now: remove every other key from the key set at once (a leaked key)")
+	fs.Usage = func() {
+		fmt.Fprint(fs.Output(), "usage: pi-durable-platform rotate-mcp-identity-key [--prepublish 24h] [--now [--drop-previous]]\n\n"+
+			"Adds a new key for the identity tokens the MCP gateway sends MCP servers\n"+
+			"(docs/mcp-identity.md). It is published in the key set at once and signs after\n"+
+			"--prepublish, so servers' cached key sets already hold it; the previous key stays\n"+
+			"published for an hour after it stops signing. Keys that stopped more than a day\n"+
+			"ago are deleted. Replicas pick up the change within a minute. Writes one audit\n"+
+			"entry.\n\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); errors.Is(err, flag.ErrHelp) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("rotate-mcp-identity-key takes no arguments (got %q)", fs.Arg(0))
+	}
+	if *drop && !*now {
+		return errors.New("--drop-previous needs --now (the new key must sign before the others go)")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("configuration:\n%w", err)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	rot, err := app.RotateMCPIdentityKey(ctx, cfg, mcpidentity.RotateOptions{Prepublish: *prepublish, Now: *now, DropPrevious: *drop})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "new MCP identity key %s, signing from %s\n", rot.Kid, rot.SignsFrom.UTC().Format(time.RFC3339))
+	if rot.Deleted > 0 {
+		fmt.Fprintf(stdout, "deleted %d previous key(s)\n", rot.Deleted)
+	}
+	return nil
 }
 
 // writeRekey prints the per-column counts: what is under each key, and what

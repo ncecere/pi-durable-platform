@@ -154,6 +154,15 @@ type McpCall struct {
 	OauthGrantID uuid.NullUUID
 }
 
+type McpIdentityKey struct {
+	ID            uuid.UUID
+	Kid           string
+	PrivateKeyEnc []byte
+	PublicJwk     json.RawMessage
+	CreatedAt     time.Time
+	SignsFrom     time.Time
+}
+
 type McpServer struct {
 	ID               uuid.UUID
 	Name             string
@@ -173,6 +182,9 @@ type McpServer struct {
 	UpdatedAt        time.Time
 	Personal         bool
 	TeamID           uuid.NullUUID
+	SendIdentity     bool
+	IdentityAudience string
+	IdentityEmail    bool
 }
 
 type McpServerTeam struct {

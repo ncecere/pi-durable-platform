@@ -17,6 +17,7 @@ import (
 
 	"github.com/ncecere/pi-durable-platform/internal/auth"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
+	"github.com/ncecere/pi-durable-platform/internal/mcpidentity"
 	"github.com/ncecere/pi-durable-platform/internal/oauth"
 	"github.com/ncecere/pi-durable-platform/internal/ratelimit"
 	"github.com/ncecere/pi-durable-platform/internal/store"
@@ -34,8 +35,10 @@ const (
 )
 
 // protocolRoutes are served but not in api/openapi.yaml: OAuth Connect's
-// protocol endpoints (the contract test skips them).
+// protocol endpoints and the MCP identity token's keys (mcp_identity.go; the
+// contract test skips them).
 var protocolRoutes = map[string]bool{
+	"GET " + mcpidentity.JWKSPath:                 true,
 	"GET /.well-known/oauth-protected-resource":   true,
 	"GET /.well-known/oauth-authorization-server": true,
 	"GET /oauth/authorize":                        true,

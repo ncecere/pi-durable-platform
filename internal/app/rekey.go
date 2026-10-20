@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/ncecere/pi-durable-platform/internal/config"
+	"github.com/ncecere/pi-durable-platform/internal/mcpidentity"
 	"github.com/ncecere/pi-durable-platform/internal/rekey"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 )
@@ -37,4 +38,29 @@ func Rekey(ctx context.Context, cfg config.Config, opts rekey.Options) (rekey.Re
 		return rekey.Result{}, fmt.Errorf("the database is at migration version %d, this binary has %d: run pi-durable-platform migrate first", st.Current, st.Latest)
 	}
 	return rekey.Run(ctx, pool, box, opts)
+}
+
+// RotateMCPIdentityKey adds a new signing key for MCP identity tokens (the
+// rotate-mcp-identity-key command). The database must be migrated.
+func RotateMCPIdentityKey(ctx context.Context, cfg config.Config, opts mcpidentity.RotateOptions) (mcpidentity.Rotation, error) {
+	if cfg.DatabaseURL == "" {
+		return mcpidentity.Rotation{}, errors.New("DATABASE_URL is required")
+	}
+	box, err := secretBox(cfg)
+	if err != nil {
+		return mcpidentity.Rotation{}, err
+	}
+	pool, err := store.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return mcpidentity.Rotation{}, err
+	}
+	defer pool.Close()
+	st, err := store.Migrations(ctx, pool)
+	if err != nil {
+		return mcpidentity.Rotation{}, err
+	}
+	if st.Pending || st.Current != st.Latest {
+		return mcpidentity.Rotation{}, fmt.Errorf("the database is at migration version %d, this binary has %d: run pi-durable-platform migrate first", st.Current, st.Latest)
+	}
+	return mcpidentity.New(pool, box, cfg.AppURL).Rotate(ctx, opts)
 }
