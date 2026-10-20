@@ -112,6 +112,30 @@ ON CONFLICT (agent_id, thread_id) DO UPDATE SET
     status_at     = greatest(agent_threads.status_at, EXCLUDED.status_at)
 RETURNING *;
 
+-- name: ThreadStatusReported :one
+-- The runtime reports the status of a thread the platform has a record of
+-- (a single report, when a reply starts or ends). Unlike ThreadReported it
+-- never creates the record: a report that arrives after the thread was
+-- deleted must not bring it back. Threads the platform has no record of are
+-- adopted when the runtime lists all its threads (ThreadReported, on sync).
+UPDATE agent_threads SET
+    reserved      = false,
+    updated_at    = greatest(updated_at, coalesce(sqlc.narg(last_reply_at)::timestamptz, updated_at)),
+    busy          = CASE WHEN sqlc.arg(at)::timestamptz >= status_at THEN sqlc.arg(busy)::boolean ELSE busy END,
+    last_reply_at = CASE WHEN sqlc.arg(at)::timestamptz >= status_at
+                         THEN coalesce(sqlc.narg(last_reply_at)::timestamptz, last_reply_at) ELSE last_reply_at END,
+    last_error    = CASE WHEN sqlc.arg(at)::timestamptz >= status_at THEN sqlc.narg(last_error)::text ELSE last_error END,
+    status_at     = greatest(status_at, sqlc.arg(at)::timestamptz)
+WHERE agent_id = sqlc.arg(agent_id) AND thread_id = sqlc.arg(thread_id)
+RETURNING *;
+
+-- name: DeleteReservedThread :many
+-- A reserved thread (no message yet, so the runtime has no conversation for
+-- it) is deleted by the platform alone. Only while it is still reserved: a
+-- first message that got there first un-reserves it, and then the runtime
+-- deletes it.
+DELETE FROM agent_threads WHERE agent_id = $1 AND thread_id = $2 AND reserved RETURNING *;
+
 -- name: RenameAgentThread :one
 UPDATE agent_threads SET title = $3 WHERE agent_id = $1 AND thread_id = $2 RETURNING *;
 

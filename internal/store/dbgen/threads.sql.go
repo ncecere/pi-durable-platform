@@ -135,6 +135,53 @@ func (q *Queries) DeleteAgentThreadsNotIn(ctx context.Context, arg DeleteAgentTh
 	return result.RowsAffected(), nil
 }
 
+const deleteReservedThread = `-- name: DeleteReservedThread :many
+DELETE FROM agent_threads WHERE agent_id = $1 AND thread_id = $2 AND reserved RETURNING agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at, visibility, reserved
+`
+
+type DeleteReservedThreadParams struct {
+	AgentID  uuid.UUID
+	ThreadID string
+}
+
+// A reserved thread (no message yet, so the runtime has no conversation for
+// it) is deleted by the platform alone. Only while it is still reserved: a
+// first message that got there first un-reserves it, and then the runtime
+// deletes it.
+func (q *Queries) DeleteReservedThread(ctx context.Context, arg DeleteReservedThreadParams) ([]AgentThread, error) {
+	rows, err := q.db.Query(ctx, deleteReservedThread, arg.AgentID, arg.ThreadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentThread{}
+	for rows.Next() {
+		var i AgentThread
+		if err := rows.Scan(
+			&i.AgentID,
+			&i.ThreadID,
+			&i.Title,
+			&i.CreatedByUser,
+			&i.CreatedByService,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Busy,
+			&i.LastReplyAt,
+			&i.LastError,
+			&i.StatusAt,
+			&i.Visibility,
+			&i.Reserved,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteStaleReservedThreads = `-- name: DeleteStaleReservedThreads :execrows
 DELETE FROM agent_threads WHERE reserved AND created_at < now() - interval '30 days'
 `
@@ -607,6 +654,61 @@ func (q *Queries) ThreadSent(ctx context.Context, arg ThreadSentParams) (AgentTh
 		arg.CreatedByService,
 		arg.At,
 		arg.Visibility,
+	)
+	var i AgentThread
+	err := row.Scan(
+		&i.AgentID,
+		&i.ThreadID,
+		&i.Title,
+		&i.CreatedByUser,
+		&i.CreatedByService,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Busy,
+		&i.LastReplyAt,
+		&i.LastError,
+		&i.StatusAt,
+		&i.Visibility,
+		&i.Reserved,
+	)
+	return i, err
+}
+
+const threadStatusReported = `-- name: ThreadStatusReported :one
+UPDATE agent_threads SET
+    reserved      = false,
+    updated_at    = greatest(updated_at, coalesce($1::timestamptz, updated_at)),
+    busy          = CASE WHEN $2::timestamptz >= status_at THEN $3::boolean ELSE busy END,
+    last_reply_at = CASE WHEN $2::timestamptz >= status_at
+                         THEN coalesce($1::timestamptz, last_reply_at) ELSE last_reply_at END,
+    last_error    = CASE WHEN $2::timestamptz >= status_at THEN $4::text ELSE last_error END,
+    status_at     = greatest(status_at, $2::timestamptz)
+WHERE agent_id = $5 AND thread_id = $6
+RETURNING agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at, visibility, reserved
+`
+
+type ThreadStatusReportedParams struct {
+	LastReplyAt *time.Time
+	At          time.Time
+	Busy        bool
+	LastError   *string
+	AgentID     uuid.UUID
+	ThreadID    string
+}
+
+// The runtime reports the status of a thread the platform has a record of
+// (a single report, when a reply starts or ends). Unlike ThreadReported it
+// never creates the record: a report that arrives after the thread was
+// deleted must not bring it back. Threads the platform has no record of are
+// adopted when the runtime lists all its threads (ThreadReported, on sync).
+func (q *Queries) ThreadStatusReported(ctx context.Context, arg ThreadStatusReportedParams) (AgentThread, error) {
+	row := q.db.QueryRow(ctx, threadStatusReported,
+		arg.LastReplyAt,
+		arg.At,
+		arg.Busy,
+		arg.LastError,
+		arg.AgentID,
+		arg.ThreadID,
 	)
 	var i AgentThread
 	err := row.Scan(
