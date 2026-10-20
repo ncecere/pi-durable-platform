@@ -110,6 +110,8 @@ CROSS JOIN LATERAL (
         WHEN 'oauth_client' THEN (SELECT oc.client_name FROM oauth_clients oc WHERE oc.id = ids.target_uuid)
         WHEN 'oauth_settings' THEN CASE a.target_id WHEN 'trusted-clients' THEN 'Trusted apps' END
         WHEN 'oauth_client_secret' THEN (SELECT 'App secret ' || cs.prefix || '…' FROM oauth_client_secrets cs WHERE cs.id = ids.target_uuid)
+        WHEN 'trigger' THEN (SELECT ag.name || ' · ' || tr.name FROM agent_triggers tr JOIN agents ag ON ag.id = tr.agent_id WHERE tr.id = ids.target_uuid)
+        WHEN 'trigger_run' THEN (SELECT tr.trigger_name || ' · run' FROM trigger_runs tr WHERE tr.id = ids.target_uuid)
     END)::text AS label
 ) live
 WHERE ($1::uuid IS NULL OR a.team_id = $1::uuid)
