@@ -50,6 +50,7 @@ A runtime starts in one of two modes, chosen by its environment:
 | `PLATFORM_GATEWAY_URL`, `PLATFORM_KEY` | Where to report thread status and tool approvals (and schedule), and the credential. |
 | `TOOL_APPROVALS` | JSON `{tools, timeoutSeconds}`: the template version's tools (names, or patterns with `*`) that wait for a person's approval before they run ([approvals.md](approvals.md)). Absent: none. |
 | `PLATFORM_SCHEDULES` | `true` when the agent's template version lets it set its own schedules (the library's schedule tools, [triggers.md](triggers.md#agent-made-schedules)); absent otherwise. |
+| `AGENT_KIND`, `AGENT_KIND_SETTINGS` | The template version's kind (`triage`, `researcher`; absent: the assistant) and its settings (a JSON object), [first-party-agents.md](first-party-agents.md). The platform's runtime runs that composition; an unknown kind or settings it can't read are a misconfiguration (exit 2). A custom agent may ignore them. |
 
 `MODEL_API_KEY` (in proxy mode), `MODEL_USAGE_KEY`, `MCP_KEY` and `PLATFORM_KEY` are the agent's gateway credential.
 None of these values may be logged.
@@ -170,13 +171,13 @@ and sends `POST /activate` with `Authorization: Bearer <RUNTIME_ACTIVATION_TOKEN
 
 `schema` is an agent schema name (`agent_[a-z0-9_]{1,56}`), `databaseUrl` a PostgreSQL URL, `token` at least 16
 characters, and `env` holds only the model, MCP and platform variables above (`MODEL_*`, `MCP_SERVERS`,
-`MCP_THREADS_URL`, `MCP_KEY`, `PLATFORM_GATEWAY_URL`, `PLATFORM_KEY`, `TOOL_APPROVALS`, `PLATFORM_SCHEDULES`, `DEMO_TOKENS_PER_SECOND`); the body is at most
-4 MiB.
+`MCP_THREADS_URL`, `MCP_KEY`, `PLATFORM_GATEWAY_URL`, `PLATFORM_KEY`, `TOOL_APPROVALS`, `PLATFORM_SCHEDULES`, `AGENT_KIND`,
+`AGENT_KIND_SETTINGS`, `DEMO_TOKENS_PER_SECOND`); the body is at most 4 MiB.
 
 | Answer | When |
 |---|---|
 | `200 {"activated": true, "agentId"}` | The runtime is now that agent and accepts only the agent's `token`. Activating again with the same agent and token answers 200 too (the platform may retry). |
-| `400 invalid_config` | The body is not a valid configuration. |
+| `400 invalid_config` | The body is not a valid configuration, or one the runtime can't make an agent from (an unknown `AGENT_KIND`): it stays in standby. |
 | `401 unauthorized` | Wrong activation token. |
 | `409 already_activated` | It already runs another agent. |
 | `409 owned_elsewhere` | Another process still owns the agent; the runtime stays in standby and the platform retries. |
@@ -210,7 +211,7 @@ Best effort: each is retried a few times, and the next start reconciles what was
 
 | Version | Change |
 |---|---|
-| 1 | First written version: what runtimes of platform 0.1 to 0.3 did, plus `contractVersion` and `piDurableVersion` at `/status`. Additions since (both sides may ignore them): the upgrade check at start (`/runtime/start`, `refused` at `/status`), tool `details` and exposed `documents` in the view, `document.updated`, `GET /threads/{thread}/documents/{kind}`, and tool approvals (`TOOL_APPROVALS`, `/approvals`, `waitingThreads` and `pendingApprovals` at `/status`, the view's `approvals`, the `approvals.set` delta event, the approval reports), and `PLATFORM_SCHEDULES` with the gateway's schedule routes (sent only to agents whose version allows it). |
+| 1 | First written version: what runtimes of platform 0.1 to 0.3 did, plus `contractVersion` and `piDurableVersion` at `/status`. Additions since (both sides may ignore them): the upgrade check at start (`/runtime/start`, `refused` at `/status`), tool `details` and exposed `documents` in the view, `document.updated`, `GET /threads/{thread}/documents/{kind}`, and tool approvals (`TOOL_APPROVALS`, `/approvals`, `waitingThreads` and `pendingApprovals` at `/status`, the view's `approvals`, the `approvals.set` delta event, the approval reports), and `PLATFORM_SCHEDULES` with the gateway's schedule routes (sent only to agents whose version allows it), and agent kinds (`AGENT_KIND`, `AGENT_KIND_SETTINGS`). |
 | 2 | `backgroundWork` at `/status`, `POST /background/abort`, and `busyThreads` no longer counts a reply that only waits for a person (platform 0.4). Tool approvals add `waitingThreads` and `pendingApprovals` (approval waits are already left out of `busyThreads`). A platform reads a version 1 runtime as before. |
 
 The version goes up when a runtime and a platform of different versions can't work together (a route or field one side

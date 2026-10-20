@@ -33,6 +33,27 @@ func (e AgentAwakeReasons) Valid() bool {
 	}
 }
 
+// Defines values for AgentKind.
+const (
+	AgentKindAssistant  AgentKind = "assistant"
+	AgentKindResearcher AgentKind = "researcher"
+	AgentKindTriage     AgentKind = "triage"
+)
+
+// Valid indicates whether the value is a known member of the AgentKind enum.
+func (e AgentKind) Valid() bool {
+	switch e {
+	case AgentKindAssistant:
+		return true
+	case AgentKindResearcher:
+		return true
+	case AgentKindTriage:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AgentMessageCreateWhenBusy.
 const (
 	FollowUp AgentMessageCreateWhenBusy = "followUp"
@@ -1699,6 +1720,30 @@ type AgentEnsure struct {
 	TemplateId *openapi_types.UUID `json:"templateId,omitempty"`
 }
 
+// AgentKind Which of the runtime's compositions a template version's agents run (docs/first-party-agents.md): assistant (the default), triage, or researcher (the deep researcher)
+type AgentKind string
+
+// AgentKindSettings A kind's settings (docs/first-party-agents.md). Each field belongs to one kind; a field of another kind is refused (invalid_kind_settings). The assistant takes none. Versions return every field of their kind, with its default.
+type AgentKindSettings struct {
+	// ApproveWrites Triage: every write tool asks a person first (default true; added to the version's approvals)
+	ApproveWrites *bool `json:"approveWrites,omitempty"`
+
+	// BackgroundSubagents Researcher: long questions run in background subagents (default true; never in a triggered run)
+	BackgroundSubagents *bool `json:"backgroundSubagents,omitempty"`
+
+	// ListTools Triage: MCP tools that list new or open items (names, or patterns with *)
+	ListTools *[]string `json:"listTools,omitempty"`
+
+	// MaxPlanSteps Researcher: the most steps a plan may have (default 8)
+	MaxPlanSteps *int32 `json:"maxPlanSteps,omitempty"`
+
+	// ReadTools Triage: MCP tools that read one item
+	ReadTools *[]string `json:"readTools,omitempty"`
+
+	// WriteTools Triage: MCP tools that write (comment, label, close)
+	WriteTools *[]string `json:"writeTools,omitempty"`
+}
+
 // AgentMessageAccepted defines model for AgentMessageAccepted.
 type AgentMessageAccepted struct {
 	SubmissionId int64 `json:"submissionId"`
@@ -1873,6 +1918,12 @@ type AgentTemplateCreate struct {
 	// Instructions The agent's system prompt (version 1)
 	Instructions string `json:"instructions"`
 
+	// Kind Which of the runtime's compositions its agents run (version 1; default assistant)
+	Kind *AgentKind `json:"kind,omitempty"`
+
+	// KindSettings The kind's settings (version 1; omitted fields take the kind's defaults)
+	KindSettings *AgentKindSettings `json:"kindSettings,omitempty"`
+
 	// Mcp MCP servers its agents get
 	Mcp *[]McpAttach `json:"mcp,omitempty"`
 
@@ -1912,7 +1963,13 @@ type AgentTemplateVersion struct {
 	CreatedAt     time.Time           `json:"createdAt"`
 	CreatedByName *string             `json:"createdByName,omitempty"`
 	Instructions  string              `json:"instructions"`
-	Mcp           *[]McpAttached      `json:"mcp,omitempty"`
+
+	// Kind Which of the runtime's compositions a template version's agents run (docs/first-party-agents.md): assistant (the default), triage, or researcher (the deep researcher)
+	Kind *AgentKind `json:"kind,omitempty"`
+
+	// KindSettings A kind's settings (docs/first-party-agents.md). Each field belongs to one kind; a field of another kind is refused (invalid_kind_settings). The assistant takes none. Versions return every field of their kind, with its default.
+	KindSettings *AgentKindSettings `json:"kindSettings,omitempty"`
+	Mcp          *[]McpAttached     `json:"mcp,omitempty"`
 
 	// ModelId Its model (absent - the platform's default)
 	ModelId           *openapi_types.UUID `json:"modelId,omitempty"`
@@ -1933,6 +1990,12 @@ type AgentTemplateVersionCreate struct {
 	// ClientMcp Let apps give its agents MCP servers for a thread (omitted keeps the current version's)
 	ClientMcp    *bool  `json:"clientMcp,omitempty"`
 	Instructions string `json:"instructions"`
+
+	// Kind Which of the runtime's compositions its agents run (omitted keeps the current version's)
+	Kind *AgentKind `json:"kind,omitempty"`
+
+	// KindSettings The kind's settings, as a whole (omitted keeps the current version's when the kind stays the same, and takes the new kind's defaults when it changes; omitted fields inside take the kind's defaults)
+	KindSettings *AgentKindSettings `json:"kindSettings,omitempty"`
 
 	// Mcp MCP servers its agents get (omitted keeps the current version's; [] none)
 	Mcp *[]McpAttach `json:"mcp,omitempty"`

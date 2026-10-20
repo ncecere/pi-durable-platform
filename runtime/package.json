@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/lib/index.ts",
-    "./testing": "./src/lib/testing/index.ts"
+    "./testing": "./src/lib/testing/index.ts",
+    "./kinds": "./src/kinds/index.ts"
   },
   "packageManager": "pnpm@11.18.0",
   "engines": {

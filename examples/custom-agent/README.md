@@ -15,6 +15,10 @@ A starter project for an agent built with the runtime library, `@pdp/runtime`
   ([#16](https://github.com/ncecere/pi-durable-platform/issues/16)); until then a guard blocks, with a reason the model
   sees.
 
+For two complete agents built the same way, see the platform's first-party kinds, triage and the deep researcher
+([docs/first-party-agents.md](../../docs/first-party-agents.md)): their modules (`runtime/src/kinds/`) import only
+`@pdp/runtime`, and `@pdp/runtime/kinds` exports their parts to build a variant from.
+
 | Path | What it is |
 |---|---|
 | `src/agent.ts` | The agent: its document, tool, guard and definition (`defineAgent`). |

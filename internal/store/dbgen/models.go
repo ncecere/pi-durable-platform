@@ -76,6 +76,8 @@ type AgentTemplateVersion struct {
 	ApprovalRole           string
 	ApprovalTimeoutSeconds int32
 	AgentSchedules         bool
+	Kind                   string
+	KindSettings           json.RawMessage
 }
 
 type AgentThread struct {

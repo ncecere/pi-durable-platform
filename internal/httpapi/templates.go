@@ -71,6 +71,11 @@ func toAPITemplateVersion(vv agents.VersionView) apitypes.AgentTemplateVersion {
 		id := v.ModelID.UUID
 		out.ModelId = &id
 	}
+	kind := apitypes.AgentKind(v.Kind)
+	ks := agents.KindSettingsOf(v.KindSettings)
+	settings := apitypes.AgentKindSettings{ListTools: ks.ListTools, ReadTools: ks.ReadTools, WriteTools: ks.WriteTools,
+		ApproveWrites: ks.ApproveWrites, BackgroundSubagents: ks.BackgroundSubagents, MaxPlanSteps: ks.MaxPlanSteps}
+	out.Kind, out.KindSettings = &kind, &settings
 	return out
 }
 
@@ -107,6 +112,10 @@ func decodeTemplateCreate(w http.ResponseWriter, r *http.Request) (agents.Templa
 	setIf(&ti.ClientMCP, in.ClientMcp)
 	ti.Approvals = approvalPolicyInput(in.Approvals)
 	setIf(&ti.AgentSchedules, in.AgentSchedules)
+	if in.Kind != nil {
+		ti.Kind = string(*in.Kind)
+	}
+	ti.KindSettings = kindSettingsInput(in.KindSettings)
 	setIf(&ti.Description, in.Description)
 	setIf(&ti.Notes, in.Notes)
 	return ti, true
@@ -177,6 +186,11 @@ func (a *api) createTemplateVersion(w http.ResponseWriter, r *http.Request) {
 	}
 	setIf(&vi.Notes, in.Notes)
 	vi.Approvals = approvalPolicyInput(in.Approvals)
+	if in.Kind != nil {
+		kind := string(*in.Kind)
+		vi.Kind = &kind
+	}
+	vi.KindSettings = kindSettingsInput(in.KindSettings)
 	v, err := a.Agents.AddVersion(r.Context(), a.actor(r), id, vi)
 	a.writeTemplate(w, r, http.StatusCreated, v, err)
 }
@@ -212,6 +226,15 @@ func (a *api) reviewTemplate(w http.ResponseWriter, r *http.Request) {
 	setIf(&note, in.Note)
 	v, err := a.Agents.Review(r.Context(), a.actor(r), id, in.Decision == apitypes.AgentTemplateReviewDecisionApprove, note)
 	a.writeTemplate(w, r, http.StatusOK, v, err)
+}
+
+// kindSettingsInput is a template version's kind settings as sent (nil: omitted).
+func kindSettingsInput(in *apitypes.AgentKindSettings) *agents.KindSettings {
+	if in == nil {
+		return nil
+	}
+	return &agents.KindSettings{ListTools: in.ListTools, ReadTools: in.ReadTools, WriteTools: in.WriteTools,
+		ApproveWrites: in.ApproveWrites, BackgroundSubagents: in.BackgroundSubagents, MaxPlanSteps: in.MaxPlanSteps}
 }
 
 // approvalPolicyInput is a template version's approvals as sent (nil: omitted).

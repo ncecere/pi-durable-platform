@@ -131,6 +131,10 @@ callback's delivery state.
 last error, the time). A running run is finished when its thread is no longer busy with a status reported at or after
 the run started; with an error it failed. The trigger loop checks running runs every pass.
 
+Work a reply leaves running in the background (a background subagent) is not part of the run: neither its run time
+nor its cost covers it. The deep researcher keeps its subagents in the foreground in a triggered run for that reason
+([first-party-agents.md](first-party-agents.md#budgets-and-ceilings)).
+
 **Cost** is the agent's model usage (`model_usage`, priced at the models' current prices, as in the usage reports)
 between the run's start and its end. Usage is recorded per agent, not per thread (the runtime does not tag model
 requests with their thread), so a run that overlaps other work of the same agent (people talking to it, another run)
@@ -242,7 +246,8 @@ and `cancel_schedule`). Each one is an ordinary schedule trigger of that agent, 
 **Who may.** A template version's `agentSchedules` flag (off by default; the template editor's *Schedules* setting)
 lets its agents schedule. The platform then gives the runtime `PLATFORM_SCHEDULES=true`, and the library adds the
 tools (an extension named `pdp-schedules`) to every thread after the definition's own extensions: the default
-assistant and any custom agent built with `defineAgent` (`schedules: false` leaves them out). The gateway checks the
+assistant and any custom agent built with `defineAgent` (`schedules: false` leaves them out). A subagent's
+conversation doesn't get them. The gateway checks the
 version again when the agent schedules. Service-managed agents (an app's agent for one of its users) and an archived
 team's agents can't.
 

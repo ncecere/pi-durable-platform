@@ -135,6 +135,39 @@ describe("runtime contract: the process", () => {
 		}
 	}, 30_000);
 
+	it("runs the kind the template version names (AGENT_KIND), and exits 2 for an unknown one", async () => {
+		const schema = await agentSchema();
+		try {
+			const proc = await spawnRuntime({ ...agentEnv(schema), AGENT_KIND: "researcher", AGENT_KIND_SETTINGS: '{"maxPlanSteps":4}' });
+			expect(proc.output()).toContain("agent researcher");
+			expect(await stop(proc)).toBe(0);
+		} finally {
+			await dropSchema(schema);
+		}
+		const unknown = await spawnRuntime({ ...agentEnv("agent_unused"), AGENT_KIND: "poet" }, { waitForListening: false });
+		expect(await unknown.exited).toBe(2);
+		expect(unknown.output()).toContain("unknown AGENT_KIND");
+		const bad = await spawnRuntime({ ...agentEnv("agent_unused"), AGENT_KIND: "triage", AGENT_KIND_SETTINGS: '{"writeTools":"all"}' }, { waitForListening: false });
+		expect(await bad.exited).toBe(2);
+	}, 60_000);
+
+	it("refuses an activation for an unknown kind and stays in standby", async () => {
+		const activationToken = "contract-activation-token-0123456789";
+		const proc = await spawnRuntime({ RUNTIME_ACTIVATION_TOKEN: activationToken });
+		try {
+			const res = await fetch(`${proc.baseUrl}/activate`, {
+				method: "POST",
+				headers: { authorization: `Bearer ${activationToken}`, "content-type": "application/json" },
+				body: JSON.stringify({ agentId: "agent-kind", schema: "agent_unused", databaseUrl: ADMIN_URL, token: TOKEN, env: { MODEL_PROVIDER: "demo", AGENT_KIND: "poet" } }),
+			});
+			expect(res.status).toBe(400);
+			expect(((await res.json()) as { error: { code: string } }).error.code).toBe("invalid_config");
+			expect(await (await fetch(`${proc.baseUrl}/healthz`)).json()).toEqual({ data: { ok: true, activated: false } });
+		} finally {
+			await stop(proc);
+		}
+	}, 30_000);
+
 	it("exits 2 without an agent or an activation token", async () => {
 		const proc = await spawnRuntime({}, { waitForListening: false });
 		expect(await proc.exited).toBe(2);

@@ -746,7 +746,9 @@ role left `NOLOGIN` by a failed deletion gets its login back when the agent's st
 ## The agent runtime and custom agents
 
 `runtime/` is a library, `@pdp/runtime` (`runtime/src/lib`, exported from `runtime/package.json`), and the platform's
-own agent is its default composition (`src/main.ts` runs `assistantAgent`: the template's instructions and `get_time`).
+own agent is its default composition (`src/main.ts` runs `assistantAgent`: the template's instructions and `get_time`),
+or the first-party kind the template version names (`AGENT_KIND`: `triage` or `researcher`, `runtime/src/kinds`, built
+with the library's public exports only; [docs/first-party-agents.md](docs/first-party-agents.md)).
 A custom agent defines its own extensions (tools, prompt sections, hooks, tasks), documents, `conversationCreated` and
 settings with the same API; the library owns each thread's extension selection, so an author's guard runs on every turn.
 [docs/custom-agents.md](docs/custom-agents.md) is the design note (trust model, API, what the library guarantees and

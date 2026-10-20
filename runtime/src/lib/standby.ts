@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type RequestListener, type Server, type ServerResponse } from "node:http";
 import { type AgentConfig, AgentOwnedElsewhereError, type AgentProcess } from "./agent.ts";
 import { DEFAULT_INSTRUCTIONS } from "./assistant.ts";
+import { AgentDefinitionError } from "./define.ts";
 
 /**
  * Standby: a pre-started runtime (for example in an Agent Sandbox warm pool) that isn't any agent yet. The platform
@@ -70,6 +71,11 @@ export function createStandbyServer(options: {
 				active = undefined;
 				return fail(response, 409, "owned_elsewhere", "Another runtime still owns this agent");
 			}
+			if (error instanceof AgentDefinitionError) {
+				// The configuration can't make an agent (an unknown AGENT_KIND, say): nothing started, stay in standby.
+				active = undefined;
+				return fail(response, 400, "invalid_config", error.message);
+			}
 			throw error;
 		}
 		active.agent = agent;
@@ -84,7 +90,7 @@ export function createStandbyServer(options: {
 
 const SCHEMA = /^agent_[a-z0-9_]{1,56}$/;
 const ID = /^[A-Za-z0-9-]{1,64}$/;
-const MODEL_ENV = /^(MODEL_[A-Z_]+|MCP_SERVERS|MCP_THREADS_URL|MCP_KEY|PLATFORM_GATEWAY_URL|PLATFORM_KEY|TOOL_APPROVALS|PLATFORM_SCHEDULES|DEMO_TOKENS_PER_SECOND)$/;
+const MODEL_ENV = /^(MODEL_[A-Z_]+|MCP_SERVERS|MCP_THREADS_URL|MCP_KEY|PLATFORM_GATEWAY_URL|PLATFORM_KEY|TOOL_APPROVALS|PLATFORM_SCHEDULES|AGENT_KIND|AGENT_KIND_SETTINGS|DEMO_TOKENS_PER_SECOND)$/;
 
 /** Validates the activation body; returns the problem as a string. */
 export function parseConfig(body: unknown): AgentConfig | string {

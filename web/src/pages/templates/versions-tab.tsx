@@ -18,6 +18,7 @@ import { Stack } from "@/components/ui/layout/layout";
 import { Time } from "@/components/ui/time/time";
 import s from "../shared.module.css";
 import { type AgentTemplate, type TemplateAbilities } from "./labels";
+import { kindLabels } from "./kind-fields";
 import { NewVersionDialog } from "./new-version-dialog";
 
 /** The version's model: "Fake One · Provider", or "Platform default". */
@@ -63,6 +64,13 @@ export function VersionsTab({
                     Current
                   </Badge>
                 ) : null}{" "}
+                {v.kind && v.kind !== "assistant" ? (
+                  <>
+                    <Badge size="sm" tone="info" title="What its agents do (docs/first-party-agents.md)">
+                      {kindLabels[v.kind]}
+                    </Badge>{" "}
+                  </>
+                ) : null}
                 <Badge size="sm" title="The model it runs on">
                   {modelOf(v)}
                 </Badge>{" "}

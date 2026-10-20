@@ -3030,6 +3030,10 @@ export interface components {
             approvals?: components["schemas"]["ToolApprovalPolicyInput"];
             /** @description Let its agents set their own reminders and recurring work (the schedule tool) */
             agentSchedules?: boolean;
+            /** @description Which of the runtime's compositions its agents run (version 1; default assistant) */
+            kind?: components["schemas"]["AgentKind"];
+            /** @description The kind's settings (version 1; omitted fields take the kind's defaults) */
+            kindSettings?: components["schemas"]["AgentKindSettings"];
         };
         AgentTemplateUpdate: {
             name?: string;
@@ -3054,6 +3058,8 @@ export interface components {
             approvals?: components["schemas"]["ToolApprovalPolicy"];
             /** @description Its agents may set their own schedules (the runtime's schedule tool) */
             agentSchedules?: boolean;
+            kind?: components["schemas"]["AgentKind"];
+            kindSettings?: components["schemas"]["AgentKindSettings"];
             /** Format: date-time */
             createdAt: string;
         };
@@ -3071,6 +3077,10 @@ export interface components {
             approvals?: components["schemas"]["ToolApprovalPolicyInput"];
             /** @description Let its agents set their own reminders and recurring work (the schedule tool; omitted keeps the current version's) */
             agentSchedules?: boolean;
+            /** @description Which of the runtime's compositions its agents run (omitted keeps the current version's) */
+            kind?: components["schemas"]["AgentKind"];
+            /** @description The kind's settings, as a whole (omitted keeps the current version's when the kind stays the same, and takes the new kind's defaults when it changes; omitted fields inside take the kind's defaults) */
+            kindSettings?: components["schemas"]["AgentKindSettings"];
         };
         AgentTemplateReview: {
             /** @enum {string} */
@@ -3439,6 +3449,29 @@ export interface components {
             kind: "user" | "service_account" | "system";
             id?: string;
             name: string;
+        };
+        /**
+         * @description Which of the runtime's compositions a template version's agents run (docs/first-party-agents.md): assistant (the default), triage, or researcher (the deep researcher)
+         * @enum {string}
+         */
+        AgentKind: "assistant" | "triage" | "researcher";
+        /** @description A kind's settings (docs/first-party-agents.md). Each field belongs to one kind; a field of another kind is refused (invalid_kind_settings). The assistant takes none. Versions return every field of their kind, with its default. */
+        AgentKindSettings: {
+            /** @description Triage: MCP tools that list new or open items (names, or patterns with *) */
+            listTools?: string[];
+            /** @description Triage: MCP tools that read one item */
+            readTools?: string[];
+            /** @description Triage: MCP tools that write (comment, label, close) */
+            writeTools?: string[];
+            /** @description Triage: every write tool asks a person first (default true; added to the version's approvals) */
+            approveWrites?: boolean;
+            /** @description Researcher: long questions run in background subagents (default true; never in a triggered run) */
+            backgroundSubagents?: boolean;
+            /**
+             * Format: int32
+             * @description Researcher: the most steps a plan may have (default 8)
+             */
+            maxPlanSteps?: number;
         };
         /** @enum {string} */
         ToolApprovalStatus: "pending" | "approved" | "denied" | "timed_out" | "cancelled";

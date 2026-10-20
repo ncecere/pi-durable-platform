@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import type { Context as ModelContext } from "@earendil-works/pi-ai";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AgentDoc } from "@earendil-works/pi-durable";
-import { assistantAgent, defineAgent, defineExtension, defineTool, Type } from "@pdp/runtime";
+import { assistantAgent, defineAgent, defineExtension, defineSubagent, defineTool, Type } from "@pdp/runtime";
 import { answer, fakeModel, startTestAgent, type TestAgent, toolCall } from "@pdp/runtime/testing";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseConfig } from "../src/lib/standby.ts";
@@ -218,6 +218,30 @@ describe("the schedule tools", () => {
 		expect(await selection(agent, "t1")).toEqual(["acme", "pdp-schedules"]);
 		expect(gw.seen).toEqual([{ method: "GET", path: "/schedules", auth: `Bearer ${KEY}`, body: undefined }]);
 		expect(lastText(seen[0]!)).toBe("You have no schedules.");
+	});
+
+	it("aren't given to a subagent: only the conversation a person or a trigger talks to sets schedules", async () => {
+		const gw = await fakeGateway();
+		const childSeen: ModelContext[] = [];
+		const model = fakeModel();
+		model.reply(
+			toolCall("delegate", { task: "List the reminders" }, { id: "d1" }),
+			// The child: a model that calls the tool anyway finds no such tool, and the gateway hears nothing.
+			toolCall("list_schedules", {}, { id: "l1" }),
+			capture(childSeen, "I can't see reminders."),
+			answer("Done."),
+		);
+		const definition = defineAgent({
+			name: "with-helper",
+			extensions: [defineSubagent({ name: "delegate", description: "Give a task to a subagent" })],
+		});
+		const { agent } = await start(definition, env(gw.url), model);
+		await agent.send("t1", "Hello");
+		await agent.settled("t1");
+		// The thread has them; its subagent's conversation doesn't.
+		expect(await selection(agent, "t1")).toContain("pdp-schedules");
+		expect((childSeen[0]!.messages.at(-1) as { isError?: boolean }).isError).toBe(true);
+		expect(gw.seen).toEqual([]);
 	});
 
 	it("are allowed in an activation's environment", () => {

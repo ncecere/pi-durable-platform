@@ -1,16 +1,19 @@
 /*
  * A platform admin reads one conversation: first the reason (10–500
  * characters), which the platform records in the agent's team's audit log
- * before answering; then the conversation as it was at that moment, read-only.
+ * before answering; then the conversation as it was at that moment, read-only,
+ * with the documents the agent exposes in it (each read with the same reason,
+ * and recorded too).
  */
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { type AdminAgentThread, adminReadThread, type ChatView } from "../../../api/agents";
+import { type AdminAgentThread, adminReadThread, adminReadThreadDocument, type ChatView } from "../../../api/agents";
 import { errorMessage } from "../../../api/client";
 import { FormDialog } from "../../../components/form-dialog";
 import { ErrorAlert } from "@/components/ui/alert/alert";
 import { Conversation, ConversationContent, ConversationEmptyState } from "@/components/ui/conversation/conversation";
 import { Dialog, DialogClose } from "@/components/ui/dialog/dialog";
+import { Disclosure } from "@/components/ui/disclosure/disclosure";
 import { Field } from "@/components/ui/field/field";
 import { Textarea } from "@/components/ui/input/input";
 import { Time } from "@/components/ui/time/time";
@@ -18,6 +21,7 @@ import { toast } from "@/components/ui/toast/toast";
 import s from "./agents.module.css";
 import type { Agent } from "./labels";
 import { ChatMessages } from "./messages";
+import { DocumentBody } from "./thread-documents";
 
 export const REASON_MIN = 10;
 export const REASON_MAX = 500;
@@ -56,7 +60,9 @@ export function ReadConversationDialog({ agent, thread, onClose }: Props) {
   const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [snapshot, setSnapshot] = useState<{ view: ChatView; at: number } | null>(null);
+  const [snapshot, setSnapshot] = useState<{ view: ChatView; at: number; documents: { kind: string; value?: unknown; error?: string }[] } | null>(
+    null,
+  );
   const problem = reasonProblem(reason);
   const shown = conversationTitle(thread, true);
   const title = shown.hidden ? `Conversation (${hiddenTitle.toLowerCase()})` : shown.text;
@@ -68,7 +74,15 @@ export function ReadConversationDialog({ agent, thread, onClose }: Props) {
     setError(null);
     try {
       const view = await adminReadThread(agent.id, thread.threadId, reason.trim());
-      setSnapshot({ view, at: Date.now() });
+      const documents = await Promise.all(
+        Object.keys(view.documents ?? {}).map((kind) =>
+          adminReadThreadDocument(agent.id, thread.threadId, kind, reason.trim()).then(
+            (doc) => ({ kind, value: doc.value as unknown }),
+            (err: unknown) => ({ kind, error: errorMessage(err) }),
+          ),
+        ),
+      );
+      setSnapshot({ view, at: Date.now(), documents });
       // The read is in the team's audit log now.
       void qc.invalidateQueries({ queryKey: ["team", agent.teamSlug, "audit"] });
     } catch (err) {
@@ -93,6 +107,11 @@ export function ReadConversationDialog({ agent, thread, onClose }: Props) {
         }
         footer={<DialogClose>Close</DialogClose>}
       >
+        {snapshot.documents.map((d) => (
+          <Disclosure key={d.kind} title={d.kind}>
+            {d.error ? <p className={s.hint}>{d.error}</p> : <DocumentBody kind={d.kind} value={d.value} />}
+          </Disclosure>
+        ))}
         <Conversation className={s.snapshot} aria-label={`Conversation: ${title}`}>
           <ConversationContent>
             {snapshot.view.messages.length > 0 ? (

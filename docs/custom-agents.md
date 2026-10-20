@@ -3,8 +3,9 @@
 Design note for roadmap item X, step 1 ([#28](https://github.com/ncecere/pi-durable-platform/issues/28)). Status:
 **built**: the library, the facade, the test kit and the runtime contract (this note, `runtime/src/lib`,
 [runtime-contract.md](runtime-contract.md)), custom state for apps ([`details` and exposed documents](#custom-state-for-apps)),
-the [upgrade check](#upgrades), and a [starter project](#the-starter-project) (`examples/custom-agent/`, in this
-repository for now). Running code a team wrote is step 2
+the [upgrade check](#upgrades), a [starter project](#the-starter-project) (`examples/custom-agent/`, in this
+repository for now), and two first-party agents built with it, triage and a deep researcher
+([first-party-agents.md](first-party-agents.md)). Running code a team wrote is step 2
 ([#29](https://github.com/ncecere/pi-durable-platform/issues/29)), gated on the checks listed under
 [What step 2 must check](#what-step-2-must-check).
 
@@ -123,12 +124,14 @@ await runAgentProcess(
 
 | Export | What it is |
 |---|---|
-| `defineAgent(definition)` | Checks and returns an agent definition: `name`, `extensions` (an array, or a function of the agent's context: `agentId`, `name`, the template's `instructions`, `env`), `documents`, `expose` (the documents apps may read, see [Custom state for apps](#custom-state-for-apps)), `conversationCreated`, `settings` (pi-durable's settings without `extensions`, or a function of the context), `waitsForPerson` (task kinds that stand for a wait on a person's answer: they keep the agent awake neither as a busy thread nor as background work, see [hibernation.md](hibernation.md#waiting-for-a-person))., `schedules` (default true: the schedule tools when the template version allows them; false leaves them out). |
-| `runAgentProcess(definition)` | Runs the definition as an agent process: from environment variables or in standby, with the exit codes and signals of the [contract](runtime-contract.md). A custom agent's entry point. |
+| `defineAgent(definition)` | Checks and returns an agent definition: `name`, `extensions` (an array, or a function of the agent's context: `agentId`, `name`, the template's `instructions`, `env`), `documents`, `expose` (the documents apps may read, see [Custom state for apps](#custom-state-for-apps)), `conversationCreated`, `settings` (pi-durable's settings without `extensions`, or a function of the context), `waitsForPerson` (task kinds that stand for a wait on a person's answer: they keep the agent awake neither as a busy thread nor as background work, see [hibernation.md](hibernation.md#waiting-for-a-person)), `schedules` (default true: the schedule tools when the template version allows them; false leaves them out). |
+| `runAgentProcess(definition)` | Runs the definition as an agent process: from environment variables or in standby, with the exit codes and signals of the [contract](runtime-contract.md). A custom agent's entry point. It also takes a function of the agent's variables that returns a definition (`AgentChoice`, run at start or activation; an `AgentDefinitionError` from it is a misconfiguration): the platform's runtime picks a kind by `AGENT_KIND` that way. |
 | `startAgent(config, definition, options)` | Starts one agent in this process and returns its HTTP handler, harness and thread store. `options` replaces storage, models or the fatal-error handler (for tests). |
 | `assistantExtension(instructions)`, `assistantAgent` | The platform's own agent: the template's instructions as the prompt's preamble and `get_time`. `assistantAgent` is `defineAgent({ extensions: ({ instructions }) => [assistantExtension(instructions)] })`, what `src/main.ts` runs. |
 | `approvalHook(approvals, decide)`, `AgentContext.approvals` | Tool approvals ([approvals.md](approvals.md)): `approvals.request(call, api, context, {summary?, key?})` in a `beforeTool` hook asks a person and waits, durably (across restarts and hibernation), returning `{approved, status, reason?, decidedBy?, message}`; `approvalHook` is a `ToolTask` hook that asks when `decide(call)` returns options (or `true`) and blocks a denied call. The template's marked tools (`TOOL_APPROVALS`) are asked by the library's own `pdp-approvals` extension, selected last. |
-| `defineSubagent(options)` | A foreground subagent as an extension: a replay-safe tool whose call creates a conversation it owns, gives it the task (request ID: the call's task) and returns its answer, with `details: { conversationId }`. Options: `name`, `description`, `model`, `instructions`, `extensions` (the child's selection, computed from the caller's resolved selection). |
+| `defineSubagent(options)` | A subagent as an extension: a replay-safe tool whose call creates a conversation, gives it the task (request ID: the call's task) and returns its answer, with `details: { conversationId }`. Options: `name`, `description`, `model`, `instructions`, `extensions` (the child's selection, computed from the caller's resolved selection), `background` (`true`, or a function deciding per call: the call returns at once, the child works in a background task, and its answer comes back to the calling conversation as a message, an entry of kind `SUBAGENT_REPORT`; `details` add `background: true` and the task; see [first-party-agents.md](first-party-agents.md#what-the-library-gained)). |
+| `runAuthor(api, context)` | Who sent the message that started the run a tool call belongs to (`Author`: a person, a service account or a trigger, as the platform recorded it), or undefined. |
+| `@pdp/runtime/kinds` | The first-party kinds (triage, the deep researcher) and their parts: documents, tools, prompts, settings parsers ([first-party-agents.md](first-party-agents.md)), to build a variant from. |
 | The facade | `defineTool`, `defineExtension`, `section`, `hook`, `wrapTool`, `wrapSection`, `defineDoc`, `defineEntry`, `defineTask`, `configure`, `ToolTask`, `GenerationTask`, `CompactionTask`, `Type`, and the types an author needs (`Extension`, `ToolExecutionApi`, `HookApi`, `Tx`, `Context`, ...). |
 | `CONTRACT_VERSION`, `PI_DURABLE_VERSION` | What `/status` reports, and the runtime reports when it starts ([Upgrades](#upgrades)). |
 | `ExposedDocument`, `DEFAULT_EXPOSED_DOCUMENT_BYTES`, `MAX_EXPOSED_DOCUMENT_BYTES` | An entry of `expose` (`{ document, maxBytes }`) and its bounds (64 KiB by default, 1 MiB at most). |
@@ -156,7 +159,8 @@ the facade adapts it where it can.
   extensions, unless the definition says `schedules: false`. They call the gateway with the agent's own credential;
   the platform decides what is allowed ([triggers.md](triggers.md#agent-made-schedules)).
 - **Subagents keep the guards.** `defineSubagent` computes the child's selection from the caller's resolved selection
-  (leaving out only its own extension), never from an `{ add, remove }` edit, which would start from the host default.
+  (leaving out its own extension and the schedule tools, `pdp-schedules`: only the conversation a person or a trigger
+  talks to sets schedules), never from an `{ add, remove }` edit, which would start from the host default.
 - **Declared documents exist.** Each conversation document in `documents` is created in every conversation (threads,
   subagents' children, forks) in its creating commit, before `conversationCreated` runs; each session document once,
   at start.
@@ -261,7 +265,9 @@ details, one exposed document, one guard (a `beforeTool` hook that blocks a dang
 kit (a conversation against the fake model, restarts in the middle of a tool call and of the model's answer, the
 runtime conformance suite), a Dockerfile on the runtime image, and the local loop: the local launcher's
 `AGENTS_RUNTIME_DIR` pointed at it, the compose PostgreSQL, and the console's Test tab. It is in this repository, linked
-to `runtime/`, until the library is published; CI builds and tests it.
+to `runtime/`, until the library is published; CI builds and tests it. For larger examples, the first-party kinds in
+`runtime/src/kinds/` ([first-party-agents.md](first-party-agents.md#building-a-variant)) use only the library's public
+exports too.
 
 ## Versioning
 
@@ -291,7 +297,7 @@ the platform's own runtime tests use it:
   a request itself when it expires. `restart({ graceful: true })` stops the agent as hibernation does.
 - `expectReplayed(agent, threadId)`: after any number of restarts, every tool call has exactly one result, none was
   interrupted (unless `allowInterrupted`), the run ended with an answer, and every subagent was given its task once and
-  its answer reached the parent.
+  its answer reached the parent (a background subagent's exactly once, as a message).
 - `registerRuntimeConformance` and `registerStandbyConformance`: the [runtime contract](runtime-contract.md) as HTTP
   tests, against any runtime.
 - `registerStorageConformance`: pi-durable's storage conformance suite, for an alternative storage.

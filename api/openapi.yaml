@@ -6758,6 +6758,14 @@ components:
         agentSchedules:
           type: boolean
           description: Let its agents set their own reminders and recurring work (the schedule tool)
+        kind:
+          allOf:
+          - $ref: '#/components/schemas/AgentKind'
+          description: Which of the runtime's compositions its agents run (version 1; default assistant)
+        kindSettings:
+          allOf:
+          - $ref: '#/components/schemas/AgentKindSettings'
+          description: The kind's settings (version 1; omitted fields take the kind's defaults)
     AgentTemplateUpdate:
       type: object
       properties:
@@ -6805,6 +6813,10 @@ components:
         agentSchedules:
           type: boolean
           description: Its agents may set their own schedules (the runtime's schedule tool)
+        kind:
+          $ref: '#/components/schemas/AgentKind'
+        kindSettings:
+          $ref: '#/components/schemas/AgentKindSettings'
         createdAt:
           type: string
           format: date-time
@@ -6839,6 +6851,16 @@ components:
           description: >-
             Let its agents set their own reminders and recurring work (the schedule tool; omitted keeps the current
             version's)
+        kind:
+          allOf:
+          - $ref: '#/components/schemas/AgentKind'
+          description: Which of the runtime's compositions its agents run (omitted keeps the current version's)
+        kindSettings:
+          allOf:
+          - $ref: '#/components/schemas/AgentKindSettings'
+          description: >-
+            The kind's settings, as a whole (omitted keeps the current version's when the kind stays the same, and
+            takes the new kind's defaults when it changes; omitted fields inside take the kind's defaults)
     AgentTemplateReview:
       type: object
       required: [decision]
@@ -7415,6 +7437,53 @@ components:
           type: string
         name:
           type: string
+    AgentKind:
+      type: string
+      enum: [assistant, triage, researcher]
+      description: >-
+        Which of the runtime's compositions a template version's agents run (docs/first-party-agents.md): assistant
+        (the default), triage, or researcher (the deep researcher)
+    AgentKindSettings:
+      type: object
+      additionalProperties: false
+      description: >-
+        A kind's settings (docs/first-party-agents.md). Each field belongs to one kind; a field of another kind is
+        refused (invalid_kind_settings). The assistant takes none. Versions return every field of their kind, with
+        its default.
+      properties:
+        listTools:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+            pattern: '^[A-Za-z0-9_.*-]{1,200}$'
+          description: 'Triage: MCP tools that list new or open items (names, or patterns with *)'
+        readTools:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+            pattern: '^[A-Za-z0-9_.*-]{1,200}$'
+          description: 'Triage: MCP tools that read one item'
+        writeTools:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+            pattern: '^[A-Za-z0-9_.*-]{1,200}$'
+          description: 'Triage: MCP tools that write (comment, label, close)'
+        approveWrites:
+          type: boolean
+          description: 'Triage: every write tool asks a person first (default true; added to the version''s approvals)'
+        backgroundSubagents:
+          type: boolean
+          description: 'Researcher: long questions run in background subagents (default true; never in a triggered run)'
+        maxPlanSteps:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 20
+          description: 'Researcher: the most steps a plan may have (default 8)'
     ToolApprovalStatus:
       type: string
       enum: [pending, approved, denied, timed_out, cancelled]

@@ -28,7 +28,9 @@ A version has `approvals`:
 
 It is part of the version like the instructions: a new version (omitted keeps the current version's), upgrades and
 rollbacks change it with the version, and the runtime gets it at start (`TOOL_APPROVALS`, JSON `{tools,
-timeoutSeconds}`; activation accepts it too). The console's template editor (new version) edits it.
+timeoutSeconds}`; activation accepts it too). The console's template editor (new version) edits it. A triage version's
+write tools are added to the list the runtime gets unless its settings turn that off
+([first-party-agents.md](first-party-agents.md#triage)).
 
 ## Where the wait lives, and why it survives hibernation
 
