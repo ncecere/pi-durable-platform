@@ -19,8 +19,11 @@ describe("agent MCP", () => {
 		expect(few.clientServers).toBe(false);
 
 		const tools = Array.from({ length: 25 }, (_, i) => ({ name: `t${i}` }));
-		const many = new AgentMcp({ MCP_SERVERS: JSON.stringify([{ slug: "big", name: "Big", url: "http://x", tools }]) }, () => {});
+		const installedMany: string[] = [];
+		const many = new AgentMcp({ MCP_SERVERS: JSON.stringify([{ slug: "big", name: "Big", url: "http://x", tools }]) }, (ext) => installedMany.push(ext.name));
 		expect(many.extensions).toHaveLength(2); // the tools, and tool_search to find them
+		// tool_search is installed when it is first needed (a thread's servers may be the first), not only selected.
+		expect(installedMany).toEqual(["tool-search"]);
 		expect(many.extensions[0]?.tools?.every((t) => t.deferred === true)).toBe(true);
 	});
 
