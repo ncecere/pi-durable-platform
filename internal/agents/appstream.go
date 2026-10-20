@@ -109,7 +109,7 @@ func (s *Service) appAudience(ctx context.Context, ag dbgen.Agent, clientID, res
 	for _, p := range people {
 		// The person through the app: their team role, no platform role.
 		a := authz.Actor{UserID: p.UserID, PlatformRole: authz.PlatformNone, OAuthGrantID: p.GrantID, OAuthClientName: p.ClientName}
-		if authz.CheckAgentUse(authz.AgentSubject{Role: p.Role, ServiceManaged: ag.ExternalKey != nil}) != nil || !listable(a, t) {
+		if authz.CheckAgentUse(authz.AgentSubject{Role: p.Role, ServiceManaged: ag.ServiceManaged}) != nil || !listable(a, t) {
 			continue
 		}
 		out = append(out, p.Subject)

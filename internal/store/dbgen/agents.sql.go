@@ -36,9 +36,12 @@ func (q *Queries) AgentIDs(ctx context.Context) ([]uuid.UUID, error) {
 }
 
 const countTeamAgents = `-- name: CountTeamAgents :one
-SELECT count(*) FROM agents WHERE team_id = $1 AND external_key IS NULL
+SELECT count(*) FROM agents WHERE team_id = $1 AND NOT service_managed
 `
 
+// The agents that count towards a team's limit: all but service-managed ones
+// (apps create those for their users). A personal workspace's agents with a
+// key are the person's, not service-managed, so they count.
 func (q *Queries) CountTeamAgents(ctx context.Context, teamID uuid.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, countTeamAgents, teamID)
 	var count int64

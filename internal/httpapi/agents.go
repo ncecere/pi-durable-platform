@@ -16,8 +16,8 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/agents"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
-	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 	"github.com/ncecere/pi-durable-platform/internal/oauth"
+	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 )
 
 // Agents (api/openapi.yaml, tag agents). internal/agents authorizes every

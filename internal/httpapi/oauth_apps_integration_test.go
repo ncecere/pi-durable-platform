@@ -32,6 +32,12 @@ type trustedAppEnv struct {
 
 func newTrustedAppEnv(t *testing.T, recheck time.Duration) *trustedAppEnv {
 	t.Helper()
+	return newTrustedAppEnvWith(t, recheck, false)
+}
+
+// newTrustedAppEnvWith is newTrustedAppEnv, with personal workspaces made at sign-in when personal is set.
+func newTrustedAppEnvWith(t *testing.T, recheck time.Duration, personal bool) *trustedAppEnv {
+	t.Helper()
 	var docURL string
 	docSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -42,7 +48,7 @@ func newTrustedAppEnv(t *testing.T, recheck time.Duration) *trustedAppEnv {
 	docURL = docSrv.URL + "/client.json"
 	app := newTestAppWith(t, nil, testutil.Logger(), func(d *httpapi.Deps) {
 		d.OAuth.SetMetadataTLS(&tls.Config{RootCAs: docSrv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs})
-	}, false)
+	}, personal)
 	if recheck > 0 {
 		app.Agents.SetStreamRecheck(recheck)
 	}
@@ -454,5 +460,36 @@ func TestOAuthAppUsage(t *testing.T) {
 	exec(t, app, `UPDATE agent_run_senders SET sent_at = now() - interval '1 hour' WHERE agent_id = $1`, ag.Id)
 	if g := oauth.Attribution(ctx, q, ag.Id, ""); g.Valid {
 		t.Fatalf("an idle agent's work attributed to %v", g.UUID)
+	}
+}
+
+// An agent an app keeps by key in the person's personal workspace is the person's, not service-managed (#11), so its
+// threads reach that person on the app stream like any other agent of theirs.
+func TestOAuthAppStreamIncludesKeyedAgentsInPersonalWorkspaces(t *testing.T) {
+	e := newTrustedAppEnvWith(t, 200*time.Millisecond, true)
+	app := e.app
+	ann := app.signIn("user")
+	tok := e.connect(t, ann, "a")
+	access, sub := tok["access_token"].(string), tok["subject"].(string)
+	var me apitypes.Me // the first /v1/me makes the person's workspace
+	if c, _, _ := bearer(t, app, access, "GET", "/v1/me", nil, &me); c != 200 {
+		t.Fatalf("me %d", c)
+	}
+	var mine []apitypes.MyTeam
+	if c, _, _ := bearer(t, app, access, "GET", "/v1/teams", nil, &mine); c != 200 || len(mine) != 1 || *mine[0].Kind != "personal" {
+		t.Fatalf("teams %d %+v", c, mine)
+	}
+	var keyed apitypes.Agent
+	c, ec, _ := bearer(t, app, access, "PUT", "/v1/teams/"+mine[0].Slug+"/agents/by-key/assistant", map[string]any{"name": "Assistant"}, &keyed)
+	mustCode(t, "keyed agent in the workspace", c, ec, 201, "")
+	if keyed.ServiceManaged {
+		t.Fatalf("a keyed agent in a personal workspace is service-managed: %+v", keyed)
+	}
+	stream := openAppStream(t, app, e.secret)
+	var th apitypes.AgentThread
+	c, ec = ann.call("POST", "/v1/agents/"+keyed.Id.String()+"/threads", map[string]any{"visibility": "private"}, &th, nil)
+	mustCode(t, "start a thread", c, ec, 201, "")
+	if ev, ok := stream.next(th.ThreadId, 5*time.Second); !ok || subjectsOf(ev) != sub || ev.AgentId != keyed.Id {
+		t.Fatalf("the keyed agent's thread didn't reach its person on the app stream: %+v %v", ev, ok)
 	}
 }
