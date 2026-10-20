@@ -66,7 +66,7 @@ func toAPITemplateVersion(vv agents.VersionView) apitypes.AgentTemplateVersion {
 	}
 	out := apitypes.AgentTemplateVersion{Mcp: &attached, ClientMcp: &clientMCP, Version: v.Version, Instructions: v.Instructions, Notes: v.Notes, CreatedByName: v.CreatedByName,
 		CreatedAt: v.CreatedAt, ModelName: v.ModelName, ModelProviderName: v.ModelProviderName,
-		Approvals: apitypes.ToolApprovalPolicy{Tools: policy.Tools, Role: apitypes.ToolApprovalPolicyRole(policy.Role), TimeoutSeconds: policy.TimeoutSeconds}}
+		Approvals: &apitypes.ToolApprovalPolicy{Tools: policy.Tools, Role: apitypes.ToolApprovalPolicyRole(policy.Role), TimeoutSeconds: policy.TimeoutSeconds}}
 	if v.ModelID.Valid {
 		id := v.ModelID.UUID
 		out.ModelId = &id

@@ -41,7 +41,7 @@ func newApprovalEnv(t *testing.T) *approvalEnv {
 	if code := e.editor.get("/v1/agent-templates/"+tpl.Id.String()+"/versions", &versions); code != 200 || len(versions) != 1 {
 		t.Fatalf("versions: %d %+v", code, versions)
 	}
-	if p := versions[0].Approvals; strings.Join(p.Tools, ",") != "get_*" || p.Role != "admin" || p.TimeoutSeconds != 3600 {
+	if p := versions[0].Approvals; p == nil || strings.Join(p.Tools, ",") != "get_*" || p.Role != "admin" || p.TimeoutSeconds != 3600 {
 		t.Fatalf("version 1's approvals = %+v", p)
 	}
 	var ag apitypes.Agent
@@ -296,7 +296,7 @@ func TestTemplateVersionsCarryTheirApprovals(t *testing.T) {
 		t.Fatalf("%d versions", len(versions))
 	}
 	for _, v := range versions[:2] {
-		if p := v.Approvals; strings.Join(p.Tools, ",") != "get_*" || p.Role != "member" || p.TimeoutSeconds != 3600 {
+		if p := v.Approvals; p == nil || strings.Join(p.Tools, ",") != "get_*" || p.Role != "member" || p.TimeoutSeconds != 3600 {
 			t.Fatalf("version %d's approvals = %+v", v.Version, p)
 		}
 	}

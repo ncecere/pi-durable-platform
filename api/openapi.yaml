@@ -6759,7 +6759,7 @@ components:
           type: boolean
     AgentTemplateVersion:
       type: object
-      required: [version, instructions, notes, approvals, createdAt]
+      required: [version, instructions, notes, createdAt]
       properties:
         version:
           type: integer

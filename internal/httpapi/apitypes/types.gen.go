@@ -1895,12 +1895,12 @@ type AgentTemplateUpdate struct {
 // AgentTemplateVersion defines model for AgentTemplateVersion.
 type AgentTemplateVersion struct {
 	// Approvals Which tools of a template version ask a person before they run (docs/approvals.md)
-	Approvals     ToolApprovalPolicy `json:"approvals"`
-	ClientMcp     *bool              `json:"clientMcp,omitempty"`
-	CreatedAt     time.Time          `json:"createdAt"`
-	CreatedByName *string            `json:"createdByName,omitempty"`
-	Instructions  string             `json:"instructions"`
-	Mcp           *[]McpAttached     `json:"mcp,omitempty"`
+	Approvals     *ToolApprovalPolicy `json:"approvals,omitempty"`
+	ClientMcp     *bool               `json:"clientMcp,omitempty"`
+	CreatedAt     time.Time           `json:"createdAt"`
+	CreatedByName *string             `json:"createdByName,omitempty"`
+	Instructions  string              `json:"instructions"`
+	Mcp           *[]McpAttached      `json:"mcp,omitempty"`
 
 	// ModelId Its model (absent - the platform's default)
 	ModelId           *openapi_types.UUID `json:"modelId,omitempty"`
