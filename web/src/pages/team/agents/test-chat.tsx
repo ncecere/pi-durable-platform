@@ -8,7 +8,8 @@
  * The thread list pages (and searches titles); the conversation shows its
  * latest messages and loads earlier ones on request. While a reply runs, a
  * message can steer it. A tool call waiting for approval shows Approve and
- * Deny to someone who may decide it.
+ * Deny to someone who may decide it. The documents the agent exposes (a
+ * triage queue, a research plan and its sources) show above the chat.
  */
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CornerDownRight, MessageSquarePlus, Search } from "lucide-react";
@@ -36,6 +37,7 @@ import { useDebounced } from "../../admin/hooks";
 import { useSearchParams } from "@/lib/url-search";
 import { markAwake } from "./labels";
 import { ChatMessages } from "./messages";
+import { ThreadDocuments } from "./thread-documents";
 import { ThreadAudience, ThreadList } from "./thread-list";
 import { VisibilityPicker } from "./visibility-picker";
 import { Button } from "@/components/ui/button/button";
@@ -248,6 +250,7 @@ export function TestChat({ agent, personal = false }: Props) {
           ) : null}
           {thread && !personal ? <ThreadAudience thread={thread} viewerId={viewerId} /> : null}
         </header>
+        {exists && view?.documents ? <ThreadDocuments agentId={agent.id} threadId={current} documents={view.documents} /> : null}
         <Conversation className={s.conversation}>
           <ConversationContent>
             {earlierCursor ? (

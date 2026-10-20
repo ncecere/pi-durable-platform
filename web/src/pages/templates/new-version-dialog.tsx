@@ -1,4 +1,4 @@
-/* A new version of a template: its instructions, model, MCP servers and tool approvals, starting from the current version's. */
+/* A new version of a template: its instructions, model, MCP servers, tool approvals and kind, starting from the current version's. */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, errorMessage, unwrap } from "../../api/client";
@@ -12,6 +12,7 @@ import { Field } from "@/components/ui/field/field";
 import { Input, Textarea } from "@/components/ui/input/input";
 import { toast } from "@/components/ui/toast/toast";
 import { ApprovalFields, type ApprovalPolicy, approvalsProblem, defaultApprovals, sameApprovals } from "./approval-fields";
+import { type AgentKind, defaultKindSettings, KindFields, kindProblem, type KindSettings, kindSettingsOf, sameKindSettings } from "./kind-fields";
 import { type AgentTemplate, storeTemplate } from "./labels";
 import { catalogMcpNote, catalogMcpUnavailable, catalogModelsNote, catalogRefusal, useTemplateMcpServers, useTemplateModels } from "./template-models";
 
@@ -32,6 +33,9 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
   // undefined: the current version's tool approvals.
   const [pickedApprovals, setPickedApprovals] = useState<ApprovalPolicy | undefined>(undefined);
   const [pickedSchedules, setPickedSchedules] = useState<boolean | undefined>(undefined);
+  // undefined: the current version's kind and settings.
+  const [pickedKind, setPickedKind] = useState<AgentKind | undefined>(undefined);
+  const [pickedKindSettings, setPickedKindSettings] = useState<KindSettings | undefined>(undefined);
   const [submitted, setSubmitted] = useState(false);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
@@ -44,9 +48,14 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
   const currentApprovals = current?.approvals ?? defaultApprovals;
   const approvals = pickedApprovals ?? currentApprovals;
   const agentSchedules = pickedSchedules ?? current?.agentSchedules ?? false;
+  const currentKind: AgentKind = current?.kind ?? "assistant";
+  const currentKindSettings = kindSettingsOf(currentKind, current?.kindSettings);
+  const kind = pickedKind ?? currentKind;
+  const kindSettings = pickedKindSettings ?? (kind === currentKind ? currentKindSettings : defaultKindSettings(kind));
+  const kindChanged = kind !== currentKind;
   const submit = async () => {
     setSubmitted(true);
-    if (!value.trim() || mcpProblem(mcp) || approvalsProblem(approvals)) return;
+    if (!value.trim() || mcpProblem(mcp) || approvalsProblem(approvals) || kindProblem(kind, kindSettings)) return;
     setBusy(true);
     try {
       const t = unwrap(
@@ -61,6 +70,8 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
             clientMcp: clientMcp === (current?.clientMcp ?? false) ? undefined : clientMcp,
             approvals: sameApprovals(approvals, currentApprovals) ? undefined : approvals,
             agentSchedules: agentSchedules === (current?.agentSchedules ?? false) ? undefined : agentSchedules,
+            kind: kindChanged ? kind : undefined,
+            kindSettings: kindChanged || !sameKindSettings(kindSettings, currentKindSettings) ? kindSettings : undefined,
           },
         }),
       );
@@ -111,6 +122,16 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
       />
       <ApprovalFields value={approvals} onChange={setPickedApprovals} showErrors={submitted} />
       <AgentSchedulesField checked={agentSchedules} onCheckedChange={setPickedSchedules} />
+      <KindFields
+        kind={kind}
+        settings={kindSettings}
+        onKindChange={(k) => {
+          setPickedKind(k);
+          setPickedKindSettings(k === currentKind ? currentKindSettings : defaultKindSettings(k));
+        }}
+        onSettingsChange={setPickedKindSettings}
+        showErrors={submitted}
+      />
       <Field label="What changed" labelHint="Optional">
         <Input value={notes} maxLength={2000} onValueChange={setNotes} />
       </Field>

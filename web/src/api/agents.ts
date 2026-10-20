@@ -17,7 +17,21 @@ export type AgentThreadEvent = Schemas["AgentThreadEvent"];
 export type AdminAgentThread = Schemas["AdminAgentThread"];
 export type ThreadVisibility = Schemas["ThreadVisibility"];
 
+export type ThreadDocument = Schemas["ThreadDocument"];
+
 export const agentsKey = ["agents"];
+
+/**
+ * An exposed document of a thread (docs/custom-agents.md), at the revision the thread's view names: a new revision
+ * (the stream's document.updated) is a new query, so the panel follows the document without polling.
+ */
+export const threadDocumentQuery = (agentId: string, threadId: string, kind: string, revision: string) =>
+  queryOptions({
+    queryKey: [...agentsKey, agentId, "threads", threadId, "documents", kind, revision],
+    queryFn: async () =>
+      unwrap(await api.GET("/v1/agents/{agentId}/threads/{threadId}/documents/{kind}", { params: { path: { agentId, threadId, kind } } })),
+    staleTime: Infinity,
+  });
 
 /** The agents of the person's teams (with service-managed ones where they are an owner or admin). */
 export const agentsQuery = () =>
@@ -134,6 +148,16 @@ export async function adminReadThread(agentId: string, threadId: string, reason:
   return unwrap(
     await api.POST("/v1/admin/agents/{agentId}/threads/{threadId}/read", {
       params: { path: { agentId, threadId } },
+      body: { reason },
+    }),
+  );
+}
+
+/** A platform admin reads one of a thread's exposed documents, with the reason (recorded like the thread's read). */
+export async function adminReadThreadDocument(agentId: string, threadId: string, kind: string, reason: string): Promise<ThreadDocument> {
+  return unwrap(
+    await api.POST("/v1/admin/agents/{agentId}/threads/{threadId}/documents/{kind}/read", {
+      params: { path: { agentId, threadId, kind } },
       body: { reason },
     }),
   );

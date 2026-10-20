@@ -12,6 +12,7 @@ import type { McpAttach } from "../../api/mcp";
 import { Field } from "@/components/ui/field/field";
 import { Input, Textarea } from "@/components/ui/input/input";
 import { toast } from "@/components/ui/toast/toast";
+import { type AgentKind, defaultKindSettings, KindFields, kindProblem, type KindSettings } from "./kind-fields";
 import { slugProblem } from "./labels";
 import { useTemplateMcpServers, useTemplateModels } from "./template-models";
 
@@ -35,6 +36,8 @@ export function CreateTemplateDialog({
   const [mcp, setMcp] = useState<McpAttach[]>([]);
   const [clientMcp, setClientMcp] = useState(false);
   const [agentSchedules, setAgentSchedules] = useState(false);
+  const [kind, setKind] = useState<AgentKind>("assistant");
+  const [kindSettings, setKindSettings] = useState<KindSettings>({});
   const [submitted, setSubmitted] = useState(false);
   const [taken, setTaken] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -50,7 +53,7 @@ export function CreateTemplateDialog({
   };
   const submit = async () => {
     setSubmitted(true);
-    if (slugProblem(slug) || !name.trim() || !instructions.trim() || mcpProblem(mcp))
+    if (slugProblem(slug) || !name.trim() || !instructions.trim() || mcpProblem(mcp) || kindProblem(kind, kindSettings))
       return;
     setBusy(true);
     try {
@@ -64,6 +67,9 @@ export function CreateTemplateDialog({
         mcp: mcp.length ? mcp : undefined,
         clientMcp: clientMcp || undefined,
         agentSchedules: agentSchedules || undefined,
+        // The assistant is the default and takes no settings.
+        kind: kind === "assistant" ? undefined : kind,
+        kindSettings: kind === "assistant" ? undefined : kindSettings,
       };
       const created = team
         ? unwrap(
@@ -172,6 +178,16 @@ export function CreateTemplateDialog({
         showErrors={submitted}
       />
       <AgentSchedulesField checked={agentSchedules} onCheckedChange={setAgentSchedules} />
+      <KindFields
+        kind={kind}
+        settings={kindSettings}
+        onKindChange={(k) => {
+          setKind(k);
+          setKindSettings(defaultKindSettings(k));
+        }}
+        onSettingsChange={setKindSettings}
+        showErrors={submitted}
+      />
     </FormDialog>
   );
 }
