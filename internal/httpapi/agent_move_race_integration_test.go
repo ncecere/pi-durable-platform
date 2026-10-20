@@ -110,6 +110,14 @@ func TestThreadMCPServersRacingAMove(t *testing.T) {
 		WHERE template_id = (SELECT id FROM agent_templates WHERE slug = 'assistant')`); err != nil {
 		t.Fatal(err)
 	}
+	// The test's own connections (the lock it holds, the waits it counts) come from a pool of its own: taken from the
+	// app's pool, they could use up its last connection while the app's requests wait for locks, and the test would
+	// then wait for a connection forever (a small CI runner has a pool of four).
+	probe, err := pgxpool.NewWithConfig(ctx, e.app.Pool.Config())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(probe.Close)
 	type result struct {
 		code int
 		ec   string
@@ -124,7 +132,9 @@ func TestThreadMCPServersRacingAMove(t *testing.T) {
 	}
 	count := func(sql string, args ...any) (n int) {
 		t.Helper()
-		if err := e.app.Pool.QueryRow(ctx, sql, args...).Scan(&n); err != nil {
+		qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		if err := probe.QueryRow(qctx, sql, args...).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		return n
@@ -154,7 +164,7 @@ func TestThreadMCPServersRacingAMove(t *testing.T) {
 			t.Fatalf("first servers: %+v", r)
 		}
 		// The write's insert waits behind a lock on the thread's record (a foreign key check) ...
-		tx, err := e.app.Pool.Begin(ctx)
+		tx, err := probe.Begin(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -188,7 +198,7 @@ func TestThreadMCPServersRacingAMove(t *testing.T) {
 			t.Fatalf("first servers: %+v", r)
 		}
 		// The move under way: the agent's row locked, as Move locks it, then moved and its thread servers removed.
-		tx, err := e.app.Pool.Begin(ctx)
+		tx, err := probe.Begin(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -36,6 +36,7 @@ var notDocumented = map[string]string{
 	"PDP_TEST_DATABASE_URL":   "tests only (internal/testutil): the Postgres server the integration tests use",
 	"PDP_TEST_REQUIRE_DB":     "tests only (internal/testutil): fail instead of skipping without Postgres",
 	"PDP_TEST_LOG":            "tests only (internal/testutil): show the server's logs",
+	"PDP_TEST_POOL_MAX_CONNS": "tests only (internal/testutil): a database pool as small as a small CI runner's",
 	"CI":                      "set by CI systems; internal/testutil treats it like PDP_TEST_REQUIRE_DB",
 }
 

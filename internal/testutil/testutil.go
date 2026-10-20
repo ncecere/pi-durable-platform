@@ -106,7 +106,17 @@ func NewDB(t testing.TB) (*pgxpool.Pool, string) {
 	}
 	u.Path = "/" + name
 	dbURL := u.String()
-	pool, err := store.Open(ctx, dbURL)
+	poolURL := dbURL
+	if n := os.Getenv("PDP_TEST_POOL_MAX_CONNS"); n != "" {
+		// A pool as small as a small CI runner's (pgxpool defaults to max(4, CPUs)), to find tests and code that
+		// need more connections than they hold.
+		q := u.Query()
+		q.Set("pool_max_conns", n)
+		pu := *u
+		pu.RawQuery = q.Encode()
+		poolURL = pu.String()
+	}
+	pool, err := store.Open(ctx, poolURL)
 	if err != nil {
 		t.Fatalf("open test db: %v", err)
 	}
