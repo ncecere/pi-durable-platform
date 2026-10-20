@@ -9,6 +9,10 @@
  * where to go: the app, with a code or access_denied. A request that isn't
  * valid (400 oauth_*, 404) is explained here and never sent anywhere.
  *
+ * When the app expects another account (its login_hint), the page offers to
+ * sign out and go through the app's request again: signed out, the platform
+ * sends the browser to sign in with that hint.
+ *
  * No app shell: nothing to wander off to while the app waits. Signed out,
  * the session gate shows the sign-in page, which returns here with the
  * whole query.
@@ -69,6 +73,14 @@ export function OAuthConsentPage() {
       redirectTo.go(target);
     },
   });
+  // Sign out, then the app's request again: the platform sends the browser to sign in, with the app's login_hint.
+  const switchAccount = useMutation({
+    mutationFn: async () => unwrap(await api.POST("/auth/logout")),
+    onSuccess: () => {
+      setLeaving(true);
+      redirectTo.go(`/oauth/authorize?${query}`);
+    },
+  });
   const clientName = view.data?.client.name;
   const failed = view.error != null;
   useEffect(() => {
@@ -98,7 +110,7 @@ export function OAuthConsentPage() {
                 </p>
               </Stack>
             )}
-            {view.data && <ConsentBody consent={view.data} titleId={titleId} email={me.user.email} decide={decide} leaving={leaving} />}
+            {view.data && <ConsentBody consent={view.data} titleId={titleId} email={me.user.email} decide={decide} leaving={leaving} switchAccount={switchAccount} />}
           </CardBody>
         </Card>
       </div>

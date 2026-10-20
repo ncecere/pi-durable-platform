@@ -1748,13 +1748,13 @@ export interface paths {
         };
         /**
          * The consent page's view of an app's authorization request (the person signed in)
-         * @description The query is the authorization request the app sent to /oauth/authorize, unchanged (the platform redirects the browser to the web app's /connect/consent with it). A request that isn't valid is a 400 whose code starts with oauth_ (the page shows the reason and never sends the browser anywhere).
+         * @description The query is the authorization request the app sent to /oauth/authorize, unchanged (the platform redirects the browser to the web app's /connect/consent with it). A request that isn't valid is a 400 whose code starts with oauth_ (the page shows the reason and never sends the browser anywhere). When the request's login_hint isn't the signed-in person (their email or identity provider subject), accountMismatch is true: the page offers to sign out and sign in as the hinted account, or to cancel, and allowing is refused (409 account_mismatch).
          */
         get: operations["getOAuthConsent"];
         put?: never;
         /**
          * Allow or deny an app's authorization request; returns where to send the browser
-         * @description Allowing records the person's consent (a connected app, remembered until revoked) and returns the app's redirect URI with an authorization code; denying returns it with error=access_denied.
+         * @description Allowing records the person's consent (a connected app, remembered until revoked; a grant of agents:read widens to agents when the app asks for it) and returns the app's redirect URI with an authorization code; denying returns it with error=access_denied. Allowing a request whose login_hint isn't the signed-in person is 409 account_mismatch.
          */
         post: operations["decideOAuthConsent"];
         delete?: never;
@@ -1819,6 +1819,103 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/app/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Server-sent events for the threads of everyone who connected the calling app (trusted apps, with their secret)
+         * @description Authenticated as the app itself: `Authorization: Bearer <app secret>` (pdpcs_…, issued by a platform admin to a trusted app; never a person's token). `event: ready` first, then `event: thread` (an AppThreadEvent) whenever a thread changes that one or more of the app's people may see, with their subjects. The people are those with an active connection to the app (any scope; a connection whose refresh token expired or that was revoked counts no more, from the next change on) who are active (not suspended or denied by the group re-check), and each sees what their own GET /v1/agents/events through the app would show: agents of teams they are members of (no platform staff reads, never service-managed agents), shared threads and their own private ones, reserved threads only their own. `once=true` sends `ready` and ends. A keep-alive comment comes every 15 seconds. Every 30 seconds the stream checks that its secret still exists and its app is still trusted, and ends otherwise (the reconnect is then 401). A slow reader misses events; reconnect and re-list after a gap.
+         */
+        get: operations["getAppEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/app/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Usage of the people who connected the calling app, by person and day (trusted apps, with their secret)
+         * @description Authenticated as the app itself (`Authorization: Bearer <app secret>`). Model requests and tokens (with a cost estimate at the models' current prices) and tool calls an agent made while answering a message sent through the app's tokens, by person (subject) and UTC day, ordered by day then subject, paged with cursor. Includes people who have since disconnected the app. Attribution is conservative: work of an agent that, at that moment, was answering people through different apps (or not through an app) is not counted for any app (DESIGN.md › OAuth Connect).
+         */
+        get: operations["getAppUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/oauth-clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The apps people have connected, most people first (platform admins and auditors) */
+        get: operations["adminListConnectedApps"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/settings/oauth-clients/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Trusted apps' secrets, never the secrets themselves (platform admins and auditors) */
+        get: operations["adminListAppSecrets"];
+        put?: never;
+        /**
+         * Issue a secret to a trusted app, shown once (platform admins)
+         * @description The secret authenticates the app on the app-level endpoints (GET /v1/app/events and /v1/app/usage) while it is on the trusted list. At most two per app, to rotate: issue a new one, move the app to it, delete the old one (409 too_many_secrets when there are two). 422 client_not_trusted: the app isn't on the trusted list.
+         */
+        post: operations["adminCreateAppSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/settings/oauth-clients/secrets/{secretId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                secretId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a trusted app's secret; it stops working at once (platform admins) */
+        delete: operations["adminDeleteAppSecret"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/users/{userId}/oauth-grants": {
         parameters: {
             query?: never;
@@ -1869,7 +1966,7 @@ export interface paths {
         get: operations["adminGetTrustedClients"];
         /**
          * Replace the trusted apps (platform admins)
-         * @description Only apps identified by a Client ID Metadata Document (an https URL with a path) can be trusted: a registered app's ID changes, and anyone can register any name. A trusted app skips the consent screen, never the sign-in.
+         * @description Only apps identified by a Client ID Metadata Document (an https URL with a path) can be trusted: a registered app's ID changes, and anyone can register any name. A trusted app skips the consent screen, never the sign-in (nor the login_hint account check). Only a trusted app can have app secrets (GET /v1/app/events and /v1/app/usage): taking an app off the list stops its secrets at once.
          */
         put: operations["adminUpdateTrustedClients"];
         post?: never;
@@ -2970,6 +3067,18 @@ export interface components {
             user: components["schemas"]["User"];
             csrfToken: string;
             capabilities: components["schemas"]["Capabilities"];
+            connectedApp?: components["schemas"]["ConnectedAppRef"];
+        };
+        /** @description Present when the caller is an app's OAuth Connect token */
+        ConnectedAppRef: {
+            clientId: string;
+            /**
+             * Format: uuid
+             * @description The person's app-stable pseudonymous ID for this app (the same in the token response's subject, the app event stream and app usage); it stays when they disconnect and connect again.
+             */
+            subject: string;
+            /** @description The token's scopes (agents, or agents:read) */
+            scopes: string[];
         };
         Member: {
             user: components["schemas"]["MemberUser"];
@@ -3278,10 +3387,15 @@ export interface components {
             client: components["schemas"]["OAuthClientInfo"];
             redirectUri: string;
             redirectHost: string;
+            /** @description What the app asks for (agents, or agents:read alone) */
             scopes: string[];
-            /** @description The person already allowed this app */
+            /** @description The person already allowed this app, for these scopes */
             remembered: boolean;
             personalWorkspace?: components["schemas"]["PersonalWorkspaceRef"];
+            /** @description The account the app expects (its login_hint), when it sent one */
+            loginHint?: string;
+            /** @description The login_hint isn't the signed-in person: allowing is refused; sign out and sign in as the hinted account, or cancel */
+            accountMismatch?: boolean;
         };
         OAuthConsentDecision: {
             /** @description The authorization request's query string, as the consent page received it */
@@ -3298,6 +3412,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             client: components["schemas"]["OAuthClientInfo"];
+            /** @description What the person allowed (agents, or agents:read alone for a read-only connection) */
             scopes: string[];
             /** Format: date-time */
             createdAt: string;
@@ -3318,6 +3433,104 @@ export interface components {
         };
         TrustedClientsUpdate: {
             clients: components["schemas"]["TrustedClient"][];
+        };
+        /** @description A thread change on the app-level event stream, for the people (subjects) who may see it, by the rules of their own GET /v1/agents/events through the app. */
+        AppThreadEvent: {
+            /** @description The app-stable subjects of the people who connected the app and may see this change */
+            subjects: string[];
+            /** Format: uuid */
+            agentId: string;
+            threadId: string;
+            deleted: boolean;
+            /** @description The thread now (absent when deleted) */
+            thread?: components["schemas"]["AgentThread"] | null;
+        };
+        AppUsageRow: {
+            /** Format: date */
+            day: string;
+            /**
+             * Format: uuid
+             * @description The person's app-stable subject
+             */
+            subject: string;
+            /**
+             * Format: int64
+             * @description Model requests
+             */
+            requests: number;
+            /** Format: int64 */
+            inputTokens: number;
+            /** Format: int64 */
+            outputTokens: number;
+            /** Format: int64 */
+            cacheReadTokens: number;
+            /** Format: int64 */
+            cacheWriteTokens: number;
+            /**
+             * Format: double
+             * @description Estimate at the models' current prices
+             */
+            costUsd: number;
+            /**
+             * Format: int64
+             * @description Requests of models without prices (not in costUsd)
+             */
+            unpricedRequests: number;
+            /**
+             * Format: int64
+             * @description Tool calls through the platform's MCP proxy
+             */
+            toolCalls: number;
+        };
+        AppUsagePage: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            rows: components["schemas"]["AppUsageRow"][];
+            /** @description Pass as cursor for the next page (absent on the last one) */
+            nextCursor?: string;
+        };
+        /** @description An app people have connected (active connections) */
+        ConnectedApp: {
+            clientId: string;
+            /** @description Its name as the newest consent saw it */
+            name: string;
+            /** @enum {string} */
+            kind: "metadata" | "registered";
+            /**
+             * Format: int64
+             * @description People with an active connection
+             */
+            people: number;
+            /**
+             * Format: date-time
+             * @description Its latest use (else connection)
+             */
+            lastActiveAt: string;
+            trusted: boolean;
+        };
+        /** @description A trusted app's secret, without the secret */
+        AppSecret: {
+            /** Format: uuid */
+            id: string;
+            clientId: string;
+            /** @description The secret's first characters, to tell it apart */
+            prefix: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            lastUsedAt?: string | null;
+            /** @description Its app is on the trusted list now (the secret works only then) */
+            trusted: boolean;
+        };
+        AppSecretCreated: components["schemas"]["AppSecret"] & {
+            /** @description The secret (pdpcs_…), shown this once */
+            secret: string;
+        };
+        AppSecretCreate: {
+            /** @description A trusted app's client_id */
+            clientId: string;
         };
     };
     responses: {
@@ -3441,6 +3654,8 @@ export interface operations {
             query?: {
                 /** @description Same-origin path to return to after sign-in. */
                 next?: string;
+                /** @description Passed to the identity provider as login_hint (whom to sign in; OAuth Connect sends an app's login_hint here). At most 320 characters on one line, else ignored. */
+                login_hint?: string;
             };
             header?: never;
             path?: never;
@@ -5704,6 +5919,8 @@ export interface operations {
                 /** @description Last day (UTC, inclusive), default today */
                 to?: string;
                 groupBy?: "day" | "team" | "model";
+                /** @description Only usage attributed to this connected app (its client_id; see GET /v1/admin/oauth-clients): model requests an agent made while answering a message sent through the app's token (DESIGN.md › OAuth Connect). */
+                clientId?: string;
             };
             header?: never;
             path?: never;
@@ -7028,6 +7245,8 @@ export interface operations {
                 state?: string;
                 scope?: string;
                 resource?: string;
+                prompt?: string;
+                login_hint?: string;
             };
             header?: never;
             path?: never;
@@ -7141,6 +7360,159 @@ export interface operations {
             header?: never;
             path: {
                 grantId: components["parameters"]["GrantIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["OkReply"];
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    getAppEvents: {
+        parameters: {
+            query?: {
+                once?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            429: components["responses"]["ErrorReply"];
+        };
+    };
+    getAppUsage: {
+        parameters: {
+            query?: {
+                /** @description First day (UTC), default 6 days before `to` */
+                from?: string;
+                /** @description Last day (UTC, inclusive), default today; at most 92 days after from */
+                to?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of usage */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AppUsagePage"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            429: components["responses"]["ErrorReply"];
+        };
+    };
+    adminListConnectedApps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connected apps */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ConnectedApp"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+        };
+    };
+    adminListAppSecrets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description App secrets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AppSecret"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+        };
+    };
+    adminCreateAppSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppSecretCreate"];
+            };
+        };
+        responses: {
+            /** @description The secret */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AppSecretCreated"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
+        };
+    };
+    adminDeleteAppSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                secretId: string;
             };
             cookie?: never;
         };

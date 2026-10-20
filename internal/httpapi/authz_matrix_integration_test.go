@@ -526,6 +526,30 @@ func (c *mctx) spareGrant() string {
 	return c.e.spareGrant
 }
 
+// trustedClient is a fresh trusted app (on the trusted list, without
+// changing its revision) when the call is expected to succeed, else one that
+// isn't trusted.
+func (c *mctx) trustedClient() string {
+	if !c.allowed {
+		return "https://untrusted.example.com/client.json"
+	}
+	id := fmt.Sprintf("https://matrix-%d.example.com/client.json", c.e.next())
+	c.e.exec(`UPDATE oauth_settings SET trusted_clients = trusted_clients || jsonb_build_array(jsonb_build_object('clientId', $1::text))
+		RETURNING id::text`, id)
+	return id
+}
+
+// appSecret is a fresh app secret's ID when the call is expected to
+// succeed, else an unknown one.
+func (c *mctx) appSecret() string {
+	if !c.allowed {
+		return "00000000-0000-4000-8000-000000000001"
+	}
+	return c.e.exec(`INSERT INTO oauth_client_secrets (client_id, secret_hash, pepper_id, prefix)
+		VALUES ('https://chat.example.com/client.json', md5(random()::text) || md5(random()::text), '\x0102030405060708', 'pdpcs_xxxx')
+		RETURNING id::text`)
+}
+
 func (c *mctx) user() string {
 	if c.allowed {
 		return c.e.newUser(fmt.Sprintf("u-%d@example.com", c.e.next()), "none")

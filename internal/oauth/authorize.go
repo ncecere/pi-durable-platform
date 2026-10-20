@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/url"
 	"regexp"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -28,6 +27,29 @@ type AuthorizeRequest struct {
 	Resource            string
 	State               string
 	Scope               string
+	// Prompt is none and/or consent (prompt.go).
+	Prompt string
+	// LoginHint names the account the app expects (an email address).
+	LoginHint string
+}
+
+// PromptNone reports whether the request asks for no page (prompt=none).
+func (r AuthorizeRequest) PromptNone() bool {
+	none, _, _ := checkPrompt(r.Prompt)
+	return none
+}
+
+// PromptConsent reports whether the request asks for the consent page even
+// when the person allowed the app before (prompt=consent).
+func (r AuthorizeRequest) PromptConsent() bool {
+	_, consent, _ := checkPrompt(r.Prompt)
+	return consent
+}
+
+// Scopes are the request's scopes, normalized (nil when invalid).
+func (r AuthorizeRequest) Scopes() []string {
+	s, _ := parseScope(r.Scope)
+	return s
 }
 
 // Bounds.
@@ -54,18 +76,8 @@ func RequestFromQuery(q url.Values) (AuthorizeRequest, error) {
 		ClientID: q.Get("client_id"), RedirectURI: q.Get("redirect_uri"), ResponseType: q.Get("response_type"),
 		CodeChallenge: q.Get("code_challenge"), CodeChallengeMethod: q.Get("code_challenge_method"),
 		Resource: q.Get("resource"), State: q.Get("state"), Scope: q.Get("scope"),
+		Prompt: q.Get("prompt"), LoginHint: q.Get("login_hint"),
 	}, nil
-}
-
-// parseScope checks a requested scope (space-separated, RFC 6749 §3.3):
-// omitted means agents, and agents is the only scope there is.
-func parseScope(raw string) ([]string, bool) {
-	for _, s := range strings.Split(raw, " ") {
-		if s != "" && s != ScopeAgents {
-			return nil, false
-		}
-	}
-	return []string{ScopeAgents}, true
 }
 
 // Check validates a request. The client and its redirect URI come first:
@@ -88,6 +100,7 @@ func (s *Service) Check(ctx context.Context, r AuthorizeRequest) (Client, error)
 		return Client{}, pageError("invalid_request", "The state parameter is too long.")
 	}
 	_, scopeOK := parseScope(r.Scope)
+	_, _, promptErr := checkPrompt(r.Prompt)
 	switch {
 	case r.ResponseType != "code":
 		return c, oauthError("unsupported_response_type", "Only response_type=code is supported.")
@@ -100,7 +113,11 @@ func (s *Service) Check(ctx context.Context, r AuthorizeRequest) (Client, error)
 	case r.Resource != "" && r.Resource != s.Resource():
 		return c, oauthError("invalid_target", "The resource must be this platform's URL, "+s.Resource()+", or left out.")
 	case !scopeOK:
-		return c, oauthError("invalid_scope", "The only scope is agents.")
+		return c, oauthError("invalid_scope", errScopeText)
+	case promptErr != nil:
+		return c, promptErr
+	case !validLoginHint(r.LoginHint):
+		return c, oauthError("invalid_request", "The login_hint is too long or has control characters.")
 	}
 	return c, nil
 }
@@ -134,14 +151,15 @@ func (s *Service) DenyRedirect(r AuthorizeRequest) string {
 	return s.ErrorRedirect(r, oauthError("access_denied", "The person declined."))
 }
 
-// Remembered reports whether the person has already allowed the client (an
-// active grant), so the consent page can be skipped.
-func (s *Service) Remembered(ctx context.Context, userID uuid.UUID, clientID string) (bool, error) {
-	_, err := s.q.GetActiveOAuthGrant(ctx, dbgen.GetActiveOAuthGrantParams{UserID: userID, ClientID: clientID})
+// Remembered reports whether the person has already allowed the client
+// for the requested scopes (an active grant that covers them), so the
+// consent page can be skipped.
+func (s *Service) Remembered(ctx context.Context, userID uuid.UUID, clientID string, scopes []string) (bool, error) {
+	g, err := s.q.GetActiveOAuthGrant(ctx, dbgen.GetActiveOAuthGrantParams{UserID: userID, ClientID: clientID})
 	if errors.Is(store.NotFound(err), store.ErrNotFound) {
 		return false, nil
 	}
-	return err == nil, err
+	return err == nil && covers(g.Scopes, scopes), err
 }
 
 // How consent was given (audit metadata of oauth.consent).
@@ -151,13 +169,14 @@ const (
 )
 
 // Approve records the person's consent for a checked request's client (a
-// grant, audited as oauth.consent the first time) and returns the redirect
-// with a new authorization code: single use, CodeTTL, bound to the grant,
-// client, redirect URI, PKCE challenge and resource.
+// grant, audited as oauth.consent the first time, and again when it widens
+// to more scopes) and returns the redirect with a new authorization code:
+// single use, CodeTTL, bound to the grant, client, redirect URI, PKCE
+// challenge, resource and the scopes asked for.
 func (s *Service) Approve(ctx context.Context, a authz.Actor, c Client, r AuthorizeRequest, how string) (string, error) {
 	scopes, ok := parseScope(r.Scope)
 	if !ok {
-		return "", oauthError("invalid_scope", "The only scope is agents.")
+		return "", oauthError("invalid_scope", errScopeText)
 	}
 	code := newToken(codePrefix)
 	err := store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {
@@ -176,6 +195,7 @@ func (s *Service) Approve(ctx context.Context, a authz.Actor, c Client, r Author
 		return q.InsertOAuthCode(ctx, dbgen.InsertOAuthCodeParams{
 			CodeHash: s.digest(code), GrantID: gr.ID, ClientID: c.ID, RedirectUri: r.RedirectURI,
 			CodeChallenge: r.CodeChallenge, Resource: gr.Resource, ExpiresAt: s.now().Add(CodeTTL),
+			Scopes: narrowest(gr.Scopes, scopes),
 		})
 	})
 	if err != nil {
@@ -185,10 +205,28 @@ func (s *Service) Approve(ctx context.Context, a authz.Actor, c Client, r Author
 }
 
 // grantFor returns the person's active grant for the client, creating it
-// (and auditing the consent) when there is none.
+// (and auditing the consent) when there is none, and widening it (audited
+// again) when it doesn't cover the scopes asked for. The person's subject
+// for the client (their app-stable ID) is made on the way.
 func (s *Service) grantFor(ctx context.Context, q *dbgen.Queries, a authz.Actor, c Client, scopes []string, how string) (dbgen.OauthGrant, error) {
+	if _, err := q.EnsureOAuthClientSubject(ctx, dbgen.EnsureOAuthClientSubjectParams{ClientID: c.ID, UserID: a.UserID}); err != nil {
+		return dbgen.OauthGrant{}, err
+	}
 	gr, err := q.GetActiveOAuthGrant(ctx, dbgen.GetActiveOAuthGrantParams{UserID: a.UserID, ClientID: c.ID})
-	if err == nil || !errors.Is(store.NotFound(err), store.ErrNotFound) {
+	if err == nil {
+		if covers(gr.Scopes, scopes) {
+			return gr, nil
+		}
+		before := grantSnapshot(gr)
+		if gr, err = q.UpdateOAuthGrantScopes(ctx, dbgen.UpdateOAuthGrantScopesParams{ID: gr.ID, Scopes: []string{ScopeAgents}}); err != nil {
+			return gr, err
+		}
+		e := a.Audit("oauth.consent", "oauth_grant", gr.ID.String())
+		e.Before, e.After = before, grantSnapshot(gr)
+		e.Metadata = map[string]any{"how": how, "name": gr.ClientName, "scopes": gr.Scopes}
+		return gr, audit.Record(ctx, q, e)
+	}
+	if !errors.Is(store.NotFound(err), store.ErrNotFound) {
 		return gr, err
 	}
 	gr, err = q.InsertOAuthGrant(ctx, dbgen.InsertOAuthGrantParams{
@@ -203,7 +241,7 @@ func (s *Service) grantFor(ctx context.Context, q *dbgen.Queries, a authz.Actor,
 	}
 	e := a.Audit("oauth.consent", "oauth_grant", gr.ID.String())
 	e.After = grantSnapshot(gr)
-	e.Metadata = map[string]any{"how": how, "name": gr.ClientName}
+	e.Metadata = map[string]any{"how": how, "name": gr.ClientName, "scopes": gr.Scopes}
 	return gr, audit.Record(ctx, q, e)
 }
 

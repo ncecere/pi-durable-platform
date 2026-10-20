@@ -147,19 +147,20 @@ func (q *Queries) GetThreadMCPServer(ctx context.Context, id uuid.UUID) (ThreadM
 }
 
 const insertMCPCall = `-- name: InsertMCPCall :exec
-INSERT INTO mcp_calls (team_id, agent_id, server_id, server_name, client, tool, ok, duration_ms)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO mcp_calls (team_id, agent_id, server_id, server_name, client, tool, ok, duration_ms, oauth_grant_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `
 
 type InsertMCPCallParams struct {
-	TeamID     uuid.UUID
-	AgentID    uuid.NullUUID
-	ServerID   uuid.NullUUID
-	ServerName string
-	Client     bool
-	Tool       string
-	Ok         bool
-	DurationMs int32
+	TeamID       uuid.UUID
+	AgentID      uuid.NullUUID
+	ServerID     uuid.NullUUID
+	ServerName   string
+	Client       bool
+	Tool         string
+	Ok           bool
+	DurationMs   int32
+	OauthGrantID uuid.NullUUID
 }
 
 func (q *Queries) InsertMCPCall(ctx context.Context, arg InsertMCPCallParams) error {
@@ -172,6 +173,7 @@ func (q *Queries) InsertMCPCall(ctx context.Context, arg InsertMCPCallParams) er
 		arg.Tool,
 		arg.Ok,
 		arg.DurationMs,
+		arg.OauthGrantID,
 	)
 	return err
 }

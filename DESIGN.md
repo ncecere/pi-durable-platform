@@ -35,6 +35,7 @@ Later: teams build and upload their own agents (self-service). That requires str
 | 12 | **Service-managed agents** (created by a service account with its own key, in a shared team) hold the app's users' conversations: only the team's service accounts use them; owners and admins see and delete them, never read them, and they don't move to another team. An agent a person gives a key in their own personal workspace is theirs, not service-managed (v0.3). | End users' chats aren't readable by every team member. The only other access is a platform admin's reasoned, audited read (Threads). |
 | 13 | **Templates are the governance unit**: platform-curated catalog templates and team templates, versioned, agents pinned to a version, team templates published to the catalog with platform-admin approval. Org-wide agents are per-person instances of a template, not one shared agent. | One agent shares one store: shared agents would mix teams' data. |
 | 14 | **Platform replicas keep nothing another replica could contradict**: shared state is in PostgreSQL, an agent's activity is the runtime's own report (`/status`: work, open streams, last activity), starting an agent is serialised by a database lock, and one replica at a time reaps. See [Several replicas](#several-replicas) and [docs/replicas.md](docs/replicas.md). | Any number of replicas behind one Service, with no leader, sticky sessions or shared disk; a replica that has not seen an agent cannot hibernate it. |
+| 15 | **App-level access is a platform admin's decision per app**: a trusted app (metadata document, on the trusted list) gets a secret from a platform admin for one event stream and usage covering everyone who connected it, naming them by an app-stable pseudonymous subject. Not `private_key_jwt`. See [OAuth Connect](#oauth-connect). | It shows an app what every person who connected it does, more than any one person's token; a secret issued where trust is already decided fits the platform's other credentials, with no key fetching or assertion replay cache. |
 
 ## Architecture
 
@@ -156,8 +157,9 @@ is the platform itself: `APP_URL`.
    cache, with `nosniff` and a Content-Security-Policy that allows nothing. Without a usable logo the pages show the
    app's initials.
 3. Send the person to `GET /oauth/authorize` with `response_type=code`, `client_id`, `redirect_uri`, `state`, PKCE
-   (`code_challenge`, `code_challenge_method=S256`, required), optional `scope=agents` (the only scope; omitted means
-   agents) and optional `resource=<APP_URL>` (anything else is `invalid_target`). Loopback redirect URIs match on any
+   (`code_challenge`, `code_challenge_method=S256`, required), optional `scope` (`agents`, the default, or
+   `agents:read`: see below), optional `resource=<APP_URL>` (anything else is `invalid_target`), and optional
+   `prompt` and `login_hint` (see *Silent reconnects and the expected account*). Loopback redirect URIs match on any
    port (RFC 8252). The person signs in with the platform's normal sign-in (so `OIDC_ALLOWED_GROUPS` and suspension
    apply, and a person the group re-check denied can't connect an app; their personal workspace exists from then on), and sees the consent page (`/connect/consent` in the web
    app). Errors before the client and redirect URI are known good (unknown client, unregistered redirect URI, a
@@ -165,8 +167,11 @@ is the platform itself: `APP_URL`.
    `code`, `state` and `iss` (RFC 9207).
 4. Exchange the code at `POST /oauth/token` (form-encoded, `grant_type=authorization_code`, `client_id`, `code`,
    `redirect_uri`, `code_verifier`). Codes live 60 seconds and work once (they are deleted before anything is
-   checked). The answer: a `pdpat_…` access token (1 hour), a `pdprt_…` refresh token (30 days) and `scope: agents`.
-5. Refresh with `grant_type=refresh_token`: each use returns a new pair and retires the old refresh token. Presenting a
+   checked). The answer: a `pdpat_…` access token (1 hour), a `pdprt_…` refresh token (30 days), `scope` (what the
+   request asked for, at most what the person allowed) and `subject`: the person's app-stable pseudonymous ID for this
+   app (also in `GET /v1/me` as `connectedApp.subject`), the ID the app-level endpoints name them by.
+5. Refresh with `grant_type=refresh_token` (optionally a narrower `scope`, never a wider one: `invalid_scope`): each
+   use returns a new pair and retires the old refresh token. Presenting a
    retired refresh token again within 30 seconds (two refreshes at once) gets a pair; later, it is treated as stolen
    and the whole connection is revoked.
 6. Revoke at `POST /oauth/revoke` (RFC 7009): a refresh token ends the connection, an access token only itself.
@@ -184,17 +189,87 @@ request re-checks the token, its connection and the person (suspended, or denied
 Tokens and codes are stored as HMAC-SHA256 digests (label `oauth:`) under `API_KEY_PEPPER`, and
 `API_KEY_PEPPER_PREVIOUS` is accepted during a rotation; they are never logged.
 
+**Scopes (v0.3).** `agents` acts as the person as above. `agents:read` is the same routes, reads only: list agents and
+threads, read conversations, follow event streams (the person's own and the app-level one), read usage, models and
+limits; no messages, no thread creation or renaming, no agent changes. It is enforced at one point, the bearer
+middleware: an `agents:read` token gets 403 `insufficient_scope` (with `WWW-Authenticate: Bearer
+error="insufficient_scope", scope="agents"`) for every method but GET and HEAD, which is sound because every route
+that takes bearer credentials reads with GET and changes with another method (and reading a conversation may wake the
+agent, which is a read). `agents` includes `agents:read`. A grant records what the person allowed; codes and tokens
+record what they carry (at most the grant's; rows from before v0.3 carry the grant's). An app that asks for `agents`
+on an `agents:read` connection goes through the consent page again (with `prompt=none`: `consent_required`), and
+allowing widens the grant (audited again as `oauth.consent`, with the scopes); asking for `agents:read` on an
+`agents` connection is silent and gets read-only tokens. The consent page says "wants to read your agents" and "never
+sends messages or changes anything"; Connected apps marks such a connection Read only.
+
+**Silent reconnects and the expected account (v0.3).** `prompt=none` never shows a page; what would need one goes
+back to the redirect URI (with `state` and `iss`): not signed in, `login_required`; signed in as someone other than
+`login_hint`, `login_required` too (the hinted person must sign in); signed in but unable to use the platform
+(suspended, denied by the group re-check: a page otherwise), `interaction_required`; no grant that covers the scope
+and the app isn't trusted, `consent_required`. With a grant (or a trusted app) the code comes back at once, as
+without `prompt`, and no new consent is recorded. `prompt=consent` shows the consent page even then; `login`,
+`select_account` and combinations with `none` are `invalid_request` (the platform can't make the IdP re-authenticate
+or choose an account). `login_hint` (at most 320 characters on one line, else `invalid_request`) goes to the identity
+provider as `login_hint` when the person has to sign in (`/auth/login?login_hint=`; the development sign-in ignores
+it), and is checked against a signed-in person: it matches their email (case-insensitively) or their IdP subject.
+A mismatch never connects the signed-in account, even for a trusted or remembered app: without `prompt=none` the
+browser goes to the consent page, which says whom the app expected and offers **Sign in as <hint>** (it signs out
+and starts the same authorization request again, so the platform sends the browser to the IdP with the hint) or
+**Cancel** (`access_denied`); Allow is refused (409 `account_mismatch`). Offering the switch rather than an error
+keeps the person in one flow; an app that prefers an error uses `prompt=none` first. Apps should still check
+`subject` (or `GET /v1/me`) against the account they expected.
+
+**App-level access for trusted apps (v0.3).** A chat app with hundreds of people should not hold one event stream per
+person. A platform admin issues a secret (`pdpcs_…`, 256 bits, shown once; Admin › Settings › App secrets,
+`POST /v1/admin/settings/oauth-clients/secrets`) to an app on the trusted list; at most two per app, to rotate. It is
+stored as a peppered digest like tokens, works only while the app is on the trusted list (read on every use and every
+30 s on open streams), and is used as `Authorization: Bearer pdpcs_…` on two endpoints only, which take nothing
+else (not sessions, not people's tokens):
+
+- *Why a secret, not `private_key_jwt`.* Seeing every connected person's events and usage is more than any one
+  person's token gives, so it should be a platform admin's decision per app, and that decision already exists (the
+  trusted list, metadata-document apps only). A secret issued there needs no fetching of the app's `jwks_uri`, JWT
+  and key-type handling, clock-skew rules or a cross-replica `jti` replay cache, and behaves like the platform's other
+  credentials (shown once, digest at rest, deleted at once, audited). `private_key_jwt` would let any app that
+  publishes keys use app-level access without an admin's say; it can be added later for trusted apps if operators
+  want no shared secret. The code flow stays public (PKCE); the secret is not used, or accepted, at `/oauth/token`.
+- *`GET /v1/app/events`* is `GET /v1/agents/events` for everyone who connected the app: each thread change carries
+  `subjects`, the app-stable IDs of the people who may see it (`AppThreadEvent`). For every change the platform reads
+  the app's people again: an active grant of the app with a refresh token that hasn't expired (so a revoked or
+  expired connection stops that person's events at the next change, on every replica), an active person (not
+  suspended or denied), and a member of the agent's team; then the person stream's rules apply (no platform role, so
+  no staff reads; never service-managed agents; another's private thread and reserved threads never; a deleted
+  private thread only to its creator). The agent is cached per stream for the 30 s re-check, which also ends the
+  stream when its secret was deleted or the app is no longer trusted. A slow reader misses events, as on the person
+  stream.
+- *Subjects* (`oauth_client_subjects`) are random UUIDs per app and person, made at consent: not the email or the
+  platform user ID, the same for one app across disconnecting and connecting again, different for each app.
+- *Usage per connected app.* Model and MCP requests are made by agents, not apps, so the platform records the latest
+  sender of each thread and the grant behind it (`agent_run_senders`, written before a message is relayed), and the
+  gateway attributes an agent's request to a grant when that is unambiguous: the latest senders of its threads that
+  are replying, were sent to in the last minute or finished a reply in the last minute are all one grant (a tool call
+  on a thread's own MCP server looks at its thread only). Otherwise none (`model_usage.oauth_grant_id`,
+  `mcp_calls.oauth_grant_id` stay NULL). This never puts one person's work on another app, but misses work of an
+  agent answering two apps (or an app and the console) at once, and on a shared thread a reply counts for whoever
+  sent last; the exact answer needs the runtime to tag each model request with its thread (not built). Existing
+  reports are unchanged. `GET /v1/app/usage` returns the app's people's usage by subject and UTC day (model requests,
+  tokens, a cost estimate at current prices, tool calls; at most 92 days, 1-1000 rows a page, keyset cursor), people
+  who disconnected since included. Platform admins filter Admin › Usage by app (`GET /v1/admin/usage?clientId=`) and
+  list the apps people connected (`GET /v1/admin/oauth-clients`).
+
 **Consent and trust.** Allowing an app records a connection (a grant), remembered until revoked, so connecting again
 skips the consent page. Platform admins can mark apps **trusted** (`PUT /v1/admin/settings/oauth-clients`,
 If-Match; the list is empty by default): trusted apps skip the consent page, never the
-sign-in. Only metadata-document apps can be trusted, since a registered app's ID changes and its name is anyone's
+sign-in (nor the account check of `login_hint`). Only metadata-document apps can be trusted, since a registered app's ID changes and its name is anyone's
 choice.
 
 **Revoking.** People see and disconnect their apps (`GET`/`DELETE /v1/me/oauth-grants`); platform admins and auditors
 see anyone's (`GET /v1/admin/users/{userId}/oauth-grants`) and platform admins disconnect them. Disconnecting ends
 every token at once. The audit log records `oauth.consent`, `oauth.token_issue`, `oauth.revoke` (reason `user`,
 `admin`, `client` or `refresh_reuse`), `oauth.client_register` and `oauth.trusted_clients_update`; what an app does
-is recorded with actor kind `oauth`: the person, through the app.
+is recorded with actor kind `oauth`: the person, through the app. App secrets are audited as
+`oauth.client_secret_create` and `oauth.client_secret_delete` (target `oauth_client_secret`: the app and the secret's
+prefix, never the secret); the app-level endpoints only read and record nothing but the secret's last use.
 
 ## Models
 
@@ -376,7 +451,8 @@ on `GET /v1/agents/events`.
   stream of all their agents stays open but stops carrying an agent's threads once they can't use it. The reconnect is
   refused like any request. Without this, titles and participant names would keep flowing for as long as the stream
   stayed open. Not re-checked: a revoked personal API key, connected app grant or service account key (and its
-  team) behind a stream that is already open; those end with the stream.
+  team) behind a stream that is already open; those end with the stream. (The app-level stream of OAuth Connect
+  reads its people's grants for every change, so a revoked connection stops at once there.)
 - **Recorded before relaying.** On a thread's first message the platform writes its record (creator, visibility)
   before relaying, so a private thread is never briefly shared; a message the runtime refuses (4xx), or that couldn't
   wake the agent (503), removes the record again unless the runtime has reported the thread since. Other failures
@@ -797,6 +873,10 @@ event streams and steering since v0.3, see above). The design-level ones:
   the conformance suite guards every upgrade.
 - Scheduled work while an agent hibernates needs the platform to know the next wake time (not built yet).
 - Hostile-code isolation (gVisor/Kata on Talos) is required before self-service uploads.
+- Usage per connected app (OAuth Connect) is attributed by which app's person an agent is answering at the moment
+  of each model or tool request, and only when that is unambiguous: an agent answering two apps (or an app and the
+  console) at once records neither, and a shared thread's reply counts for its latest sender. Exact attribution
+  needs the runtime to tag each request with its thread.
 - Client-chosen thread IDs are guessable if the client picks guessable ones: whoever uses an ID first starts that
   thread (a shared one anyone allowed on the agent may join; a private one is 404 for everyone else). Use
   `POST …/threads` or random IDs. (The v0.1.0 pre-seeding of thread MCP servers is closed: see Threads.) For the

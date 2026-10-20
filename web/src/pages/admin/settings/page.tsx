@@ -29,6 +29,7 @@ import s from "../../shared.module.css";
 import { useIsPlatformAdmin } from "../hooks";
 import { budgetNote, budgetOf, budgetProblem, countProblem, LIMIT_MAX, text } from "./limits";
 import { ModelProviderSettings } from "./model-providers-section";
+import { AppSecretsSettings } from "./app-secrets-section";
 import { TrustedAppsSettings } from "./trusted-apps-section";
 
 type Form = { enabled: boolean; ownProviders: boolean; ownMcpServers: boolean; maxAgents: string; maxRunning: string; monthlyBudgetUsd: string };
@@ -63,6 +64,7 @@ export function AdminSettingsPage() {
       )}
       <ModelProviderSettings />
       <TrustedAppsSettings />
+      <AppSecretsSettings />
     </Stack>
   );
 }

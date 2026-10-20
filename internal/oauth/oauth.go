@@ -12,11 +12,19 @@
 //   - Clients identify themselves with a Client ID Metadata Document (an
 //     https URL whose JSON document is fetched through the address guard,
 //     internal/netguard; metadata.go) or register with Dynamic Client Registration
-//     (RFC 7591, clients.go). All clients are public: no client secrets.
+//     (RFC 7591, clients.go). The code flow is for public clients: no client
+//     secrets at the token endpoint.
 //   - The authorization code flow with PKCE S256 (required), an optional
-//     resource indicator (RFC 8707) that must be APP_URL, one scope
-//     (agents), and the iss parameter in authorization responses (RFC 9207),
-//     authorize.go.
+//     resource indicator (RFC 8707) that must be APP_URL, two scopes
+//     (agents, and agents:read for reads only; scopes.go), login_hint and
+//     prompt=none (prompt.go), and the iss parameter in authorization
+//     responses (RFC 9207), authorize.go.
+//   - App-level access for trusted apps (secrets.go, apps.go): a secret
+//     platform admins issue to a trusted app authenticates it on the
+//     app-level endpoints (one event stream for everyone who connected it,
+//     and their usage), which name people by an app-stable pseudonymous
+//     subject. Usage is attributed to the connected app whose person's
+//     message an agent is answering (attribution.go).
 //   - Consent is a person's grant for a client, remembered until revoked.
 //     Clients on the platform's trusted list skip the consent screen, never
 //     the sign-in (trusted.go).
@@ -80,13 +88,6 @@ const (
 	// tokenBytes of randomness in every token and code (256 bits).
 	tokenBytes = 32
 )
-
-// ScopeAgents is the one scope: act as the person on the agent routes (and
-// read who they are and their teams).
-const ScopeAgents = "agents"
-
-// Scopes are the scopes the server supports (metadata, token responses).
-var Scopes = []string{ScopeAgents}
 
 // Token kinds (oauth_tokens.kind).
 const (

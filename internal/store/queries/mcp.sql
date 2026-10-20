@@ -109,5 +109,5 @@ SELECT * FROM thread_mcp_servers WHERE id = $1;
 DELETE FROM thread_mcp_servers WHERE expires_at <= now() - interval '1 day';
 
 -- name: InsertMCPCall :exec
-INSERT INTO mcp_calls (team_id, agent_id, server_id, server_name, client, tool, ok, duration_ms)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+INSERT INTO mcp_calls (team_id, agent_id, server_id, server_name, client, tool, ok, duration_ms, oauth_grant_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);

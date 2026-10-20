@@ -37,7 +37,8 @@ const columns: DataTableColumn<OAuthGrant>[] = [
     rowHeader: true,
     hideable: false,
     sortable: true,
-    cell: (g) => <AppCell client={g.client} />,
+    // Connected with agents:read alone: it reads, never sends or changes anything.
+    cell: (g) => <AppCell client={g.client} readOnly={!g.scopes.includes("agents")} />,
   },
   timeColumn<OAuthGrant>("createdAt", "Connected", (g) => g.createdAt),
   {

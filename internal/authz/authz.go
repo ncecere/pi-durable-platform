@@ -48,6 +48,9 @@ type Actor struct {
 	// (zero: not an app), and OAuthClientName the app's name.
 	OAuthGrantID    uuid.UUID
 	OAuthClientName string
+	// OAuthReadOnly: the app's token has the agents:read scope only (it may
+	// read and follow events, never send or change anything).
+	OAuthReadOnly bool
 
 	// Service is set for a service account.
 	Service *ServiceActor

@@ -34,15 +34,18 @@ tags:
   description: >-
     OAuth Connect: people connect apps with their own platform identity. The platform is a small OAuth 2.1
     authorization server (its protocol endpoints, /oauth/* and /.well-known/oauth-*, are outside this document); an
-    app's access token acts as the person, without their platform role, on the routes that take bearer credentials.
-    These operations are the consent page, people's connected apps, and the trusted-app list.
+    app's access token acts as the person, without their platform role, on the routes that take bearer credentials
+    (scope agents; with agents:read alone, reads only: any other method is 403 insufficient_scope). These operations
+    are the consent page, people's connected apps, the trusted-app list and its app secrets, and the app-level
+    endpoints a trusted app calls as itself with its secret (`Authorization: Bearer pdpcs_…`): one event stream for
+    everyone who connected it, and their usage, naming people by an app-stable pseudonymous subject.
 - name: agents
   description: >-
     Durable Pi agents that teams deploy from templates, their conversations (threads) and templates. Every agent
     operation also accepts
     `Authorization: Bearer <key>`: a personal API key acts as its person; a team service account key acts in its
     team with the account's role; an app's OAuth Connect access token acts as the person who connected it (without
-    their platform role).
+    their platform role; with scope agents:read alone, only GET: anything else is 403 insufficient_scope).
 paths:
   /healthz:
     get:
@@ -75,6 +78,14 @@ paths:
         in: query
         required: false
         description: Same-origin path to return to after sign-in.
+        schema:
+          type: string
+      - name: login_hint
+        in: query
+        required: false
+        description: >-
+          Passed to the identity provider as login_hint (whom to sign in; OAuth Connect sends an app's login_hint
+          here). At most 320 characters on one line, else ignored.
         schema:
           type: string
       responses:
@@ -2463,6 +2474,14 @@ paths:
           type: string
           enum: [day, team, model]
           default: day
+      - name: clientId
+        in: query
+        description: >-
+          Only usage attributed to this connected app (its client_id; see GET /v1/admin/oauth-clients): model requests
+          an agent made while answering a message sent through the app's token (DESIGN.md › OAuth Connect).
+        schema:
+          type: string
+          maxLength: 500
       responses:
         '200':
           description: The report
@@ -3988,7 +4007,9 @@ paths:
       description: >-
         The query is the authorization request the app sent to /oauth/authorize, unchanged (the platform redirects the
         browser to the web app's /connect/consent with it). A request that isn't valid is a 400 whose code starts with
-        oauth_ (the page shows the reason and never sends the browser anywhere).
+        oauth_ (the page shows the reason and never sends the browser anywhere). When the request's login_hint isn't the
+        signed-in person (their email or identity provider subject), accountMismatch is true: the page offers to sign
+        out and sign in as the hinted account, or to cancel, and allowing is refused (409 account_mismatch).
       parameters:
       - name: client_id
         in: query
@@ -4030,6 +4051,16 @@ paths:
         required: false
         schema:
           type: string
+      - name: prompt
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: login_hint
+        in: query
+        required: false
+        schema:
+          type: string
       responses:
         '200':
           description: The app, where it will send the person back, and what it asks for
@@ -4054,8 +4085,10 @@ paths:
       operationId: decideOAuthConsent
       summary: Allow or deny an app's authorization request; returns where to send the browser
       description: >-
-        Allowing records the person's consent (a connected app, remembered until revoked) and returns the app's
-        redirect URI with an authorization code; denying returns it with error=access_denied.
+        Allowing records the person's consent (a connected app, remembered until revoked; a grant of agents:read
+        widens to agents when the app asks for it) and returns the app's redirect URI with an authorization code;
+        denying returns it with error=access_denied. Allowing a request whose login_hint isn't the signed-in person is
+        409 account_mismatch.
       requestBody:
         required: true
         content:
@@ -4180,6 +4213,208 @@ paths:
           $ref: '#/components/responses/ErrorReply'
         '404':
           $ref: '#/components/responses/ErrorReply'
+  /v1/app/events:
+    get:
+      tags:
+      - oauth
+      operationId: getAppEvents
+      summary: Server-sent events for the threads of everyone who connected the calling app (trusted apps, with their secret)
+      description: >-
+        Authenticated as the app itself: `Authorization: Bearer <app secret>` (pdpcs_…, issued by a platform admin to a
+        trusted app; never a person's token). `event: ready` first, then `event: thread` (an AppThreadEvent) whenever a
+        thread changes that one or more of the app's people may see, with their subjects. The people are those with an
+        active connection to the app (any scope; a connection whose refresh token expired or that was revoked counts no
+        more, from the next change on) who are active (not suspended or denied by the group re-check), and each sees
+        what their own GET /v1/agents/events through the app would show: agents of teams they are members of (no
+        platform staff reads, never service-managed agents), shared threads and their own private ones, reserved
+        threads only their own. `once=true` sends `ready` and ends. A keep-alive comment comes every 15 seconds. Every
+        30 seconds the stream checks that its secret still exists and its app is still trusted, and ends otherwise
+        (the reconnect is then 401). A slow reader misses events; reconnect and re-list after a gap.
+      parameters:
+      - name: once
+        in: query
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: The stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '429':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/app/usage:
+    get:
+      tags:
+      - oauth
+      operationId: getAppUsage
+      summary: Usage of the people who connected the calling app, by person and day (trusted apps, with their secret)
+      description: >-
+        Authenticated as the app itself (`Authorization: Bearer <app secret>`). Model requests and tokens (with a cost
+        estimate at the models' current prices) and tool calls an agent made while answering a message sent through
+        the app's tokens, by person (subject) and UTC day, ordered by day then subject, paged with cursor. Includes
+        people who have since disconnected the app. Attribution is conservative: work of an agent that, at that moment,
+        was answering people through different apps (or not through an app) is not counted for any app (DESIGN.md ›
+        OAuth Connect).
+      parameters:
+      - name: from
+        in: query
+        schema:
+          type: string
+          format: date
+        description: First day (UTC), default 6 days before `to`
+      - name: to
+        in: query
+        schema:
+          type: string
+          format: date
+        description: Last day (UTC, inclusive), default today; at most 92 days after from
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
+      - name: cursor
+        in: query
+        schema:
+          type: string
+          maxLength: 200
+      responses:
+        '200':
+          description: A page of usage
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AppUsagePage'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '429':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/oauth-clients:
+    get:
+      tags:
+      - oauth
+      - admin
+      operationId: adminListConnectedApps
+      summary: The apps people have connected, most people first (platform admins and auditors)
+      responses:
+        '200':
+          description: Connected apps
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ConnectedApp'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/settings/oauth-clients/secrets:
+    get:
+      tags:
+      - oauth
+      - admin
+      operationId: adminListAppSecrets
+      summary: Trusted apps' secrets, never the secrets themselves (platform admins and auditors)
+      responses:
+        '200':
+          description: App secrets
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AppSecret'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - oauth
+      - admin
+      operationId: adminCreateAppSecret
+      summary: Issue a secret to a trusted app, shown once (platform admins)
+      description: >-
+        The secret authenticates the app on the app-level endpoints (GET /v1/app/events and /v1/app/usage) while it is
+        on the trusted list. At most two per app, to rotate: issue a new one, move the app to it, delete the old one
+        (409 too_many_secrets when there are two). 422 client_not_trusted: the app isn't on the trusted list.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppSecretCreate'
+      responses:
+        '201':
+          description: The secret
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AppSecretCreated'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '422':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/admin/settings/oauth-clients/secrets/{secretId}:
+    parameters:
+    - name: secretId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    delete:
+      tags:
+      - oauth
+      - admin
+      operationId: adminDeleteAppSecret
+      summary: Delete a trusted app's secret; it stops working at once (platform admins)
+      responses:
+        '200':
+          $ref: '#/components/responses/OkReply'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
   /v1/admin/users/{userId}/oauth-grants:
     parameters:
     - $ref: '#/components/parameters/UserIdParam'
@@ -4266,7 +4501,9 @@ paths:
       summary: Replace the trusted apps (platform admins)
       description: >-
         Only apps identified by a Client ID Metadata Document (an https URL with a path) can be trusted: a registered
-        app's ID changes, and anyone can register any name. A trusted app skips the consent screen, never the sign-in.
+        app's ID changes, and anyone can register any name. A trusted app skips the consent screen, never the sign-in
+        (nor the login_hint account check). Only a trusted app can have app secrets (GET /v1/app/events and
+        /v1/app/usage): taking an app off the list stops its secrets at once.
       parameters:
       - $ref: '#/components/parameters/IfMatchHeader'
       requestBody:
@@ -6404,6 +6641,29 @@ components:
           type: string
         capabilities:
           $ref: '#/components/schemas/Capabilities'
+        connectedApp:
+          $ref: '#/components/schemas/ConnectedAppRef'
+    ConnectedAppRef:
+      type: object
+      description: Present when the caller is an app's OAuth Connect token
+      required:
+      - clientId
+      - subject
+      - scopes
+      properties:
+        clientId:
+          type: string
+        subject:
+          type: string
+          format: uuid
+          description: >-
+            The person's app-stable pseudonymous ID for this app (the same in the token response's subject, the app
+            event stream and app usage); it stays when they disconnect and connect again.
+        scopes:
+          type: array
+          items:
+            type: string
+          description: The token's scopes (agents, or agents:read)
     Member:
       type: object
       required:
@@ -7064,13 +7324,22 @@ components:
           type: string
         scopes:
           type: array
+          description: What the app asks for (agents, or agents:read alone)
           items:
             type: string
         remembered:
           type: boolean
-          description: The person already allowed this app
+          description: The person already allowed this app, for these scopes
         personalWorkspace:
           $ref: '#/components/schemas/PersonalWorkspaceRef'
+        loginHint:
+          type: string
+          description: The account the app expects (its login_hint), when it sent one
+        accountMismatch:
+          type: boolean
+          description: >-
+            The login_hint isn't the signed-in person: allowing is refused; sign out and sign in as the hinted account,
+            or cancel
     OAuthConsentDecision:
       type: object
       required:
@@ -7110,6 +7379,7 @@ components:
           $ref: '#/components/schemas/OAuthClientInfo'
         scopes:
           type: array
+          description: What the person allowed (agents, or agents:read alone for a read-only connection)
           items:
             type: string
         createdAt:
@@ -7158,3 +7428,149 @@ components:
           maxItems: 50
           items:
             $ref: '#/components/schemas/TrustedClient'
+    AppThreadEvent:
+      type: object
+      description: >-
+        A thread change on the app-level event stream, for the people (subjects) who may see it, by the rules of their
+        own GET /v1/agents/events through the app.
+      required: [subjects, agentId, threadId, deleted]
+      properties:
+        subjects:
+          type: array
+          description: The app-stable subjects of the people who connected the app and may see this change
+          items:
+            type: string
+            format: uuid
+        agentId:
+          type: string
+          format: uuid
+        threadId:
+          type: string
+        deleted:
+          type: boolean
+        thread:
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/AgentThread'
+          description: The thread now (absent when deleted)
+    AppUsageRow:
+      type: object
+      required: [day, subject, requests, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd, unpricedRequests, toolCalls]
+      properties:
+        day:
+          type: string
+          format: date
+        subject:
+          type: string
+          format: uuid
+          description: The person's app-stable subject
+        requests:
+          type: integer
+          format: int64
+          description: Model requests
+        inputTokens:
+          type: integer
+          format: int64
+        outputTokens:
+          type: integer
+          format: int64
+        cacheReadTokens:
+          type: integer
+          format: int64
+        cacheWriteTokens:
+          type: integer
+          format: int64
+        costUsd:
+          type: number
+          format: double
+          description: Estimate at the models' current prices
+        unpricedRequests:
+          type: integer
+          format: int64
+          description: Requests of models without prices (not in costUsd)
+        toolCalls:
+          type: integer
+          format: int64
+          description: Tool calls through the platform's MCP proxy
+    AppUsagePage:
+      type: object
+      required: [from, to, rows]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/AppUsageRow'
+        nextCursor:
+          type: string
+          description: Pass as cursor for the next page (absent on the last one)
+    ConnectedApp:
+      type: object
+      description: An app people have connected (active connections)
+      required: [clientId, name, kind, people, lastActiveAt, trusted]
+      properties:
+        clientId:
+          type: string
+        name:
+          type: string
+          description: Its name as the newest consent saw it
+        kind:
+          type: string
+          enum:
+          - metadata
+          - registered
+        people:
+          type: integer
+          format: int64
+          description: People with an active connection
+        lastActiveAt:
+          type: string
+          format: date-time
+          description: Its latest use (else connection)
+        trusted:
+          type: boolean
+    AppSecret:
+      type: object
+      description: A trusted app's secret, without the secret
+      required: [id, clientId, prefix, createdAt, trusted]
+      properties:
+        id:
+          type: string
+          format: uuid
+        clientId:
+          type: string
+        prefix:
+          type: string
+          description: The secret's first characters, to tell it apart
+        createdAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        trusted:
+          type: boolean
+          description: Its app is on the trusted list now (the secret works only then)
+    AppSecretCreated:
+      allOf:
+      - $ref: '#/components/schemas/AppSecret'
+      - type: object
+        required: [secret]
+        properties:
+          secret:
+            type: string
+            description: The secret (pdpcs_…), shown this once
+    AppSecretCreate:
+      type: object
+      required: [clientId]
+      properties:
+        clientId:
+          type: string
+          maxLength: 500
+          description: A trusted app's client_id

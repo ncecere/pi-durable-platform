@@ -24,9 +24,10 @@ export const teamUsageQuery = (team: string, opts: UsageWindow & { groupBy: Team
       ),
   });
 
-/** Every team's usage (platform admins and auditors). */
-export const adminUsageQuery = (opts: UsageWindow & { groupBy: AdminUsageGroup }) =>
+/** Every team's usage (platform admins and auditors); `clientId` narrows it to what one connected app's people did through it. */
+export const adminUsageQuery = (opts: UsageWindow & { groupBy: AdminUsageGroup; clientId?: string }) =>
   queryOptions({
     queryKey: [...usageKey, "admin", opts],
-    queryFn: async () => unwrap(await api.GET("/v1/admin/usage", { params: { query: { from: opts.from, to: opts.to, groupBy: opts.groupBy } } })),
+    queryFn: async () =>
+      unwrap(await api.GET("/v1/admin/usage", { params: { query: { from: opts.from, to: opts.to, groupBy: opts.groupBy, clientId: opts.clientId } } })),
   });

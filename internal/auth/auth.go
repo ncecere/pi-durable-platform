@@ -269,9 +269,19 @@ func (s *Service) SessionIdentity(r *http.Request) (Identity, bool, error) {
 // LoginURL is where to send a browser to sign in and come back to next (a
 // same-origin path): single sign-on when it is configured, otherwise the web
 // app's sign-in page (the development accounts), which returns to next.
-func (s *Service) LoginURL(next string) string {
+func (s *Service) LoginURL(next string) string { return s.LoginURLWithHint(next, "") }
+
+// LoginURLWithHint is LoginURL that also tells the identity provider whom
+// to sign in (login_hint, OpenID Connect Core §3.1.2.1), when it is
+// configured: an OAuth Connect app's hint for the account it expects. The
+// development sign-in page ignores it.
+func (s *Service) LoginURLWithHint(next, hint string) string {
 	if s.cfg.OIDC.Enabled() {
-		return "/auth/login?next=" + url.QueryEscape(next)
+		u := "/auth/login?next=" + url.QueryEscape(next)
+		if hint = cleanLoginHint(hint); hint != "" {
+			u += "&login_hint=" + url.QueryEscape(hint)
+		}
+		return u
 	}
 	return "/?next=" + url.QueryEscape(next)
 }

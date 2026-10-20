@@ -1050,9 +1050,10 @@ func (u Usage) Empty() bool {
 	return u.Input == 0 && u.Output == 0 && u.CacheRead == 0 && u.CacheWrite == 0
 }
 
-// RecordUsage stores a call's usage.
-func (s *Service) RecordUsage(ctx context.Context, teamID, agentID, modelID uuid.UUID, source string, u Usage) error {
+// RecordUsage stores a call's usage, attributed to a connected app's grant
+// when grant is valid (oauth.Attribution).
+func (s *Service) RecordUsage(ctx context.Context, teamID, agentID, modelID uuid.UUID, source string, u Usage, grant uuid.NullUUID) error {
 	return s.q.InsertModelUsage(ctx, dbgen.InsertModelUsageParams{TeamID: teamID, AgentID: uuid.NullUUID{UUID: agentID, Valid: agentID != uuid.Nil},
 		ModelID: uuid.NullUUID{UUID: modelID, Valid: modelID != uuid.Nil}, Source: source,
-		InputTokens: u.Input, OutputTokens: u.Output, CacheReadTokens: u.CacheRead, CacheWriteTokens: u.CacheWrite})
+		InputTokens: u.Input, OutputTokens: u.Output, CacheReadTokens: u.CacheRead, CacheWriteTokens: u.CacheWrite, OauthGrantID: grant})
 }

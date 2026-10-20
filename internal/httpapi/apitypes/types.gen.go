@@ -282,6 +282,24 @@ func (e ChatMessageRole) Valid() bool {
 	}
 }
 
+// Defines values for ConnectedAppKind.
+const (
+	ConnectedAppKindMetadata   ConnectedAppKind = "metadata"
+	ConnectedAppKindRegistered ConnectedAppKind = "registered"
+)
+
+// Valid indicates whether the value is a known member of the ConnectedAppKind enum.
+func (e ConnectedAppKind) Valid() bool {
+	switch e {
+	case ConnectedAppKindMetadata:
+		return true
+	case ConnectedAppKindRegistered:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthStatus.
 const (
 	HealthStatusDraining    HealthStatus = "draining"
@@ -662,16 +680,16 @@ func (e MyTeamKind) Valid() bool {
 
 // Defines values for OAuthClientInfoKind.
 const (
-	Metadata   OAuthClientInfoKind = "metadata"
-	Registered OAuthClientInfoKind = "registered"
+	OAuthClientInfoKindMetadata   OAuthClientInfoKind = "metadata"
+	OAuthClientInfoKindRegistered OAuthClientInfoKind = "registered"
 )
 
 // Valid indicates whether the value is a known member of the OAuthClientInfoKind enum.
 func (e OAuthClientInfoKind) Valid() bool {
 	switch e {
-	case Metadata:
+	case OAuthClientInfoKindMetadata:
 		return true
-	case Registered:
+	case OAuthClientInfoKindRegistered:
 		return true
 	default:
 		return false
@@ -1561,6 +1579,90 @@ type ApiKeyCreated struct {
 	Secret string `json:"secret"`
 }
 
+// AppSecret A trusted app's secret, without the secret
+type AppSecret struct {
+	ClientId   string             `json:"clientId"`
+	CreatedAt  time.Time          `json:"createdAt"`
+	Id         openapi_types.UUID `json:"id"`
+	LastUsedAt *time.Time         `json:"lastUsedAt,omitempty"`
+
+	// Prefix The secret's first characters, to tell it apart
+	Prefix string `json:"prefix"`
+
+	// Trusted Its app is on the trusted list now (the secret works only then)
+	Trusted bool `json:"trusted"`
+}
+
+// AppSecretCreate defines model for AppSecretCreate.
+type AppSecretCreate struct {
+	// ClientId A trusted app's client_id
+	ClientId string `json:"clientId"`
+}
+
+// AppSecretCreated defines model for AppSecretCreated.
+type AppSecretCreated struct {
+	ClientId   string             `json:"clientId"`
+	CreatedAt  time.Time          `json:"createdAt"`
+	Id         openapi_types.UUID `json:"id"`
+	LastUsedAt *time.Time         `json:"lastUsedAt,omitempty"`
+
+	// Prefix The secret's first characters, to tell it apart
+	Prefix string `json:"prefix"`
+
+	// Secret The secret (pdpcs_…), shown this once
+	Secret string `json:"secret"`
+
+	// Trusted Its app is on the trusted list now (the secret works only then)
+	Trusted bool `json:"trusted"`
+}
+
+// AppThreadEvent A thread change on the app-level event stream, for the people (subjects) who may see it, by the rules of their own GET /v1/agents/events through the app.
+type AppThreadEvent struct {
+	AgentId openapi_types.UUID `json:"agentId"`
+	Deleted bool               `json:"deleted"`
+
+	// Subjects The app-stable subjects of the people who connected the app and may see this change
+	Subjects []openapi_types.UUID `json:"subjects"`
+
+	// Thread The thread now (absent when deleted)
+	Thread   *AgentThread `json:"thread,omitempty"`
+	ThreadId string       `json:"threadId"`
+}
+
+// AppUsagePage defines model for AppUsagePage.
+type AppUsagePage struct {
+	From openapi_types.Date `json:"from"`
+
+	// NextCursor Pass as cursor for the next page (absent on the last one)
+	NextCursor *string            `json:"nextCursor,omitempty"`
+	Rows       []AppUsageRow      `json:"rows"`
+	To         openapi_types.Date `json:"to"`
+}
+
+// AppUsageRow defines model for AppUsageRow.
+type AppUsageRow struct {
+	CacheReadTokens  int64 `json:"cacheReadTokens"`
+	CacheWriteTokens int64 `json:"cacheWriteTokens"`
+
+	// CostUsd Estimate at the models' current prices
+	CostUsd      float64            `json:"costUsd"`
+	Day          openapi_types.Date `json:"day"`
+	InputTokens  int64              `json:"inputTokens"`
+	OutputTokens int64              `json:"outputTokens"`
+
+	// Requests Model requests
+	Requests int64 `json:"requests"`
+
+	// Subject The person's app-stable subject
+	Subject openapi_types.UUID `json:"subject"`
+
+	// ToolCalls Tool calls through the platform's MCP proxy
+	ToolCalls int64 `json:"toolCalls"`
+
+	// UnpricedRequests Requests of models without prices (not in costUsd)
+	UnpricedRequests int64 `json:"unpricedRequests"`
+}
+
 // AuditActor Who made the change, resolved when the log is read
 type AuditActor struct {
 	// ApiKeyName The API key used (api_key actors)
@@ -1819,6 +1921,36 @@ type ConnectInfo struct {
 	TokenEndpoint         string   `json:"tokenEndpoint"`
 }
 
+// ConnectedApp An app people have connected (active connections)
+type ConnectedApp struct {
+	ClientId string           `json:"clientId"`
+	Kind     ConnectedAppKind `json:"kind"`
+
+	// LastActiveAt Its latest use (else connection)
+	LastActiveAt time.Time `json:"lastActiveAt"`
+
+	// Name Its name as the newest consent saw it
+	Name string `json:"name"`
+
+	// People People with an active connection
+	People  int64 `json:"people"`
+	Trusted bool  `json:"trusted"`
+}
+
+// ConnectedAppKind defines model for ConnectedApp.Kind.
+type ConnectedAppKind string
+
+// ConnectedAppRef Present when the caller is an app's OAuth Connect token
+type ConnectedAppRef struct {
+	ClientId string `json:"clientId"`
+
+	// Scopes The token's scopes (agents, or agents:read)
+	Scopes []string `json:"scopes"`
+
+	// Subject The person's app-stable pseudonymous ID for this app (the same in the token response's subject, the app event stream and app usage); it stays when they disconnect and connect again.
+	Subject openapi_types.UUID `json:"subject"`
+}
+
 // DevAccount defines model for DevAccount.
 type DevAccount struct {
 	Email        string       `json:"email"`
@@ -2015,7 +2147,10 @@ type McpTool struct {
 // Me defines model for Me.
 type Me struct {
 	Capabilities Capabilities `json:"capabilities"`
-	CsrfToken    string       `json:"csrfToken"`
+
+	// ConnectedApp Present when the caller is an app's OAuth Connect token
+	ConnectedApp *ConnectedAppRef `json:"connectedApp,omitempty"`
+	CsrfToken    string           `json:"csrfToken"`
 
 	// Groups The caller's IdP groups as of their last sign-in (from OIDC_GROUPS_CLAIM; may be empty).
 	Groups []string `json:"groups"`
@@ -2312,15 +2447,23 @@ type OAuthClientInfoKind string
 
 // OAuthConsent defines model for OAuthConsent.
 type OAuthConsent struct {
+	// AccountMismatch The login_hint isn't the signed-in person: allowing is refused; sign out and sign in as the hinted account, or cancel
+	AccountMismatch *bool `json:"accountMismatch,omitempty"`
+
 	// Client An app, as it identifies itself
-	Client            OAuthClientInfo       `json:"client"`
+	Client OAuthClientInfo `json:"client"`
+
+	// LoginHint The account the app expects (its login_hint), when it sent one
+	LoginHint         *string               `json:"loginHint,omitempty"`
 	PersonalWorkspace *PersonalWorkspaceRef `json:"personalWorkspace,omitempty"`
 	RedirectHost      string                `json:"redirectHost"`
 	RedirectUri       string                `json:"redirectUri"`
 
-	// Remembered The person already allowed this app
-	Remembered bool     `json:"remembered"`
-	Scopes     []string `json:"scopes"`
+	// Remembered The person already allowed this app, for these scopes
+	Remembered bool `json:"remembered"`
+
+	// Scopes What the app asks for (agents, or agents:read alone)
+	Scopes []string `json:"scopes"`
 }
 
 // OAuthConsentDecision defines model for OAuthConsentDecision.
@@ -2347,7 +2490,9 @@ type OAuthGrant struct {
 	CreatedAt  time.Time          `json:"createdAt"`
 	Id         openapi_types.UUID `json:"id"`
 	LastUsedAt *time.Time         `json:"lastUsedAt,omitempty"`
-	Scopes     []string           `json:"scopes"`
+
+	// Scopes What the person allowed (agents, or agents:read alone for a read-only connection)
+	Scopes []string `json:"scopes"`
 }
 
 // Ok defines model for Ok.
@@ -2845,6 +2990,9 @@ type OkReply struct {
 type StartLoginParams struct {
 	// Next Same-origin path to return to after sign-in.
 	Next *string `form:"next,omitempty" json:"next,omitempty"`
+
+	// LoginHint Passed to the identity provider as login_hint (whom to sign in; OAuth Connect sends an app's login_hint here). At most 320 characters on one line, else ignored.
+	LoginHint *string `form:"login_hint,omitempty" json:"login_hint,omitempty"`
 }
 
 // AdminListTemplatesParams defines parameters for AdminListTemplates.
@@ -2986,6 +3134,9 @@ type AdminGetUsageParams struct {
 	// To Last day (UTC, inclusive), default today
 	To      *openapi_types.Date         `form:"to,omitempty" json:"to,omitempty"`
 	GroupBy *AdminGetUsageParamsGroupBy `form:"groupBy,omitempty" json:"groupBy,omitempty"`
+
+	// ClientId Only usage attributed to this connected app (its client_id; see GET /v1/admin/oauth-clients): model requests an agent made while answering a message sent through the app's token (DESIGN.md › OAuth Connect).
+	ClientId *string `form:"clientId,omitempty" json:"clientId,omitempty"`
 }
 
 // AdminGetUsageParamsGroupBy defines parameters for AdminGetUsage.
@@ -3106,6 +3257,22 @@ type SetThreadMcpServersJSONBody struct {
 	Visibility *ThreadVisibility `json:"visibility,omitempty"`
 }
 
+// GetAppEventsParams defines parameters for GetAppEvents.
+type GetAppEventsParams struct {
+	Once *bool `form:"once,omitempty" json:"once,omitempty"`
+}
+
+// GetAppUsageParams defines parameters for GetAppUsage.
+type GetAppUsageParams struct {
+	// From First day (UTC), default 6 days before `to`
+	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
+
+	// To Last day (UTC, inclusive), default today; at most 92 days after from
+	To     *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
+	Limit  *int                `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor *string             `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
 // GetMeParams defines parameters for GetMe.
 type GetMeParams struct {
 	// Optional With true, a request without a session cookie gets data null (200) instead of a 401, for pages that work signed out. An expired session is still a 401 (and clears the cookie).
@@ -3128,6 +3295,8 @@ type GetOAuthConsentParams struct {
 	State               *string `form:"state,omitempty" json:"state,omitempty"`
 	Scope               *string `form:"scope,omitempty" json:"scope,omitempty"`
 	Resource            *string `form:"resource,omitempty" json:"resource,omitempty"`
+	Prompt              *string `form:"prompt,omitempty" json:"prompt,omitempty"`
+	LoginHint           *string `form:"login_hint,omitempty" json:"login_hint,omitempty"`
 }
 
 // ListTeamAgentsParams defines parameters for ListTeamAgents.
@@ -3245,6 +3414,9 @@ type AdminUpdateModelSettingsJSONRequestBody = ModelSettingsUpdate
 
 // AdminUpdateTrustedClientsJSONRequestBody defines body for AdminUpdateTrustedClients for application/json ContentType.
 type AdminUpdateTrustedClientsJSONRequestBody = TrustedClientsUpdate
+
+// AdminCreateAppSecretJSONRequestBody defines body for AdminCreateAppSecret for application/json ContentType.
+type AdminCreateAppSecretJSONRequestBody = AppSecretCreate
 
 // AdminUpdatePersonalSettingsJSONRequestBody defines body for AdminUpdatePersonalSettings for application/json ContentType.
 type AdminUpdatePersonalSettingsJSONRequestBody = PersonalWorkspaceSettingsUpdate

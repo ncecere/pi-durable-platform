@@ -37,7 +37,10 @@ WHERE team_id = $1 AND (sqlc.arg(include_managed)::boolean OR NOT service_manage
 ORDER BY lower(name), id;
 
 -- name: CountTeamAgents :one
-SELECT count(*) FROM agents WHERE team_id = $1 AND external_key IS NULL;
+-- The agents that count towards a team's limit: all but service-managed ones
+-- (apps create those for their users). A personal workspace's agents with a
+-- key are the person's, not service-managed, so they count.
+SELECT count(*) FROM agents WHERE team_id = $1 AND NOT service_managed;
 
 -- name: UpdateAgent :one
 UPDATE agents SET name = $2, description = $3, enabled = $4, template_version = $5, model_id = $6, revision = revision + 1, updated_at = now()

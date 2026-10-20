@@ -65,8 +65,8 @@ ORDER BY created_at DESC, id DESC;
 DELETE FROM oauth_codes WHERE expires_at <= now();
 
 -- name: InsertOAuthCode :exec
-INSERT INTO oauth_codes (code_hash, grant_id, client_id, redirect_uri, code_challenge, resource, expires_at)
-VALUES (@code_hash, @grant_id, @client_id, @redirect_uri, @code_challenge, @resource, @expires_at);
+INSERT INTO oauth_codes (code_hash, grant_id, client_id, redirect_uri, code_challenge, resource, expires_at, scopes)
+VALUES (@code_hash, @grant_id, @client_id, @redirect_uri, @code_challenge, @resource, @expires_at, @scopes);
 
 -- name: TakeOAuthCode :one
 -- Consumes a code: it is deleted whether or not the exchange succeeds.
@@ -76,8 +76,8 @@ DELETE FROM oauth_codes WHERE code_hash = $1 RETURNING *;
 DELETE FROM oauth_tokens WHERE expires_at <= now();
 
 -- name: InsertOAuthToken :exec
-INSERT INTO oauth_tokens (grant_id, kind, token_hash, pepper_id, resource, expires_at)
-VALUES (@grant_id, @kind, @token_hash, @pepper_id, @resource, @expires_at);
+INSERT INTO oauth_tokens (grant_id, kind, token_hash, pepper_id, resource, expires_at, scopes)
+VALUES (@grant_id, @kind, @token_hash, @pepper_id, @resource, @expires_at, @scopes);
 
 -- name: GetOAuthToken :one
 -- A token of a kind by its digest, with its grant and person.

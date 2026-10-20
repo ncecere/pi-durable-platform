@@ -7,7 +7,10 @@ import { page, team, user } from "./fixtures";
 import { oauthGrant, registeredClient } from "./fixtures-oauth";
 import { type Handler, mockApi, renderApp, shellRoutes } from "./harness";
 
-const grants = [oauthGrant(), oauthGrant({ id: "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd", client: registeredClient(), lastUsedAt: null })];
+const grants = [
+  oauthGrant(),
+  oauthGrant({ id: "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd", client: registeredClient(), lastUsedAt: null, scopes: ["agents:read"] }),
+];
 const firstId = grants[0]!.id;
 
 describe("Account › Connected apps", () => {
@@ -20,8 +23,11 @@ describe("Account › Connected apps", () => {
     expect(trusted).toHaveTextContent("chat.example.com");
     expect(within(trusted).getByText("Trusted")).toBeInTheDocument();
     expect(within(trusted).queryByText("Unverified")).toBeNull();
+    expect(within(trusted).queryByText("Read only")).toBeNull();
     const unverified = within(table).getByText("Handy Helper").closest("tr")!;
     expect(within(unverified).getByText("Unverified")).toBeInTheDocument();
+    // Connected with agents:read alone.
+    expect(within(unverified).getByText("Read only")).toBeInTheDocument();
     expect(unverified).toHaveTextContent("It registered itself");
     expect(unverified).toHaveTextContent("Not used yet");
     await waitFor(() => expect(document.title).toBe("Connected apps · Pi Durable Platform"));

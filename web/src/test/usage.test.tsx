@@ -140,6 +140,24 @@ describe("Admin › Usage", () => {
     const table = await screen.findByRole("table", { name: "Usage by team" });
     expect(within(table).getByRole("link", { name: team.name })).toHaveAttribute("href", `/admin/teams/${team.slug}`);
   });
+
+  it("narrows the report to one connected app's usage, kept in the address", async () => {
+    const u = userEvent.setup();
+    const app = "https://chat.example.com/oauth/client-metadata.json";
+    const calls = mockApi({
+      ...shellRoutes("platform_admin", null),
+      "GET /v1/admin/usage": report,
+      "GET /v1/admin/oauth-clients": () => [{ clientId: app, name: "Team Chat", kind: "metadata", people: 12, lastActiveAt: "2026-10-17T10:00:00Z", trusted: true }],
+    });
+    const { router } = renderApp("/admin/usage");
+    await screen.findByRole("table", { name: "Usage by day" });
+    expect(usageCalls(calls, "/v1/admin/usage").at(-1)!.search.has("clientId")).toBe(false);
+    const select = screen.getByRole("combobox", { name: "App" });
+    await screen.findByRole("option", { name: "Team Chat (12 people)" });
+    await u.selectOptions(select, app);
+    await waitFor(() => expect(usageCalls(calls, "/v1/admin/usage").at(-1)!.search.get("clientId")).toBe(app));
+    expect(router.state.location.search).toMatchObject({ app });
+  });
 });
 
 describe("an agent's Overview", () => {

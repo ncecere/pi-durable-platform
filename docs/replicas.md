@@ -15,6 +15,7 @@ the Kubernetes API, or in the runtime itself); what a replica keeps in memory is
 |---|---|---|
 | Sessions, CSRF tokens, sign-in state (OIDC state, nonce, PKCE verifier) | PostgreSQL (`sessions`, `login_states`) | Safe: a sign-in started on one replica ends on another |
 | OAuth Connect: authorization request, consent, codes, PKCE challenge, tokens, grants | The request travels with the browser; codes and tokens in PostgreSQL | Safe |
+| OAuth Connect for apps: app secrets, subjects, the latest sender of each thread (usage per app) | PostgreSQL (`oauth_client_secrets`, `oauth_client_subjects`, `agent_run_senders`); the app event stream reads who may see each change from PostgreSQL | Safe: an app's stream on one replica hears changes made through another, and a revoked connection stops its person's events on every replica |
 | Rate limits (per person, per address, sign-in attempts) | PostgreSQL (`rate_limit_counters`) | Safe: counted once, shared |
 | Thread record and status (`agent_threads`), runtime reports (`/threads/report`, `/threads/sync`) | PostgreSQL; the gateway Service picks any replica | Safe |
 | Thread events | `NOTIFY pdp_threads` after the change, every replica `LISTEN`s and fans out to its own subscribers | Safe: a subscriber on one replica hears changes made through another |

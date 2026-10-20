@@ -85,14 +85,18 @@ func (a *api) getOAuthConsent(w http.ResponseWriter, r *http.Request) {
 	if failed(w, r, err) {
 		return
 	}
-	remembered, err := a.OAuth.Remembered(r.Context(), cr.user.ID, cr.client.ID)
+	remembered, err := a.OAuth.Remembered(r.Context(), cr.user.ID, cr.client.ID, cr.req.Scopes())
 	if failed(w, r, err) {
 		return
 	}
 	redirect, _ := url.Parse(cr.req.RedirectURI)
 	out := apitypes.OAuthConsent{
 		Client: toAPIClientInfo(cr.client, trusted), RedirectUri: cr.req.RedirectURI, RedirectHost: redirect.Host,
-		Scopes: oauth.Scopes, Remembered: remembered,
+		Scopes: cr.req.Scopes(), Remembered: remembered, LoginHint: nonEmpty(cr.req.LoginHint),
+	}
+	if !oauth.HintMatches(cr.user, cr.req.LoginHint) {
+		mismatch := true
+		out.AccountMismatch = &mismatch
 	}
 	// Where an app would make the person's own agents (they may also have
 	// team agents; the page says so).
@@ -120,6 +124,12 @@ func (a *api) decideOAuthConsent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	to := a.OAuth.DenyRedirect(cr.req)
+	if in.Decision == apitypes.Allow && !oauth.HintMatches(cr.user, cr.req.LoginHint) {
+		// Never connect another account than the one the app expects.
+		httpx.Error(w, http.StatusConflict, "account_mismatch",
+			"The app expects another account: sign out and sign in as it, or cancel")
+		return
+	}
 	if in.Decision == apitypes.Allow {
 		if to, err = a.OAuth.Approve(r.Context(), a.actor(r), cr.client, cr.req, oauth.ConsentAllowed); failed(w, r, err) {
 			return

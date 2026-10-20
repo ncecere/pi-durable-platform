@@ -3,10 +3,13 @@ package httpapi
 import (
 	"net/http"
 
+	"github.com/google/uuid"
+
 	"github.com/ncecere/pi-durable-platform/internal/auth"
 	"github.com/ncecere/pi-durable-platform/internal/authz"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
+	"github.com/ncecere/pi-durable-platform/internal/oauth"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 )
 
@@ -48,16 +51,43 @@ func (a *api) getMe(w http.ResponseWriter, r *http.Request) {
 	if groups == nil {
 		groups = []string{}
 	}
+	app, err := a.connectedApp(r, actor)
+	if failed(w, r, err) {
+		return
+	}
 	// Capabilities are the caller's, not the person's: an app's token acts
 	// without the person's platform role.
 	httpx.JSON(w, http.StatusOK, apitypes.Me{
-		Groups:    groups,
-		User:      toAPIUser(user),
-		CsrfToken: csrf,
+		ConnectedApp: app,
+		Groups:       groups,
+		User:         toAPIUser(user),
+		CsrfToken:    csrf,
 		Capabilities: apitypes.Capabilities{
 			PlatformAdmin:   actor.PlatformRole == authz.PlatformAdmin,
 			PlatformAuditor: actor.PlatformRole == authz.PlatformAuditor,
 		},
 		Teams: toAPIMyTeams(myTeams),
 	})
+}
+
+// connectedApp is the app an OAuth Connect token belongs to, with the
+// person's app-stable subject for it and the token's scopes (nil for any
+// other caller).
+func (a *api) connectedApp(r *http.Request, actor authz.Actor) (*apitypes.ConnectedAppRef, error) {
+	if actor.OAuthGrantID == uuid.Nil {
+		return nil, nil
+	}
+	g, err := a.q.GetOAuthGrant(r.Context(), actor.OAuthGrantID)
+	if err != nil {
+		return nil, err
+	}
+	subject, err := a.OAuth.Subject(r.Context(), g.ClientID, g.UserID)
+	if err != nil {
+		return nil, err
+	}
+	scopes := []string{oauth.ScopeAgents}
+	if actor.OAuthReadOnly {
+		scopes = []string{oauth.ScopeAgentsRead}
+	}
+	return &apitypes.ConnectedAppRef{ClientId: g.ClientID, Subject: subject, Scopes: scopes}, nil
 }

@@ -42,6 +42,10 @@ type Tokens struct {
 	ExpiresIn    int    `json:"expires_in"`
 	RefreshToken string `json:"refresh_token"`
 	Scope        string `json:"scope"`
+	// Subject is the person's app-stable pseudonymous ID for this client:
+	// the ID the app-level event stream and usage name them by (an extension
+	// parameter, RFC 6749 §5.1).
+	Subject string `json:"subject,omitempty"`
 }
 
 // Token answers the token endpoint, counting the tokens issued and the
@@ -67,10 +71,9 @@ func (s *Service) token(ctx context.Context, r TokenRequest) (Tokens, error) {
 	if r.Resource != "" && r.Resource != s.Resource() {
 		return Tokens{}, oauthError("invalid_target", "The resource must be this platform's URL, "+s.Resource()+", or left out.")
 	}
-	// A refresh may ask for the same scope or less (RFC 6749 §6); there is
-	// only one.
+	// A refresh may ask for the same scope or less (RFC 6749 §6).
 	if _, ok := parseScope(r.Scope); !ok {
-		return Tokens{}, oauthError("invalid_scope", "The only scope is agents.")
+		return Tokens{}, oauthError("invalid_scope", errScopeText)
 	}
 	switch r.GrantType {
 	case "authorization_code":
@@ -130,7 +133,7 @@ func (s *Service) exchange(ctx context.Context, r TokenRequest) (Tokens, error) 
 		if err != nil {
 			return err
 		}
-		if out, err = s.issue(ctx, q, g); err != nil {
+		if out, err = s.issue(ctx, q, g, effectiveScopes(g.Scopes, code.Scopes)); err != nil {
 			return err
 		}
 		return s.auditIssue(ctx, q, g, r, "authorization_code")
@@ -193,6 +196,14 @@ func (s *Service) refresh(ctx context.Context, r TokenRequest) (Tokens, error) {
 		if err != nil {
 			return err
 		}
+		scopes := effectiveScopes(g.Scopes, tok.Scopes)
+		if strings.TrimSpace(r.Scope) != "" {
+			want, _ := parseScope(r.Scope)
+			if !covers(scopes, want) {
+				return oauthError("invalid_scope", "A refresh can't ask for more than the connection was given.")
+			}
+			scopes = want
+		}
 		// Within RefreshReuseGrace of its rotation the token was already
 		// rotated: issue a new pair without rotating again.
 		if tok.RotatedAt == nil {
@@ -200,7 +211,7 @@ func (s *Service) refresh(ctx context.Context, r TokenRequest) (Tokens, error) {
 				return errors.Join(err, errInvalidGrant())
 			}
 		}
-		if out, err = s.issue(ctx, q, g); err != nil {
+		if out, err = s.issue(ctx, q, g, scopes); err != nil {
 			return err
 		}
 		return s.auditIssue(ctx, q, g, r, "refresh_token")
@@ -214,10 +225,20 @@ func (s *Service) refresh(ctx context.Context, r TokenRequest) (Tokens, error) {
 	return out, err
 }
 
-// issue stores a new access and refresh token for a grant, bound to its
-// resource. Expired tokens are deleted on the way (no janitor needed for
-// them to stop working: they are checked on use).
-func (s *Service) issue(ctx context.Context, q *dbgen.Queries, g dbgen.OauthGrant) (Tokens, error) {
+// effectiveScopes is what a code or token carries: its own scopes while
+// its grant covers them, else (none recorded, before agents:read) the
+// grant's.
+func effectiveScopes(grant, own []string) []string {
+	if len(own) > 0 && covers(grant, own) {
+		return own
+	}
+	return grant
+}
+
+// issue stores a new access and refresh token for a grant with scopes,
+// bound to its resource. Expired tokens are deleted on the way (no janitor
+// needed for them to stop working: they are checked on use).
+func (s *Service) issue(ctx context.Context, q *dbgen.Queries, g dbgen.OauthGrant, scopes []string) (Tokens, error) {
 	if _, err := q.DeleteExpiredOAuthTokens(ctx); err != nil {
 		return Tokens{}, err
 	}
@@ -226,8 +247,12 @@ func (s *Service) issue(ctx context.Context, q *dbgen.Queries, g dbgen.OauthGran
 			return Tokens{}, err
 		}
 	}
+	subject, err := q.EnsureOAuthClientSubject(ctx, dbgen.EnsureOAuthClientSubjectParams{ClientID: g.ClientID, UserID: g.UserID})
+	if err != nil {
+		return Tokens{}, err
+	}
 	out := Tokens{AccessToken: newToken(AccessPrefix), RefreshToken: newToken(RefreshPrefix), TokenType: "Bearer",
-		ExpiresIn: int(AccessTokenTTL.Seconds()), Scope: strings.Join(g.Scopes, " ")}
+		ExpiresIn: int(AccessTokenTTL.Seconds()), Scope: scopeString(scopes), Subject: subject.String()}
 	now := s.now()
 	for _, t := range []struct {
 		kind, token string
@@ -235,7 +260,7 @@ func (s *Service) issue(ctx context.Context, q *dbgen.Queries, g dbgen.OauthGran
 	}{{kindAccess, out.AccessToken, AccessTokenTTL}, {kindRefresh, out.RefreshToken, RefreshTokenTTL}} {
 		if err := q.InsertOAuthToken(ctx, dbgen.InsertOAuthTokenParams{
 			GrantID: g.ID, Kind: t.kind, TokenHash: s.digest(t.token), PepperID: s.pepperID(), Resource: g.Resource,
-			ExpiresAt: now.Add(t.ttl),
+			ExpiresAt: now.Add(t.ttl), Scopes: scopes,
 		}); err != nil {
 			return Tokens{}, err
 		}
@@ -293,10 +318,20 @@ func (s *Service) lookup(ctx context.Context, token, prefix, kind string) (dbgen
 // grant or person is not active, or it is for another resource.
 var ErrInvalidToken = errors.New("oauth: invalid access token")
 
-// Principal is who an access token acts as: a person through a client.
+// Principal is who an access token acts as: a person through a client,
+// with the token's scopes.
 type Principal struct {
-	Grant dbgen.OauthGrant
-	User  dbgen.User
+	Grant  dbgen.OauthGrant
+	User   dbgen.User
+	Scopes []string
+}
+
+// Actor is the principal as an actor: the person, without their platform
+// role, read-only when the token has agents:read alone.
+func (p Principal) Actor(requestID, clientIP string) authz.Actor {
+	a := Actor(p.Grant, requestID, clientIP)
+	a.OAuthReadOnly = ReadOnly(p.Scopes)
+	return a
 }
 
 // Authenticate checks an access token: its digest is looked up, then its
@@ -314,7 +349,7 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Principal, er
 		row.OauthToken.Resource != resource || g.Resource != resource {
 		return Principal{}, ErrInvalidToken
 	}
-	return Principal{Grant: g, User: row.User}, nil
+	return Principal{Grant: g, User: row.User, Scopes: effectiveScopes(g.Scopes, row.OauthToken.Scopes)}, nil
 }
 
 // Touch records that a grant was used (at most once a minute).

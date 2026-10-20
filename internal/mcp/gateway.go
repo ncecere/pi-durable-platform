@@ -18,6 +18,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/netguard"
+	"github.com/ncecere/pi-durable-platform/internal/oauth"
 	"github.com/ncecere/pi-durable-platform/internal/store"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 	"github.com/ncecere/pi-durable-platform/internal/tracing"
@@ -200,6 +201,8 @@ type target struct {
 	// metric is the server's label in the metrics and traces: the slug of
 	// a platform server, metrics.ServerTeam or metrics.ServerApp.
 	metric string
+	// thread is the thread an app's server belongs to ("" for others).
+	thread string
 }
 
 func (s *Service) resolveTarget(ctx context.Context, ag Agent, kind string, id uuid.UUID) (target, bool, error) {
@@ -215,7 +218,8 @@ func (s *Service) resolveTarget(ctx context.Context, ag Agent, kind string, id u
 			return target{}, false, nil
 		}
 		headers, err := s.open(r.HeadersEnc, threadAD(r.ID))
-		return target{url: r.URL, headers: headers, serverName: clientServerName(r.Name), client: true, metric: metrics.ServerApp}, true, err
+		return target{url: r.URL, headers: headers, serverName: clientServerName(r.Name), client: true, metric: metrics.ServerApp,
+			thread: r.ThreadID}, true, err
 	}
 	vm, err := s.q.GetTemplateVersionMCP(ctx, dbgen.GetTemplateVersionMCPParams{TemplateID: ag.TemplateID, Version: ag.Version, ServerID: id})
 	if errors.Is(store.NotFound(err), store.ErrNotFound) {
@@ -407,10 +411,13 @@ func (s *Service) logCalls(ag Agent, t target, calls []string, ok bool, started 
 	s.Metrics.MCPToolCalls(t.metric, result, len(calls))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// The connected app the calls count for (none unless unambiguous; a
+	// thread's own server looks at its thread only).
+	grant := oauth.Attribution(ctx, s.q, ag.ID, t.thread)
 	for _, tool := range calls {
 		if err := s.q.InsertMCPCall(ctx, dbgen.InsertMCPCallParams{TeamID: ag.TeamID, AgentID: uuid.NullUUID{UUID: ag.ID, Valid: true},
 			ServerID: t.serverID, ServerName: t.serverName, Client: t.client, Tool: truncate(tool, 128), Ok: ok,
-			DurationMs: int32(time.Since(started).Milliseconds())}); err != nil {
+			DurationMs: int32(time.Since(started).Milliseconds()), OauthGrantID: grant}); err != nil {
 			log.Warn("mcp proxy: log call", "err", err)
 		}
 	}

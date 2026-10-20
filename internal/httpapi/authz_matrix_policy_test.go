@@ -416,6 +416,17 @@ var matrixPolicies = map[string]policy{
 		return del("/v1/admin/users/" + c.e.spareUser + "/oauth-grants/" + c.spareGrant())
 	}},
 	"adminGetTrustedClients": {own: platform, build: func(*mctx) request { return get("/v1/admin/settings/oauth-clients") }},
+	// Apps people connected, and trusted apps' secrets: platform staff read,
+	// platform admins issue and delete. The app-level endpoints take an app
+	// secret only: no session (nor any person's credential) reaches them.
+	"adminListConnectedApps": {own: platform, build: func(*mctx) request { return get("/v1/admin/oauth-clients") }},
+	"adminListAppSecrets":    {own: platform, build: func(*mctx) request { return get("/v1/admin/settings/oauth-clients/secrets") }},
+	"adminCreateAppSecret": {own: padmin, build: func(c *mctx) request {
+		return post("/v1/admin/settings/oauth-clients/secrets", map[string]any{"clientId": c.trustedClient()})
+	}},
+	"adminDeleteAppSecret": {own: padmin, build: func(c *mctx) request { return del("/v1/admin/settings/oauth-clients/secrets/" + c.appSecret()) }},
+	"getAppEvents":         {own: callers(0), build: func(*mctx) request { return get("/v1/app/events?once=true") }},
+	"getAppUsage":          {own: callers(0), build: func(*mctx) request { return get("/v1/app/usage") }},
 	"adminUpdateTrustedClients": {own: padmin, build: func(*mctx) request {
 		return request{method: "PUT", path: "/v1/admin/settings/oauth-clients",
 			body: map[string]any{"clients": []any{map[string]any{"clientId": "https://chat.example.com/client.json"}}}}.h(rev1)
