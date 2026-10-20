@@ -15,6 +15,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 )
@@ -191,8 +192,9 @@ func (s *session) close() {
 	}
 }
 
-// ListTools connects to a server and lists its tools (at most 500; large
-// input schemas are dropped to an empty object schema).
+// ListTools connects to a server and lists the tools an agent may be given
+// (at most 500; large input schemas are dropped to an empty object schema).
+// Tools an MCP App keeps for its own interface are left out (modelVisible).
 func ListTools(ctx context.Context, client *http.Client, url string, headers map[string]string) ([]Tool, error) {
 	ctx, cancel := context.WithTimeout(ctx, listToolsBudget)
 	defer cancel()
@@ -219,14 +221,18 @@ func ListTools(ctx context.Context, client *http.Client, url string, headers map
 			return nil, err
 		}
 		var page struct {
-			Tools      []Tool `json:"tools"`
+			Tools []struct {
+				Tool
+				Meta json.RawMessage `json:"_meta"`
+			} `json:"tools"`
 			NextCursor string `json:"nextCursor"`
 		}
 		if err := json.Unmarshal(raw, &page); err != nil {
 			return nil, errors.New("tools/list: unexpected result")
 		}
-		for _, t := range page.Tools {
-			if t.Name == "" || len(t.Name) > 128 || len(tools) >= maxTools {
+		for _, listed := range page.Tools {
+			t := listed.Tool
+			if t.Name == "" || len(t.Name) > 128 || len(tools) >= maxTools || !modelVisible(listed.Meta) {
 				continue
 			}
 			if len(t.InputSchema) == 0 || len(t.InputSchema) > maxSchemaBytes {
@@ -249,4 +255,28 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n])
+}
+
+// modelVisible reports whether a tool may be offered to a model. The MCP Apps
+// extension (io.modelcontextprotocol/ui) lets a server mark a tool for its
+// app's interface only, `_meta.ui.visibility` without "model", and a host must
+// not offer such a tool to the model. Without that field, or when it isn't
+// what the extension describes, the tool is visible (the extension's default).
+func modelVisible(meta json.RawMessage) bool {
+	if len(meta) == 0 {
+		return true
+	}
+	var m struct {
+		UI json.RawMessage `json:"ui"`
+	}
+	if json.Unmarshal(meta, &m) != nil || len(m.UI) == 0 {
+		return true
+	}
+	var ui struct {
+		Visibility *[]string `json:"visibility"`
+	}
+	if json.Unmarshal(m.UI, &ui) != nil || ui.Visibility == nil {
+		return true
+	}
+	return slices.Contains(*ui.Visibility, "model")
 }

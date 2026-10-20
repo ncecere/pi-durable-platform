@@ -20,6 +20,21 @@ export type McpServerConfig = {
 /** Above this many MCP tools, they are deferred: the model finds them with tool_search. */
 const DEFER_ABOVE = 20;
 
+/**
+ * Whether a tool may be offered to the model. The MCP Apps extension (io.modelcontextprotocol/ui) lets a server keep a
+ * tool for its app's interface (`_meta.ui.visibility` without "model"), and a host must not offer that tool to the model.
+ * Without the field, or when it isn't what the extension describes, the tool is visible (its default). The platform
+ * applies the same rule to the servers it lists (internal/mcp, modelVisible).
+ */
+export function modelVisible(meta: unknown): boolean {
+	if (meta === null || typeof meta !== "object") return true;
+	const ui = (meta as { ui?: unknown }).ui;
+	if (ui === null || typeof ui !== "object") return true;
+	const visibility = (ui as { visibility?: unknown }).visibility;
+	if (!Array.isArray(visibility)) return true;
+	return visibility.includes("model");
+}
+
 /** Tool names providers accept: at most 64 of [A-Za-z0-9_-]. */
 export function toolName(prefix: string, slug: string, tool: string): string {
 	return `${prefix}__${slug}__${tool}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
@@ -156,7 +171,9 @@ export class AgentMcp {
 			connections.push(conn);
 			try {
 				const client = await conn.get();
-				const tools = (await client.listTools()).map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema as Record<string, unknown> }));
+				const tools = (await client.listTools())
+					.filter((t) => modelVisible((t as { _meta?: unknown })._meta))
+					.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema as Record<string, unknown> }));
 				listed.push({ server, conn, tools });
 			} catch (error) {
 				console.error(`[runtime] MCP server ${server.name} of thread ${threadId}:`, (error as Error).message);
