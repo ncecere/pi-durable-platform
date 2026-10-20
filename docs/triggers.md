@@ -125,7 +125,7 @@ callback's delivery state.
 | `succeeded` | The thread's reply ended without an error |
 | `failed` | The reply ended with an error, or delivery failed (`reason`) |
 | `stopped` | A limit stopped it: `max_run_time` or `budget` (the thread was aborted) |
-| `skipped` | Nothing ran: `trigger_paused`, `agent_paused`, `concurrency`, `budget`, `backoff`, `missed` |
+| `skipped` | Nothing ran: `trigger_paused`, `agent_paused`, `team_archived`, `concurrency`, `budget`, `backoff`, `missed` |
 
 **When a run ends.** The runtime reports each reply's end to the platform (`/threads/report`, `agent_threads`: busy,
 last error, the time). A running run is finished when its thread is no longer busy with a status reported at or after
