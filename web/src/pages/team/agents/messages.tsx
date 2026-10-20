@@ -1,9 +1,11 @@
 /*
  * A conversation's messages: user bubbles (with who sent them and when, on
  * threads with several people), assistant replies (Markdown) with a quiet
- * meta line, reasoning and tool calls (with how long each took). Read-only:
- * the test chat and an admin's snapshot both use it.
+ * meta line, reasoning and tool calls (with how long each took, and their
+ * approval when one was asked). Read-only, except that the test chat may
+ * decide a pending approval (approvals); an admin's snapshot uses it too.
  */
+import { Fragment } from "react";
 import { type ChatMessage, type ChatView } from "../../../api/agents";
 import { Message, MessageContent } from "@/components/ui/message/message";
 import {
@@ -22,6 +24,7 @@ import {
   type ToolState,
 } from "@/components/ui/tool/tool";
 import s from "./agents.module.css";
+import { ApprovalNote } from "./approval-note";
 import {
   authorName,
   manyPeople,
@@ -47,13 +50,26 @@ export type ChatMessagesProps = {
   participants?: number;
   /** When the thread's last reply finished: the latest reply's duration. */
   lastReplyAt?: number | null;
+  /** Lets the reader decide pending approvals (the agent, and whether they may decide each one). */
+  approvals?: { agentId: string; canDecide: (approvalId: string) => boolean | undefined; onDecided?: () => void };
 };
 
-export function ChatMessages({ view, viewerId, participants, lastReplyAt }: ChatMessagesProps) {
+export function ChatMessages({ view, viewerId, participants, lastReplyAt, approvals }: ChatMessagesProps) {
   const results = resultsById(view.messages);
   const running = new Map(view.tools.map((t) => [t.callId, t]));
   const metas = replyMetas(view, lastReplyAt);
   const many = manyPeople(view.messages, participants);
+  const note = (approval: NonNullable<ChatView["approvals"]>[number]) => (
+    <ApprovalNote
+      approval={approval}
+      agentId={approvals?.agentId}
+      canDecide={approvals?.canDecide(approval.id) ?? true}
+      onDecided={approvals?.onDecided}
+    />
+  );
+  // Pending approvals of calls the transcript doesn't show (a subagent's).
+  const shown = new Set(view.messages.flatMap((m) => (m.toolCalls ?? []).map((c) => c.approval?.id)));
+  const elsewhere = (view.approvals ?? []).filter((a) => !shown.has(a.id));
   return (
     <>
       {view.messages.map((m) => {
@@ -90,24 +106,27 @@ export function ChatMessages({ view, viewerId, participants, lastReplyAt }: Chat
                     ? "running"
                     : "pending";
                 return (
-                  <Tool key={call.id}>
-                    <ToolHeader name={call.name} state={state} summary={toolDuration(call)} />
-                    <ToolContent>
-                      <ToolInput input={call.arguments} />
-                      {result ? (
-                        <ToolOutput
-                          output={result.isError ? undefined : result.text}
-                          errorText={result.isError ? result.text : undefined}
-                        />
-                      ) : live?.output ? (
-                        <ToolOutput
-                          output={live.output}
-                          label="Output so far"
-                        />
-                      ) : null}
-                      <ToolDetails source={result ?? live} />
-                    </ToolContent>
-                  </Tool>
+                  <Fragment key={call.id}>
+                    <Tool>
+                      <ToolHeader name={call.name} state={state} summary={toolDuration(call)} />
+                      <ToolContent>
+                        <ToolInput input={call.arguments} />
+                        {result ? (
+                          <ToolOutput
+                            output={result.isError ? undefined : result.text}
+                            errorText={result.isError ? result.text : undefined}
+                          />
+                        ) : live?.output ? (
+                          <ToolOutput
+                            output={live.output}
+                            label="Output so far"
+                          />
+                        ) : null}
+                        <ToolDetails source={result ?? live} />
+                      </ToolContent>
+                    </Tool>
+                    {call.approval ? note(call.approval) : null}
+                  </Fragment>
                 );
               })}
               {m.text ? <LazyResponse>{m.text}</LazyResponse> : null}
@@ -118,6 +137,9 @@ export function ChatMessages({ view, viewerId, participants, lastReplyAt }: Chat
           </Message>
         );
       })}
+      {elsewhere.map((a) => (
+        <Fragment key={a.id}>{note(a)}</Fragment>
+      ))}
       {view.partial ? (
         <Message from="assistant">
           <MessageContent>

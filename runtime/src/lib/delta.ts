@@ -1,4 +1,4 @@
-import { type ChatDocumentRef, type ChatMessage, type ChatPartial, type ChatTool, type ChatView, pageView } from "./view.ts";
+import { type ChatApproval, type ChatDocumentRef, type ChatMessage, type ChatPartial, type ChatTool, type ChatView, pageView } from "./view.ts";
 
 /**
  * Incremental event streams (`GET /threads/{id}/events?format=delta`, version 1): a snapshot of the chat view, then
@@ -50,7 +50,12 @@ export type DeltaEvent =
 	 * An exposed document of the thread changed (or appeared): its new revision. Read it with
 	 * `GET /threads/{thread}/documents/{kind}`; the event never carries the document itself.
 	 */
-	| { type: "document.updated"; seq: number; kind: string; revision: string };
+	| { type: "document.updated"; seq: number; kind: string; revision: string }
+	/**
+	 * The thread's pending approvals changed (docs/approvals.md): replace the list (`[]`: none left, the view has no
+	 * `approvals` then). A call's own approval changing is a `message.updated` of its reply.
+	 */
+	| { type: "approvals.set"; seq: number; approvals: ChatApproval[] };
 
 /**
  * Adds a `document.updated` for every exposed document whose revision changed or that appeared; false when one the
@@ -122,6 +127,10 @@ export function applyDelta(view: ChatView | undefined, event: DeltaEvent): ChatV
 			return { ...view, busy: event.busy };
 		case "document.updated":
 			return { ...view, documents: { ...(view.documents ?? {}), [event.kind]: { revision: event.revision } } };
+		case "approvals.set": {
+			const { approvals: _, ...rest } = view;
+			return event.approvals.length === 0 ? rest : { ...rest, approvals: event.approvals };
+		}
 	}
 }
 
@@ -161,6 +170,7 @@ export class DeltaStream {
 		if (!this.diffTools(sent.tools, view.tools, view.messages, changes)) changes.push({ type: "tools.set", tools: view.tools });
 		if (sent.busy !== view.busy) changes.push({ type: "run", busy: view.busy });
 		if (!diffDocuments(sent.documents, view.documents, changes)) return [this.snapshot(view)];
+		if (JSON.stringify(sent.approvals ?? []) !== JSON.stringify(view.approvals ?? [])) changes.push({ type: "approvals.set", approvals: view.approvals ?? [] });
 		if (changes.length === 0) return [];
 		const events = changes.map((change) => ({ ...change, seq: ++this.seq }) as DeltaEvent);
 		let held: ChatView | undefined = sent;

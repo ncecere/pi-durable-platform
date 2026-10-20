@@ -3084,6 +3084,148 @@ paths:
           $ref: '#/components/responses/ErrorReply'
         '409':
           $ref: '#/components/responses/ErrorReply'
+  /v1/agents/{agentId}/approvals:
+    parameters:
+    - $ref: '#/components/parameters/AgentIdParam'
+    get:
+      tags:
+      - agents
+      operationId: listAgentApprovals
+      summary: The agent's tool approvals the caller may see, newest first
+      description: >-
+        Requests to approve a tool call (docs/approvals.md) in the agent's threads the caller may read: shared threads,
+        and their own private ones. Anyone who may use the agent sees them; `canDecide` says whether the caller may
+        decide one.
+      parameters:
+      - name: thread
+        in: query
+        required: false
+        description: One thread's only
+        schema:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{1,64}$'
+      - name: status
+        in: query
+        required: false
+        description: 'pending (default), decided (approved, denied, timed out or cancelled) or all'
+        schema:
+          type: string
+          enum: [pending, decided, all]
+      - name: limit
+        in: query
+        required: false
+        description: At most this many (1-200, default 100)
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+      responses:
+        '200':
+          description: Approvals
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ToolApproval'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/agents/{agentId}/approvals/{approvalId}:
+    parameters:
+    - $ref: '#/components/parameters/AgentIdParam'
+    - $ref: '#/components/parameters/ApprovalIdParam'
+    get:
+      tags:
+      - agents
+      operationId: getAgentApproval
+      summary: One tool approval
+      responses:
+        '200':
+          description: The approval
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ToolApproval'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - agents
+      operationId: decideAgentApproval
+      summary: Approve or deny a pending tool call
+      description: >-
+        Records the decision (audited) and delivers it to the agent, waking it if it is hibernated: an approved call
+        runs, a denied one isn't run and the model is told, with the reason. Who may decide: the thread's creator for a
+        private thread; for a shared thread, the person (or service account) whose message started the run, the team's
+        owners and admins, and members whose role is at least the version's approval role; for an unattended run, the
+        team's owners and admins. Platform staff can't. 403 approval_forbidden for someone who may see but not decide;
+        409 approval_decided once decided, timed out or cancelled.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ToolApprovalDecision'
+      responses:
+        '200':
+          description: The decided approval
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ToolApproval'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/me/approvals:
+    get:
+      tags:
+      - me
+      operationId: listMyApprovals
+      summary: 'The inbox: pending tool approvals the caller may decide, across agents'
+      responses:
+        '200':
+          description: Approvals, newest first (at most 200)
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ToolApproval'
+        '401':
+          $ref: '#/components/responses/ErrorReply'
   /v1/agents/events:
     get:
       tags:
@@ -5142,6 +5284,13 @@ components:
       schema:
         type: string
         format: uuid
+    ApprovalIdParam:
+      name: approvalId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^ap_[A-Za-z0-9_-]{1,64}$'
     ThreadIdParam:
       name: threadId
       in: path
@@ -6593,6 +6742,10 @@ components:
         clientMcp:
           type: boolean
           description: Let apps give its agents MCP servers for a thread
+        approvals:
+          allOf:
+          - $ref: '#/components/schemas/ToolApprovalPolicyInput'
+          description: Tools that ask a person first (version 1; default none)
     AgentTemplateUpdate:
       type: object
       properties:
@@ -6635,6 +6788,8 @@ components:
             $ref: '#/components/schemas/McpAttached'
         clientMcp:
           type: boolean
+        approvals:
+          $ref: '#/components/schemas/ToolApprovalPolicy'
         createdAt:
           type: string
           format: date-time
@@ -6660,6 +6815,10 @@ components:
         clientMcp:
           type: boolean
           description: Let apps give its agents MCP servers for a thread (omitted keeps the current version's)
+        approvals:
+          allOf:
+          - $ref: '#/components/schemas/ToolApprovalPolicyInput'
+          description: Tools that ask a person first (omitted keeps the current version's, and so does a field omitted inside)
     AgentTemplateReview:
       type: object
       required: [decision]
@@ -7187,6 +7346,158 @@ components:
           type: integer
           format: int64
           description: When its result arrived (Unix milliseconds; absent while it runs)
+        approval:
+          $ref: '#/components/schemas/ChatApproval'
+    ChatApproval:
+      type: object
+      required: [id, callId, tool, status, requestedAt]
+      description: >-
+        A request to approve a tool call, as the thread's view shows it: on the call (without arguments) and in the
+        view's pending list (with a redacted view of the arguments)
+      properties:
+        id:
+          type: string
+        callId:
+          type: string
+        tool:
+          type: string
+        status:
+          $ref: '#/components/schemas/ToolApprovalStatus'
+        requestedAt:
+          type: integer
+          format: int64
+        expiresAt:
+          type: integer
+          format: int64
+        summary:
+          type: string
+          description: Why approval is asked (from the agent's own hook)
+        requestedFor:
+          $ref: '#/components/schemas/ChatAuthor'
+        decidedAt:
+          type: integer
+          format: int64
+        decidedBy:
+          $ref: '#/components/schemas/ApprovalDecider'
+        reason:
+          type: string
+        arguments:
+          type: object
+          additionalProperties: true
+    ApprovalDecider:
+      type: object
+      required: [kind, name]
+      properties:
+        kind:
+          type: string
+          enum: [user, service_account, system]
+        id:
+          type: string
+        name:
+          type: string
+    ToolApprovalStatus:
+      type: string
+      enum: [pending, approved, denied, timed_out, cancelled]
+    ToolApprovalPolicy:
+      type: object
+      required: [tools, role, timeoutSeconds]
+      description: Which tools of a template version ask a person before they run (docs/approvals.md)
+      properties:
+        tools:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            pattern: '^[A-Za-z0-9_.*-]{1,200}$'
+          description: Tool names, or patterns where * stands for any characters (mcp__github__*); [] for none
+        role:
+          type: string
+          enum: [admin, editor, member]
+          description: >-
+            The lowest team role that may decide calls in shared threads besides the person the run is for (admin:
+            owners and admins only, the default)
+        timeoutSeconds:
+          type: integer
+          format: int32
+          minimum: 60
+          maximum: 2592000
+          description: How long a request waits before it is denied (default 86400)
+    ToolApprovalPolicyInput:
+      type: object
+      properties:
+        tools:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+        role:
+          type: string
+          enum: [admin, editor, member]
+        timeoutSeconds:
+          type: integer
+          format: int32
+    ToolApproval:
+      type: object
+      required: [id, agentId, agentName, threadId, tool, callId, arguments, status, requestedAt, expiresAt, canDecide]
+      properties:
+        id:
+          type: string
+        agentId:
+          type: string
+          format: uuid
+        agentName:
+          type: string
+        threadId:
+          type: string
+        threadTitle:
+          type: string
+          nullable: true
+        tool:
+          type: string
+        callId:
+          type: string
+        arguments:
+          type: object
+          additionalProperties: true
+          description: >-
+            A bounded, redacted view: values under credential-like keys read [redacted], strings are cut at 2,000
+            characters, the whole at 16 KiB
+        summary:
+          type: string
+          description: Why approval is asked (from the agent's own hook)
+        requestedFor:
+          $ref: '#/components/schemas/ApprovalDecider'
+        status:
+          $ref: '#/components/schemas/ToolApprovalStatus'
+        requestedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        decidedAt:
+          type: string
+          format: date-time
+          nullable: true
+        decidedBy:
+          $ref: '#/components/schemas/ApprovalDecider'
+        reason:
+          type: string
+          description: The decider's reason, given to the model on denial
+        canDecide:
+          type: boolean
+          description: The caller may decide it (it is pending and they are allowed)
+    ToolApprovalDecision:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [approve, deny]
+        reason:
+          type: string
+          maxLength: 1000
+          description: Given to the model on denial
     ChatAuthor:
       type: object
       required: [kind, id, name]
@@ -7351,6 +7662,11 @@ components:
           description: >-
             The documents the agent exposes that the conversation has, by kind, with their revisions (absent when it
             has none). Read one with getAgentThreadDocument.
+        approvals:
+          type: array
+          description: The thread's tool calls waiting for a person's approval (absent when there are none)
+          items:
+            $ref: '#/components/schemas/ChatApproval'
     ChatDeltaEvent:
       type: object
       required: [type, seq]
@@ -7361,7 +7677,7 @@ components:
         type:
           type: string
           enum: [snapshot, message.added, message.updated, partial.set, partial.appended, partial.cleared, tool.started,
-            tool.updated, tool.finished, tool.removed, tools.set, run, document.updated]
+            tool.updated, tool.finished, tool.removed, tools.set, run, document.updated, approvals.set]
         seq:
           type: integer
           format: int64
@@ -7422,6 +7738,11 @@ components:
         revision:
           type: string
           description: document.updated - its new revision
+        approvals:
+          type: array
+          description: 'approvals.set: the thread''s pending approvals now ([] none)'
+          items:
+            $ref: '#/components/schemas/ChatApproval'
     AuditActor:
       type: object
       description: Who made the change, resolved when the log is read

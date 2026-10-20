@@ -124,13 +124,13 @@ func (a *api) decideOAuthConsent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	to := a.OAuth.DenyRedirect(cr.req)
-	if in.Decision == apitypes.Allow && !oauth.HintMatches(cr.user, cr.req.LoginHint) {
+	if in.Decision == apitypes.OAuthConsentDecisionDecisionAllow && !oauth.HintMatches(cr.user, cr.req.LoginHint) {
 		// Never connect another account than the one the app expects.
 		httpx.Error(w, http.StatusConflict, "account_mismatch",
 			"The app expects another account: sign out and sign in as it, or cancel")
 		return
 	}
-	if in.Decision == apitypes.Allow {
+	if in.Decision == apitypes.OAuthConsentDecisionDecisionAllow {
 		if to, err = a.OAuth.Approve(r.Context(), a.actor(r), cr.client, cr.req, oauth.ConsentAllowed); failed(w, r, err) {
 			return
 		}

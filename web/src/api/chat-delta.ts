@@ -25,6 +25,7 @@ export const deltaEventTypes: ChatDeltaEvent["type"][] = [
   "tools.set",
   "run",
   "document.updated",
+  "approvals.set",
 ];
 
 /** The view after one event (undefined until the first snapshot). */
@@ -75,6 +76,10 @@ export function applyChatDelta(view: ChatView | undefined, e: ChatDeltaEvent): C
       return e.kind && e.revision
         ? { ...view, documents: { ...(view.documents ?? {}), [e.kind]: { revision: e.revision } } }
         : view;
+    case "approvals.set": {
+      const { approvals: _approvals, ...rest } = view;
+      return e.approvals && e.approvals.length > 0 ? { ...rest, approvals: e.approvals } : rest;
+    }
   }
   return view;
 }

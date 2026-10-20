@@ -64,14 +64,17 @@ type AgentTemplate struct {
 }
 
 type AgentTemplateVersion struct {
-	TemplateID   uuid.UUID
-	Version      int32
-	Instructions string
-	Notes        string
-	CreatedBy    uuid.NullUUID
-	CreatedAt    time.Time
-	ModelID      uuid.NullUUID
-	ClientMcp    bool
+	TemplateID             uuid.UUID
+	Version                int32
+	Instructions           string
+	Notes                  string
+	CreatedBy              uuid.NullUUID
+	CreatedAt              time.Time
+	ModelID                uuid.NullUUID
+	ClientMcp              bool
+	ApprovalTools          []string
+	ApprovalRole           string
+	ApprovalTimeoutSeconds int32
 }
 
 type AgentThread struct {
@@ -507,6 +510,31 @@ type ThreadMcpServer struct {
 	HeadersEnc []byte
 	ExpiresAt  time.Time
 	CreatedAt  time.Time
+}
+
+type ToolApproval struct {
+	AgentID          uuid.UUID
+	ID               string
+	ThreadID         string
+	Tool             string
+	CallID           string
+	Arguments        json.RawMessage
+	Summary          string
+	RequestedForKind *string
+	RequestedForID   uuid.NullUUID
+	RequestedForName string
+	ApproverRole     string
+	Status           string
+	RequestedAt      time.Time
+	ExpiresAt        time.Time
+	DecidedAt        *time.Time
+	DecidedByUser    uuid.NullUUID
+	DecidedByService uuid.NullUUID
+	DecidedByName    string
+	Reason           string
+	DeliveredAt      *time.Time
+	DeliveryAttempts int32
+	NextDeliveryAt   *time.Time
 }
 
 type TriggerRun struct {

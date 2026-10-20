@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type RequestListener, type Server, 
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type Conversation, type ConversationDocToken, type ConversationId, type DocumentWatch, type Harness, type JsonObject, LiveDoc } from "@earendil-works/pi-durable";
 import { abortBackground, type LiveWork, liveWork, olderThan, reportBackground } from "./background.ts";
+import { type Approvals, type DecisionInput, waitingThreads } from "./approvals.ts";
 import type { ThreadStore } from "./threads.ts";
 import { DELTA_VERSION, DeltaStream } from "./delta.ts";
 import { EXPOSED_KIND } from "./define.ts";
@@ -51,6 +52,8 @@ export type RuntimeOptions = {
 	 * work only waiting on it, keeps the agent awake neither as a busy thread nor as background work. Default: none.
 	 */
 	waitsForPerson?: (kind: string) => boolean;
+	/** Tool approvals (docs/approvals.md): shown in the view, decided through POST /approvals/{id}. */
+	approvals?: Approvals;
 };
 
 /**
@@ -64,7 +67,7 @@ export function createRuntimeServer(options: RuntimeOptions): {
 	/** Records activity now (a reply just ended, for instance), so the reaper doesn't hibernate an agent that just worked. */
 	touch: () => void;
 } {
-	const { harness, threads } = options;
+	const { harness, threads, approvals } = options;
 	const exposed: ExposedDocuments = options.documents ?? new Map();
 	const expected = Buffer.from(`Bearer ${options.token}`);
 	let lastActivity = Date.now();
@@ -109,7 +112,12 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		const watch = await conversation.watch(ctx);
 		const value = watch.value;
 		await watch.stop();
-		return buildView(value.entries, value.docs["pi.live"] as never, await documentRefs(harness, conversation.id, exposed));
+		return buildView(
+			value.entries,
+			value.docs["pi.live"] as never,
+			await documentRefs(harness, conversation.id, exposed),
+			approvals?.viewOf(threadId, conversation.id as unknown as number),
+		);
 	};
 
 	/** An exposed document of a thread: GET /threads/{thread}/documents/{kind}. */
@@ -138,10 +146,17 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		if (method === "GET" && url.pathname === "/status") {
 			const work = await currentWork();
 			observe(work);
-			if (work.busyThreads > 0) touch();
+			// A reply that waits only for a person's decision (an approval, docs/approvals.md) doesn't make its thread busy:
+			// busyThreads leaves it out (contract 2, docs/hibernation.md), and waitingThreads says how many there are.
+			const waiting = approvals?.waiting();
+			const waitingCount = waiting === undefined ? 0 : await waitingThreads(harness, threads, waiting.threads);
+			const busy = Math.max(0, work.busyThreads - waitingCount);
+			if (busy > 0) touch();
 			return json(response, 200, {
 				...options.info,
-				busyThreads: work.busyThreads,
+				busyThreads: busy,
+				waitingThreads: waitingCount,
+				pendingApprovals: waiting?.pending ?? 0,
 				openStreams,
 				lastActivityAt: lastActivity,
 				backgroundWork: reportBackground(work),
@@ -165,6 +180,7 @@ export function createRuntimeServer(options: RuntimeOptions): {
 			return json(response, 200, { aborted: aborted.length, settled });
 		}
 		if (method === "GET" && url.pathname === "/threads") return json(response, 200, await threads.list());
+		if (parts[0] === "approvals") return routeApproval(request, response, parts, url);
 
 		if (parts[0] !== "threads" || parts[1] === undefined) return fail(response, 404, "not_found", "Not found");
 		const threadId = parts[1];
@@ -183,6 +199,7 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		if (method === "DELETE" && action === undefined) {
 			const conversation = await threads.get(threadId);
 			if (conversation !== undefined) await conversation.abort(ctx).catch(() => {});
+			await approvals?.reconcile(threadId).catch(() => {});
 			return (await threads.remove(threadId)) ? json(response, 200, { ok: true }) : fail(response, 404, "thread_not_found", "Thread not found");
 		}
 		if (method === "POST" && action === "messages") {
@@ -220,6 +237,8 @@ export function createRuntimeServer(options: RuntimeOptions): {
 			const conversation = await threads.get(threadId);
 			if (conversation === undefined) return fail(response, 404, "thread_not_found", "Thread not found");
 			await conversation.abort(ctx);
+			// A request whose call the stop ended is cancelled (and the platform told).
+			await approvals?.reconcile(threadId).catch(() => {});
 			return json(response, 202, { ok: true });
 		}
 		if (method === "GET" && action === "documents" && parts[3] !== undefined && parts.length === 4) {
@@ -230,6 +249,39 @@ export function createRuntimeServer(options: RuntimeOptions): {
 			const options = streamOptions(url.searchParams, request.headers["last-event-id"]);
 			if ("error" in options) return fail(response, 400, options.error.code, options.error.message);
 			return streamThread(threadId, request, response, options);
+		}
+		return fail(response, 404, "not_found", "Not found");
+	};
+
+	/**
+	 * Tool approvals: `GET /approvals[?thread=]` lists the requests (pending first), `POST /approvals/{id}` applies a
+	 * decision `{decision: approve|deny|timeout|cancel, reason?, decidedBy?}` (the platform's, or a test's).
+	 */
+	const routeApproval = async (request: IncomingMessage, response: ServerResponse, parts: string[], url: URL) => {
+		const method = request.method ?? "GET";
+		if (approvals === undefined) return fail(response, 404, "not_found", "Not found");
+		if (method === "GET" && parts.length === 1) {
+			const thread = url.searchParams.get("thread") ?? undefined;
+			return json(response, 200, approvals.list(thread));
+		}
+		const id = parts[1];
+		if (method === "POST" && parts.length === 2 && id !== undefined) {
+			touch();
+			if (!/^ap_[A-Za-z0-9_-]{1,64}$/.test(id)) return fail(response, 404, "approval_not_found", "Approval not found");
+			const body = (await readJson(request)) as { decision?: unknown; reason?: unknown; decidedBy?: unknown };
+			const decision = body.decision;
+			if (decision !== "approve" && decision !== "deny" && decision !== "timeout" && decision !== "cancel") {
+				return fail(response, 400, "invalid_decision", "decision must be approve, deny, timeout or cancel");
+			}
+			const input: DecisionInput = { decision };
+			if (typeof body.reason === "string") input.reason = body.reason;
+			const by = body.decidedBy as { kind?: unknown; id?: unknown; name?: unknown } | undefined;
+			if (typeof by === "object" && by !== null && (by.kind === "user" || by.kind === "service_account" || by.kind === "system") && typeof by.name === "string") {
+				input.decidedBy = { kind: by.kind, name: by.name, ...(typeof by.id === "string" ? { id: by.id } : {}) };
+			}
+			const result = await approvals.decide(id, input);
+			if (result === undefined) return fail(response, 404, "approval_not_found", "Approval not found");
+			return json(response, 200, { id, ...result });
 		}
 		return fail(response, 404, "not_found", "Not found");
 	};
@@ -249,19 +301,28 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		await docs.refresh();
 		response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
 		touch();
-		// The transcript is rebuilt only when the entries changed: a frame that only moves the reply in progress or a
-		// tool keeps the same entries (pi-durable shares unchanged parts between frames).
+		// The transcript is rebuilt only when the entries (or the thread's approvals) changed: a frame that only moves the
+		// reply in progress or a tool keeps the same entries (pi-durable shares unchanged parts between frames).
 		let entries: unknown;
 		let messages: ChatMessage[] = [];
+		let approvalsSeen = -1;
+		let approvalsVersion = 0;
+		let shown = approvals?.viewOf(threadId, conversation.id as unknown as number);
 		const current = (value: typeof watch.value): { view: ChatView; changed: boolean } => {
-			const changed = value.entries !== entries;
+			const changed = value.entries !== entries || approvalsSeen !== approvalsVersion;
 			if (changed) {
 				entries = value.entries;
-				messages = buildMessages(value.entries);
+				approvalsSeen = approvalsVersion;
+				shown = approvals?.viewOf(threadId, conversation.id as unknown as number);
+				messages = buildMessages(value.entries, shown?.byCall);
 			}
 			const live = value.docs["pi.live"] as never as Parameters<typeof liveParts>[0];
 			const documents = docs.refs();
-			return { view: { busy: live?.run !== undefined, messages, ...liveParts(live), ...(documents === undefined ? {} : { documents }) }, changed };
+			const pending = shown === undefined || shown.pending.length === 0 ? {} : { approvals: shown.pending };
+			return {
+				view: { busy: live?.run !== undefined, messages, ...liveParts(live), ...(documents === undefined ? {} : { documents }), ...pending },
+				changed,
+			};
 		};
 		const deltas = options.format === "delta" ? new DeltaStream(options.limit, options.lastSeq) : undefined;
 		const page: MessagePage | undefined = options.limit === undefined ? undefined : { limit: options.limit };
@@ -298,10 +359,17 @@ export function createRuntimeServer(options: RuntimeOptions): {
 			await docs.refresh().catch(() => {});
 			schedule();
 		});
+		// An approval asked or decided in this thread changes the view without a commit to the conversation.
+		const unsubscribe = approvals?.onChange((changed) => {
+			if (changed !== threadId) return;
+			approvalsVersion++;
+			schedule();
+		});
 		const keepAlive = setInterval(() => response.write(": keep-alive\n\n"), 15_000);
 		openStreams++;
 		let ended = false;
 		const end = () => {
+			unsubscribe?.();
 			clearInterval(keepAlive);
 			if (timer !== undefined) clearTimeout(timer);
 			void watch.stop();

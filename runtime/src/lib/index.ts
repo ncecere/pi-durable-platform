@@ -31,6 +31,15 @@ export {
 export { runAgentProcess } from "./process.ts";
 export { assistantAgent, assistantExtension, DEFAULT_INSTRUCTIONS } from "./assistant.ts";
 export { defineSubagent, type SubagentDetails, type SubagentOptions } from "./subagent.ts";
+export {
+	type ApprovalDecision,
+	approvalHook,
+	type ApprovalOptions,
+	type ApprovalRecord,
+	type ApprovalRequester,
+	type ApprovalStatus,
+	type Decider,
+} from "./approvals.ts";
 export { CONTRACT_VERSION, PI_DURABLE_VERSION } from "./version.ts";
 export * from "./facade.ts";
 
@@ -44,5 +53,17 @@ export { gatewayPost, type ThreadStatus, ThreadStatusReporter, unansweredError }
 export { AgentMcp, type McpServerConfig, modelVisible, toolName } from "./mcp.ts";
 export { type AgentModels, createAgentModels } from "./models.ts";
 export { countingUsage, UsageReporter } from "./usage.ts";
-export { boundedDetails, buildView, type ChatDocumentRef, type ChatMessage, type ChatTool, type ChatView, MAX_DETAILS_BYTES, USER_ENTRY } from "./view.ts";
+export {
+	boundedDetails,
+	buildView,
+	type ChatApproval,
+	type ChatDocumentRef,
+	type ChatMessage,
+	type ChatTool,
+	type ChatView,
+	MAX_DETAILS_BYTES,
+	USER_ENTRY,
+} from "./view.ts";
+export { Approvals, ApprovalsDoc, approvalId, parseApprovalPolicy, runStarter, toolMatches } from "./approvals.ts";
+export { isSecretKey, redactArguments } from "./redact.ts";
 export { applyDelta, type DeltaEvent, DELTA_VERSION } from "./delta.ts";

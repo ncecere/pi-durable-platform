@@ -12,7 +12,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { CalendarClock, History, LayoutDashboard, MessageSquare, MessagesSquare, Moon, Settings2 } from "lucide-react";
+import { CalendarClock, History, LayoutDashboard, MessageSquare, MessagesSquare, Moon, Settings2, ShieldCheck } from "lucide-react";
 import { agentQuery, useAgentEvents } from "../../../api/agents";
 import { api, errorMessage, unwrap } from "../../../api/client";
 import { isNotFound, NotFoundState } from "../../../components/not-found";
@@ -35,6 +35,7 @@ import {
   whatIsServiceManaged,
 } from "./labels";
 import { ModelUnavailableNotice } from "./agent-model";
+import { ApprovalsTab } from "./approvals-tab";
 import { ConversationsTab } from "./conversations-tab";
 import { OverviewTab } from "./overview-tab";
 import { RunsTab } from "./runs-tab";
@@ -170,6 +171,12 @@ function Record({ agent }: { agent: Agent }) {
                 label: "Test",
                 icon: <MessageSquare aria-hidden />,
                 content: <TestChat agent={agent} personal={ctx.personal} />,
+              },
+              {
+                value: "approvals" as const,
+                label: "Approvals",
+                icon: <ShieldCheck aria-hidden />,
+                content: <ApprovalsTab agent={agent} />,
               },
             ]
           : []),

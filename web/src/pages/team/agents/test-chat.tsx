@@ -7,9 +7,10 @@
  * chosen with its first message; a personal workspace's are its owner's.
  * The thread list pages (and searches titles); the conversation shows its
  * latest messages and loads earlier ones on request. While a reply runs, a
- * message can steer it.
+ * message can steer it. A tool call waiting for approval shows Approve and
+ * Deny to someone who may decide it.
  */
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CornerDownRight, MessageSquarePlus, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -28,6 +29,7 @@ import {
   useLiveThread,
   type WhenBusy,
 } from "../../../api/agents";
+import { agentApprovalsQuery, approvalsKey } from "../../../api/approvals";
 import { errorMessage } from "../../../api/client";
 import { useCurrentUser } from "../../../session";
 import { useDebounced } from "../../admin/hooks";
@@ -110,6 +112,9 @@ export function TestChat({ agent, personal = false }: Props) {
   const exists = threadId !== undefined;
   const thread = threadList?.find((t) => t.threadId === threadId);
   const live = useLiveThread(agent.id, current, exists);
+  // Which pending approvals this person may decide (the view shows them; the platform decides who may).
+  const pendingApprovals = useQuery({ ...agentApprovalsQuery(agent.id, "pending"), enabled: Boolean(live.view?.approvals?.length) });
+  const canDecide = (id: string) => pendingApprovals.data?.find((a) => a.id === id)?.canDecide;
   // Earlier messages loaded on request, for this thread and this snapshot of it.
   const [older, setOlder] = useState<{ key: string; messages: ChatMessage[]; cursor?: string | null }>();
   const [loadingEarlier, setLoadingEarlier] = useState(false);
@@ -256,6 +261,11 @@ export function TestChat({ agent, personal = false }: Props) {
                 viewerId={viewerId}
                 participants={thread?.participants.length}
                 lastReplyAt={thread?.lastReplyAt}
+                approvals={{
+                  agentId: agent.id,
+                  canDecide,
+                  onDecided: () => void queryClient.invalidateQueries({ queryKey: approvalsKey(agent.id) }),
+                }}
               />
             ) : (
               <ConversationEmptyState

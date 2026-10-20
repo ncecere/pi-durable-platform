@@ -169,6 +169,8 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 		defer close(triggersDone)
 		deps.Triggers.Loop(loopCtx, func() func(error) { return deps.Metrics.Loop("triggers") })
 	}()
+	// Tool approvals: time-outs, and decisions delivered to runtimes (waking them).
+	go deps.Agents.RunApprovals(loopCtx, 30*time.Second, log.With("component", "approvals"))
 	// MCP tool lists stored before the platform read MCP Apps' visibility
 	// are read again once (in the background; failures retried at the next
 	// start), so agents aren't offered tools an app keeps for itself.

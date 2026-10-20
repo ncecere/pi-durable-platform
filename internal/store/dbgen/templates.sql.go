@@ -90,7 +90,7 @@ func (q *Queries) GetPlatformTemplateBySlug(ctx context.Context, slug string) (A
 }
 
 const getTemplateVersion = `-- name: GetTemplateVersion :one
-SELECT template_id, version, instructions, notes, created_by, created_at, model_id, client_mcp FROM agent_template_versions WHERE template_id = $1 AND version = $2
+SELECT template_id, version, instructions, notes, created_by, created_at, model_id, client_mcp, approval_tools, approval_role, approval_timeout_seconds FROM agent_template_versions WHERE template_id = $1 AND version = $2
 `
 
 type GetTemplateVersionParams struct {
@@ -110,6 +110,9 @@ func (q *Queries) GetTemplateVersion(ctx context.Context, arg GetTemplateVersion
 		&i.CreatedAt,
 		&i.ModelID,
 		&i.ClientMcp,
+		&i.ApprovalTools,
+		&i.ApprovalRole,
+		&i.ApprovalTimeoutSeconds,
 	)
 	return i, err
 }
@@ -208,19 +211,23 @@ func (q *Queries) InsertTemplate(ctx context.Context, arg InsertTemplateParams) 
 }
 
 const insertTemplateVersion = `-- name: InsertTemplateVersion :one
-INSERT INTO agent_template_versions (template_id, version, instructions, notes, created_by, model_id, client_mcp)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING template_id, version, instructions, notes, created_by, created_at, model_id, client_mcp
+INSERT INTO agent_template_versions (template_id, version, instructions, notes, created_by, model_id, client_mcp,
+    approval_tools, approval_role, approval_timeout_seconds)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING template_id, version, instructions, notes, created_by, created_at, model_id, client_mcp, approval_tools, approval_role, approval_timeout_seconds
 `
 
 type InsertTemplateVersionParams struct {
-	TemplateID   uuid.UUID
-	Version      int32
-	Instructions string
-	Notes        string
-	CreatedBy    uuid.NullUUID
-	ModelID      uuid.NullUUID
-	ClientMcp    bool
+	TemplateID             uuid.UUID
+	Version                int32
+	Instructions           string
+	Notes                  string
+	CreatedBy              uuid.NullUUID
+	ModelID                uuid.NullUUID
+	ClientMcp              bool
+	ApprovalTools          []string
+	ApprovalRole           string
+	ApprovalTimeoutSeconds int32
 }
 
 func (q *Queries) InsertTemplateVersion(ctx context.Context, arg InsertTemplateVersionParams) (AgentTemplateVersion, error) {
@@ -232,6 +239,9 @@ func (q *Queries) InsertTemplateVersion(ctx context.Context, arg InsertTemplateV
 		arg.CreatedBy,
 		arg.ModelID,
 		arg.ClientMcp,
+		arg.ApprovalTools,
+		arg.ApprovalRole,
+		arg.ApprovalTimeoutSeconds,
 	)
 	var i AgentTemplateVersion
 	err := row.Scan(
@@ -243,6 +253,9 @@ func (q *Queries) InsertTemplateVersion(ctx context.Context, arg InsertTemplateV
 		&i.CreatedAt,
 		&i.ModelID,
 		&i.ClientMcp,
+		&i.ApprovalTools,
+		&i.ApprovalRole,
+		&i.ApprovalTimeoutSeconds,
 	)
 	return i, err
 }
@@ -349,7 +362,7 @@ func (q *Queries) ListTeamTemplates(ctx context.Context, teamID uuid.NullUUID) (
 }
 
 const listTemplateVersions = `-- name: ListTemplateVersions :many
-SELECT v.template_id, v.version, v.instructions, v.notes, v.created_by, v.created_at, v.model_id, v.client_mcp, u.display_name AS created_by_name, m.name AS model_name, p.name AS model_provider_name
+SELECT v.template_id, v.version, v.instructions, v.notes, v.created_by, v.created_at, v.model_id, v.client_mcp, v.approval_tools, v.approval_role, v.approval_timeout_seconds, u.display_name AS created_by_name, m.name AS model_name, p.name AS model_provider_name
 FROM agent_template_versions v
 LEFT JOIN users u ON u.id = v.created_by
 LEFT JOIN models m ON m.id = v.model_id
@@ -359,17 +372,20 @@ ORDER BY v.version DESC
 `
 
 type ListTemplateVersionsRow struct {
-	TemplateID        uuid.UUID
-	Version           int32
-	Instructions      string
-	Notes             string
-	CreatedBy         uuid.NullUUID
-	CreatedAt         time.Time
-	ModelID           uuid.NullUUID
-	ClientMcp         bool
-	CreatedByName     *string
-	ModelName         *string
-	ModelProviderName *string
+	TemplateID             uuid.UUID
+	Version                int32
+	Instructions           string
+	Notes                  string
+	CreatedBy              uuid.NullUUID
+	CreatedAt              time.Time
+	ModelID                uuid.NullUUID
+	ClientMcp              bool
+	ApprovalTools          []string
+	ApprovalRole           string
+	ApprovalTimeoutSeconds int32
+	CreatedByName          *string
+	ModelName              *string
+	ModelProviderName      *string
 }
 
 func (q *Queries) ListTemplateVersions(ctx context.Context, templateID uuid.UUID) ([]ListTemplateVersionsRow, error) {
@@ -390,6 +406,9 @@ func (q *Queries) ListTemplateVersions(ctx context.Context, templateID uuid.UUID
 			&i.CreatedAt,
 			&i.ModelID,
 			&i.ClientMcp,
+			&i.ApprovalTools,
+			&i.ApprovalRole,
+			&i.ApprovalTimeoutSeconds,
 			&i.CreatedByName,
 			&i.ModelName,
 			&i.ModelProviderName,

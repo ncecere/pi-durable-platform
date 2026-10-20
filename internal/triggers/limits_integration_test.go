@@ -386,3 +386,22 @@ func TestAuthorizationAndAudit(t *testing.T) {
 		t.Errorf("settings audits %v", a)
 	}
 }
+
+// A run whose thread waits for a person's approval of a tool call isn't
+// stopped for its run time: the approval's own expiry bounds the wait
+// (docs/approvals.md), and the run goes on once it is decided.
+func TestARunWaitingForAnApprovalIsNotStoppedForItsRunTime(t *testing.T) {
+	e := newEnv(t)
+	e.setLimits(triggers.Settings{MaxRunSeconds: ptr(int32(120))})
+	saved := e.webhook("Careful", triggers.Input{})
+	res, _ := e.deliver(e.svc, saved, `{"title":"1"}`)
+	run := e.run(res.Run.ID)
+	e.scalar(`INSERT INTO tool_approvals (agent_id, id, thread_id, tool, call_id, expires_at)
+		VALUES ($1, 'ap_waiting', $2, 'mcp__crm__delete', 'c1', now() + interval '1 day') RETURNING id`, e.agentID, *run.Run.ThreadID)
+	e.clock.Add(10 * time.Minute)
+	e.tick(e.svc)
+	wantStatus(t, e.run(res.Run.ID), triggers.StatusRunning, "")
+	e.scalar(`UPDATE tool_approvals SET status = 'approved', decided_at = now() WHERE id = 'ap_waiting' RETURNING id`)
+	e.tick(e.svc)
+	wantStatus(t, e.run(res.Run.ID), triggers.StatusStopped, triggers.ReasonMaxRunTime)
+}

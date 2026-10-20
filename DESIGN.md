@@ -582,6 +582,18 @@ design, threat model and limits are in [docs/triggers.md](docs/triggers.md).
 - **Audit**: `trigger.create|update|delete|secret_rotate`, `trigger.run` (system) and `trigger.fire` (Run now),
   `trigger.run_stop`, `trigger.auto_pause`, `trigger_settings.update`.
 
+## Tool approvals
+
+A template version can mark tools (built-in or MCP, by name or `*` pattern) as needing a person's approval; the call
+waits in its tool task's `beforeTool` hook, before pi-durable records its intent, so it survives restarts and
+hibernation, and the platform records the request (`tool_approvals`, migration 00024), lets the people allowed decide
+(`POST /v1/agents/{id}/approvals/{approvalId}`; the thread's creator for a private thread, the run's author or the
+team's owners, admins and the version's role for a shared one, owners and admins for an unattended run; never staff),
+times requests out (default 24 h) and delivers the decision to the runtime, waking it. The thread view and its streams
+show the request and the decision on the call. Everything is audited (`tool_approval.request`, `.decide`, `.timeout`,
+`.cancel`); arguments are shown redacted and never audited. The design note is
+[docs/approvals.md](docs/approvals.md).
+
 ## Creating and moving agents
 
 The reasoning is in [docs/agent-keys-and-moves.md](docs/agent-keys-and-moves.md) (v0.3, #11 and #13).
@@ -835,7 +847,7 @@ not part of `api/openapi.yaml`, as the gateway isn't.
 | `group_recheck_people` | `state` (with_token, without_token) | Recently active people the group re-check applies to, by whether a refresh token is kept for them (set by the re-check loop; the same on every replica: use `max`) |
 | `rate_limit_rejections_total` | `limiter` (login, user, apikey, service-account, oauth, …) | Requests refused with 429 |
 | `thread_event_subscribers` | none | Open thread event streams on this replica |
-| `background_runs_total`, `background_run_duration_seconds`, `background_last_success_timestamp_seconds` | `loop` (reaper, cleanup, rate_cleanup, group_recheck, thread_events, agent_count, triggers), `result` | Background loops; `thread_events` counts only listeners that failed |
+| `background_runs_total`, `background_run_duration_seconds`, `background_last_success_timestamp_seconds` | `loop` (reaper, cleanup, rate_cleanup, group_recheck, thread_events, agent_count, triggers, approvals), `result` | Background loops; `thread_events` counts only listeners that failed |
 | `db_pool_*` | `pool` (platform, agents) | `acquired_connections`, `idle_connections`, `total_connections`, `max_connections` and the counters `acquires_total`, `acquires_waited_total`, `acquire_wait_seconds_total`, `canceled_acquires_total`, from pgx's pool statistics, read at scrape time |
 | `build_info` | `version`, `commit`, `go_version` | Always 1 |
 

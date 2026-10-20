@@ -119,7 +119,7 @@ func apiRoutes(d Deps) []route {
 	routes := opsRoutes(d)
 	// Add a new area's route groups here (and its paths to api/openapi.yaml).
 	for _, group := range [][]route{a.authRoutes(), a.teamRoutes(), a.platformAdminRoutes(), a.apiKeyRoutes(),
-		a.serviceAccountRoutes(), a.serviceAccountAdminRoutes(), a.agentRoutes(), a.templateRoutes(), a.modelRoutes(), a.teamModelRoutes(), a.mcpRoutes(), a.personalRoutes(),
+		a.serviceAccountRoutes(), a.serviceAccountAdminRoutes(), a.agentRoutes(), a.approvalRoutes(), a.templateRoutes(), a.modelRoutes(), a.teamModelRoutes(), a.mcpRoutes(), a.personalRoutes(),
 		a.oauthRoutes(), a.oauthRESTRoutes(), a.oauthAppRoutes(), a.mcpIdentityRoutes(), a.triggerRoutes()} {
 		routes = append(routes, group...)
 	}
@@ -207,13 +207,14 @@ func NewAPIHandler(d Deps) http.Handler {
 
 // NewGatewayHandler is what agents call, on its own listener
 // (AGENTS_GATEWAY_ADDR): the model proxy, usage reports, the MCP proxy and
-// their threads' MCP servers.
+// their threads' MCP servers, thread status and tool approval requests.
 func NewGatewayHandler(d Deps) http.Handler {
 	mux := http.NewServeMux()
 	log := d.Log.With("component", "gateway")
 	d.Models.RegisterGateway(mux, d.Agents.AuthenticateProxy, log)
 	d.MCP.RegisterGateway(mux, d.Agents.AuthenticateMCP, d.Config.Agents.GatewayURL, llm.Credential, log)
 	registerThreadReports(mux, d.Agents, log)
+	registerApprovalReports(mux, d.Agents, log)
 	return observeHandler(d.Metrics, metrics.ListenerGateway, mux)
 }
 

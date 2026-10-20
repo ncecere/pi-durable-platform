@@ -229,3 +229,25 @@
   gap: 0.25em;
   white-space: nowrap;
 }
+
+/* A tool call's approval: the decision line, and the controls while it waits. */
+.approvalDone,
+.approvalRefused {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-xs);
+}
+
+.approvalDone {
+  color: var(--color-text-muted);
+}
+
+.approvalRefused {
+  color: var(--color-danger-text);
+}
+
+.approvalActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}

@@ -1,4 +1,4 @@
-/* A new version of a template: its instructions, model and MCP servers, starting from the current version's. */
+/* A new version of a template: its instructions, model, MCP servers and tool approvals, starting from the current version's. */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, errorMessage, unwrap } from "../../api/client";
@@ -10,6 +10,7 @@ import type { McpAttach } from "../../api/mcp";
 import { Field } from "@/components/ui/field/field";
 import { Input, Textarea } from "@/components/ui/input/input";
 import { toast } from "@/components/ui/toast/toast";
+import { ApprovalFields, type ApprovalPolicy, approvalsProblem, defaultApprovals, sameApprovals } from "./approval-fields";
 import { type AgentTemplate, storeTemplate } from "./labels";
 import { catalogMcpNote, catalogMcpUnavailable, catalogModelsNote, catalogRefusal, useTemplateMcpServers, useTemplateModels } from "./template-models";
 
@@ -27,6 +28,8 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
   // undefined: the current version's MCP servers and setting.
   const [pickedMcp, setPickedMcp] = useState<McpAttach[] | undefined>(undefined);
   const [pickedClientMcp, setPickedClientMcp] = useState<boolean | undefined>(undefined);
+  // undefined: the current version's tool approvals.
+  const [pickedApprovals, setPickedApprovals] = useState<ApprovalPolicy | undefined>(undefined);
   const [submitted, setSubmitted] = useState(false);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
@@ -36,9 +39,11 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
   const currentMcp = attachOf(current?.mcp);
   const mcp = pickedMcp ?? currentMcp;
   const clientMcp = pickedClientMcp ?? current?.clientMcp ?? false;
+  const currentApprovals = current?.approvals ?? defaultApprovals;
+  const approvals = pickedApprovals ?? currentApprovals;
   const submit = async () => {
     setSubmitted(true);
-    if (!value.trim() || mcpProblem(mcp)) return;
+    if (!value.trim() || mcpProblem(mcp) || approvalsProblem(approvals)) return;
     setBusy(true);
     try {
       const t = unwrap(
@@ -51,6 +56,7 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
             modelId: modelId === currentModel ? undefined : modelId,
             mcp: sameMcp(mcp, currentMcp) ? undefined : mcp,
             clientMcp: clientMcp === (current?.clientMcp ?? false) ? undefined : clientMcp,
+            approvals: sameApprovals(approvals, currentApprovals) ? undefined : approvals,
           },
         }),
       );
@@ -99,6 +105,7 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
         onClientMcpChange={setPickedClientMcp}
         showErrors={submitted}
       />
+      <ApprovalFields value={approvals} onChange={setPickedApprovals} showErrors={submitted} />
       <Field label="What changed" labelHint="Optional">
         <Input value={notes} maxLength={2000} onValueChange={setNotes} />
       </Field>

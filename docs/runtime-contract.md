@@ -47,7 +47,8 @@ A runtime starts in one of two modes, chosen by its environment:
 | `DEMO_TOKENS_PER_SECOND` | The demo model's speed. |
 | `MCP_SERVERS` | JSON array of the template's MCP servers (slug, name, URL, headers in direct mode, tools). |
 | `MCP_THREADS_URL`, `MCP_KEY` | Where to fetch the MCP servers apps gave a thread, and the credential. |
-| `PLATFORM_GATEWAY_URL`, `PLATFORM_KEY` | Where to report thread status, and the credential. |
+| `PLATFORM_GATEWAY_URL`, `PLATFORM_KEY` | Where to report thread status and tool approvals, and the credential. |
+| `TOOL_APPROVALS` | JSON `{tools, timeoutSeconds}`: the template version's tools (names, or patterns with `*`) that wait for a person's approval before they run ([approvals.md](approvals.md)). Absent: none. |
 
 `MODEL_API_KEY` (in proxy mode), `MODEL_USAGE_KEY`, `MCP_KEY` and `PLATFORM_KEY` are the agent's gateway credential.
 None of these values may be logged.
@@ -101,12 +102,14 @@ Thread IDs and request IDs are 1-64 of `[A-Za-z0-9_-]`.
 | `GET /status` | `200`, the [status](#status). |
 | `GET /threads` | `200`, the threads, newest activity first: `{threadId, conversationId, title, createdAt, updatedAt}` (Unix ms; the title is the first line of the first message, at most 60 characters). |
 | `POST /threads/{thread}/messages` | Body `{text, requestId?, whenBusy?, author?, announceAuthor?}`. Starts the thread if it doesn't exist, submits the message, `202 {"submissionId"}`. A retried `requestId` returns the first submission. `whenBusy`: `followUp` (default: after the reply in progress) or `steer` (joins it after its current tool round). `author` (`{kind: user\|service_account\|trigger, id, name, via?}`; `trigger`: an unattended run a schedule or webhook started, docs/triggers.md) is set by the platform and recorded on the message; `announceAuthor: true` tells the model who is speaking (`[Message from <name>]` before the text, `[Message from trigger <name>]` for a trigger). Errors: `400 invalid_thread_id`, `invalid_text` (empty or over 32,000 characters), `invalid_request_id`, `invalid_when_busy`, `invalid_request` (not JSON), `413`. |
-| `GET /threads/{thread}` | `200`, the chat view: `{busy, messages, partial?, tools, documents?}` (DESIGN.md, Threads: message metadata; [Custom state](#custom-state-in-the-view)). `?limit=&before=` pages it (`earlierCursor`); `400` for a bad `limit` or cursor. |
+| `GET /threads/{thread}` | `200`, the chat view: `{busy, messages, partial?, tools, documents?, approvals?}` (DESIGN.md, Threads: message metadata; [Custom state](#custom-state-in-the-view); a tool call carries `approval` once one was asked for it, and `approvals` lists the thread's pending ones, [approvals.md](approvals.md)). `?limit=&before=` pages it (`earlierCursor`); `400` for a bad `limit` or cursor. |
 | `GET /threads/{thread}/documents/{kind}` | `200 {kind, version, revision, value}`: a conversation document the agent exposes. `404 document_not_found` for any kind it doesn't expose or the thread doesn't have (`pi.*` and `pdp.*` never), `422 document_too_large` over the author's bound (at most 1 MiB of JSON; the platform reads no more). |
-| `GET /threads/{thread}/events` | Server-sent events, coalesced to at most 10 a second: `view` events (the whole view) by default; with `format=delta` (`v=1`) a `snapshot` and then changes, each with an `id` (its sequence; `Last-Event-ID` continues it). `once=true` sends the current state and ends; `limit` keeps the latest messages. A change to an exposed document is a view with its new revision, or a `document.updated` event. `400 invalid_format`, `unsupported_version`. |
+| `GET /threads/{thread}/events` | Server-sent events, coalesced to at most 10 a second: `view` events (the whole view) by default; with `format=delta` (`v=1`) a `snapshot` and then changes, each with an `id` (its sequence; `Last-Event-ID` continues it). `once=true` sends the current state and ends; `limit` keeps the latest messages. A change to an exposed document is a view with its new revision, or a `document.updated` event; `approvals.set` replaces the pending approvals (`[]` clears them). `400 invalid_format`, `unsupported_version`. |
 | `POST /threads/{thread}/stop` | Aborts the reply in progress and withdraws queued input: `202 {"ok": true}`. |
 | `DELETE /threads/{thread}` | Stops and forgets the thread: `200 {"ok": true}`. |
 | `POST /background/abort` | Body `{olderThanMs}` (a whole number of milliseconds, at least 0). Aborts the [background work](#status) that keeps the agent awake and started at least that long ago, with everything it owns, never a thread's reply in progress nor work waiting for a person; waits up to 5 seconds for it to end: `200 {"aborted", "settled"}` (how many units were aborted; whether they ended in time). Not activity. `400 invalid_older_than`. The platform calls it when background work passes its ceiling ([hibernation.md](hibernation.md)). |
+| `GET /approvals?thread=` | `200`, the tool approval requests ([approvals.md](approvals.md)), pending first: `{id, threadId?, conversationId, taskId, callId, tool, arguments, summary?, requestedFor?, requestedAt, expiresAt?, status, decidedAt?, decidedBy?, reason?}`. |
+| `POST /approvals/{id}` | Body `{decision: approve\|deny\|timeout\|cancel, reason?, decidedBy?: {kind: user\|service_account\|system, id?, name}}`: applies a decision to a pending request, `200 {id, status, applied}` (`applied: false` when it was already resolved; its status is unchanged). `404 approval_not_found`, `400 invalid_decision`. The platform sends it after a person decides or a request times out, waking the agent first. |
 
 A thread the runtime doesn't have is `404 thread_not_found` on every thread route; any other path is
 `404 not_found`.
@@ -133,6 +136,8 @@ fields say so for `AGENTS_IDLE_TIMEOUT`; [hibernation.md](hibernation.md) has th
 |---|---|
 | `agentId`, `name`, `model` | Who the runtime is, and its model (`provider/id`). |
 | `busyThreads` | Threads with a reply in progress, except one that only waits for a person (version 2). |
+| `waitingThreads` | Threads whose reply waits only for a person: a pending tool approval, no model request streaming and no tool running. They are not counted in `busyThreads` (version 2): hibernating such a runtime is safe, since the wait is in storage and resumes at the next start, and the decision wakes the agent ([approvals.md](approvals.md)). Reported for display; absent (0) for runtimes before it. |
+| `pendingApprovals` | Tool approval requests waiting for a person. |
 | `openStreams` | Event streams open now (through any platform replica). |
 | `lastActivityAt` | Unix ms of the last request, stream, reply end or end of background work (not one the platform aborted). |
 | `backgroundWork` | Version 2: `{tasks, oldestStartedAt, waitingForPerson}`. `tasks`: units of live background work that keep the agent awake, from pi-durable's task graph (background tasks, background subagents' runs, tool calls still running after their reply ended; not a thread's reply in progress, not work only waiting for a person), at most 1000. `oldestStartedAt`: Unix ms when the oldest of them started, `null` with none. `waitingForPerson`: live tasks waiting for a person's answer (at most 1000), counted nowhere else. |
@@ -164,7 +169,7 @@ and sends `POST /activate` with `Authorization: Bearer <RUNTIME_ACTIVATION_TOKEN
 
 `schema` is an agent schema name (`agent_[a-z0-9_]{1,56}`), `databaseUrl` a PostgreSQL URL, `token` at least 16
 characters, and `env` holds only the model, MCP and platform variables above (`MODEL_*`, `MCP_SERVERS`,
-`MCP_THREADS_URL`, `MCP_KEY`, `PLATFORM_GATEWAY_URL`, `PLATFORM_KEY`, `DEMO_TOKENS_PER_SECOND`); the body is at most
+`MCP_THREADS_URL`, `MCP_KEY`, `PLATFORM_GATEWAY_URL`, `PLATFORM_KEY`, `TOOL_APPROVALS`, `DEMO_TOKENS_PER_SECOND`); the body is at most
 4 MiB.
 
 | Answer | When |
@@ -185,6 +190,13 @@ Best effort: each is retried a few times, and the next start reconciles what was
   `POST /threads/report ThreadStatus`, where `ThreadStatus` is `{threadId, title, createdAt, busy, lastReplyAt?,
   lastError?, at}` (`lastError`: why the reply failed or went unanswered, for people). The platform keeps the newest by
   `at`, so it can list an agent's threads without waking it.
+- **Tool approvals** ([approvals.md](approvals.md)), with the same credential: each new request (and again whenever
+  the waiting call is resumed) `POST /approvals/report {id, threadId?, tool, callId, arguments, summary?, requestedFor?,
+  requestedAt, status}` (`status: cancelled` when the call went away), answered with `{id, status, reason?, decidedBy?,
+  expiresAt}`: the platform's expiry, and its decision if it has one, which the runtime applies. At start
+  `POST /approvals/sync {approvals: [report], at}` with every pending request, answered with the decisions the platform
+  has for them (a list of the same answers); the platform cancels pending requests asked before `at` that the list
+  lacks. `arguments` is a redacted, bounded view (the platform redacts again).
 - **Usage**, when `MODEL_USAGE_URL` is set: batches of `{requests, input, output, cacheRead, cacheWrite}` to it, with
   `Authorization: Bearer <MODEL_USAGE_KEY>`, a moment after responses end and when the runtime stops.
 - **Thread MCP servers**, when `MCP_THREADS_URL` is set: `GET MCP_THREADS_URL?thread=<thread>` (before each message;
@@ -194,8 +206,8 @@ Best effort: each is retried a few times, and the next start reconciles what was
 
 | Version | Change |
 |---|---|
-| 1 | First written version: what runtimes of platform 0.1 to 0.3 did, plus `contractVersion` and `piDurableVersion` at `/status`. Additions since (both sides may ignore them): the upgrade check at start (`/runtime/start`, `refused` at `/status`), tool `details` and exposed `documents` in the view, `document.updated`, and `GET /threads/{thread}/documents/{kind}`. |
-| 2 | `backgroundWork` at `/status`, `POST /background/abort`, and `busyThreads` no longer counts a reply that only waits for a person (platform 0.4). A platform reads a version 1 runtime as before. |
+| 1 | First written version: what runtimes of platform 0.1 to 0.3 did, plus `contractVersion` and `piDurableVersion` at `/status`. Additions since (both sides may ignore them): the upgrade check at start (`/runtime/start`, `refused` at `/status`), tool `details` and exposed `documents` in the view, `document.updated`, `GET /threads/{thread}/documents/{kind}`, and tool approvals (`TOOL_APPROVALS`, `/approvals`, `waitingThreads` and `pendingApprovals` at `/status`, the view's `approvals`, the `approvals.set` delta event, the approval reports). |
+| 2 | `backgroundWork` at `/status`, `POST /background/abort`, and `busyThreads` no longer counts a reply that only waits for a person (platform 0.4). Tool approvals add `waitingThreads` and `pendingApprovals` (approval waits are already left out of `busyThreads`). A platform reads a version 1 runtime as before. |
 
 The version goes up when a runtime and a platform of different versions can't work together (a route or field one side
 needs and the other lacks, a changed meaning). Additions both sides may ignore keep it.
