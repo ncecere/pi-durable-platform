@@ -37,6 +37,10 @@ type Locker interface {
 	TryLock(ctx context.Context, key string) (release func(), ok bool, err error)
 }
 
+// ErrDisabled: the agent was turned off after the request that wakes it was
+// authorized; it isn't started.
+var ErrDisabled = errors.New("the agent is turned off")
+
 const (
 	// wakeLockPrefix + the agent's ID names the lock that serialises starting
 	// that agent across replicas.
@@ -183,6 +187,9 @@ func (m *Manager) wake(ctx context.Context, spec launcher.Spec) (launcher.Endpoi
 			return launcher.Endpoint{}, fmt.Errorf("the agent's current spec: %w", err)
 		}
 	}
+	if spec.Disabled {
+		return launcher.Endpoint{}, ErrDisabled
+	}
 	return m.launcher.Ensure(ctx, spec)
 }
 
@@ -297,6 +304,10 @@ func (m *Manager) touch(agentID string) {
 // forwarded.
 func (m *Manager) Proxy(w http.ResponseWriter, r *http.Request, spec launcher.Spec, path string) {
 	ep, err := m.Wake(r.Context(), spec)
+	if errors.Is(err, ErrDisabled) {
+		writeError(w, http.StatusConflict, "agent_disabled", "This agent is turned off")
+		return
+	}
 	if err != nil {
 		m.log.Warn("agent wake failed", "agent", spec.AgentID, "err", err)
 		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "The agent could not be started. Try again shortly.")

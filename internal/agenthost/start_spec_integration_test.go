@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ncecere/pi-durable-platform/internal/agenthost"
 	"github.com/ncecere/pi-durable-platform/internal/agenthost/launcher"
 )
 
@@ -71,6 +72,24 @@ func TestStartUsesTheAgentsCurrentSpec(t *testing.T) {
 			}
 			if running, key := r.startedWith(); !running || key != "new-key" {
 				t.Fatalf("restarted after the move: running %v with %q, want the new team's key", running, key)
+			}
+
+			// Turned off meanwhile: the request was authorized while it was on, but nothing starts.
+			if err := r.b.Hibernate(ctx, "agent-1"); err != nil {
+				t.Fatal(err)
+			}
+			off := teamSpec("new")
+			off.Disabled = true
+			cur.set(off, nil)
+			if _, err := r.a.Wake(ctx, stale); !errors.Is(err, agenthost.ErrDisabled) {
+				t.Fatalf("waking an agent turned off meanwhile: %v, want ErrDisabled", err)
+			}
+			if running, _ := r.startedWith(); running {
+				t.Fatal("an agent turned off is running")
+			}
+			cur.set(teamSpec("new"), nil)
+			if _, err := r.a.Wake(ctx, stale); err != nil {
+				t.Fatal(err)
 			}
 
 			// Deleted (or otherwise unresolvable) meanwhile: nothing starts.

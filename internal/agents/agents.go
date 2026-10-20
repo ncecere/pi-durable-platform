@@ -769,7 +769,8 @@ func (s *Service) spec(ctx context.Context, ag dbgen.Agent) (launcher.Spec, erro
 	env["PLATFORM_GATEWAY_URL"] = strings.TrimRight(s.cfg.GatewayURL, "/")
 	env["PLATFORM_KEY"] = llm.ProxyCredential(ag.ID.String(), string(token))
 	return launcher.Spec{
-		AgentID: ag.ID.String(), Name: ag.Name, Instructions: tv.Instructions,
+		Disabled: !ag.Enabled,
+		AgentID:  ag.ID.String(), Name: ag.Name, Instructions: tv.Instructions,
 		Schema: schema, DatabaseURL: dsn, Token: string(token), Env: env,
 	}, nil
 }

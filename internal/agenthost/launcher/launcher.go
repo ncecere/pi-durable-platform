@@ -24,6 +24,9 @@ type Spec struct {
 	Token string
 	// Env holds model settings (MODEL_PROVIDER, MODEL_BASE_URL, ...).
 	Env map[string]string
+	// Disabled: the agent is turned off. The manager never starts it (a request
+	// authorized while it was on can still be on its way); launchers ignore it.
+	Disabled bool
 }
 
 // Endpoint is where a running agent answers.
