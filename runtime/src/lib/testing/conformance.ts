@@ -10,16 +10,14 @@ export type ConformanceRunner = {
 	expect: ExpectLike;
 };
 
-/** The few matchers the suites need (Vitest's and Jest's `expect` have them). */
+/** The few matchers the suites use, which Vitest's and Jest's `expect` both have. */
 export type ExpectLike = (value: unknown) => {
 	toBe(expected: unknown): void;
 	toEqual(expected: unknown): void;
 	toMatch(expected: RegExp): void;
 	toBeGreaterThanOrEqual(expected: number): void;
 	toBeLessThanOrEqual(expected: number): void;
-	toBeTypeOf(expected: string): void;
 	toContain(expected: unknown): void;
-	not: { toBe(expected: unknown): void };
 };
 
 /** A running agent runtime under test: where it listens and the bearer token the platform would present. */
@@ -65,7 +63,7 @@ export function registerRuntimeConformance(runner: ConformanceRunner, name: stri
 		const expectError = (reply: { status: number; json: { error?: { code: string; message: string } } }, status: number, code: string) => {
 			expect(reply.status).toBe(status);
 			expect(reply.json.error?.code).toBe(code);
-			expect(reply.json.error?.message).toBeTypeOf("string");
+			expect(typeof reply.json.error?.message).toBe("string");
 		};
 		const settled = async (threadId: string, messages: number) => {
 			const deadline = Date.now() + 20_000;
