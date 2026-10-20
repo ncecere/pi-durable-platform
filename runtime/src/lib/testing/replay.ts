@@ -1,6 +1,7 @@
 import type { AssistantMessage, Message, ToolResultMessage } from "@earendil-works/pi-ai";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type ConversationId, type EntryRecord, type Harness, LiveDoc } from "@earendil-works/pi-durable";
+import { SUBAGENT_REPORT } from "../subagent.ts";
 import type { TestAgent } from "./agent.ts";
 
 const ctx = BACKGROUND_CONTEXT;
@@ -26,7 +27,9 @@ export type ReplaySummary = {
  * wasn't made); no result says the call was interrupted, abandoned or aborted (unless `allowInterrupted`: a tool that
  * isn't replay-safe is meant to end that way); the run is over and ends with an answer; and every subagent (a tool
  * result whose `details.conversationId` names a child conversation) was given its task once and its answer reached
- * the parent's result, checked the same way inside the child. Throws `ReplayAssertionError` listing every problem.
+ * the parent's result, checked the same way inside the child. A background subagent (`details.background`) must have
+ * been given its task once and its answer must have reached the parent exactly once, as a `subagent.report` message.
+ * Throws `ReplayAssertionError` listing every problem.
  */
 export async function expectReplayed(agent: TestAgent | { harness: Harness; threads: { get(threadId: string): Promise<{ id: ConversationId } | undefined> } }, threadId: string, options: { allowInterrupted?: boolean } = {}): Promise<ReplaySummary> {
 	const harness = agent.harness;
@@ -56,9 +59,16 @@ async function check(harness: Harness, id: ConversationId, where: string, option
 	const calls: Call[] = [];
 	const results = new Map<string, Result[]>();
 	const users: string[] = [];
+	// Background subagents' answers posted back here, by their child conversation.
+	const reports = new Map<number, string[]>();
 	let last: Message | undefined;
 	for (const entry of entries) {
 		if (entry.kind === "pi.system" || entry.kind === "pi.compaction") continue;
+		if (entry.kind === SUBAGENT_REPORT) {
+			const child = (entry.data as { conversationId?: unknown } | undefined)?.conversationId;
+			const text = ((entry.model ?? []) as Message[]).map((m) => (m.role === "user" ? (typeof m.content === "string" ? m.content : m.content.map((c) => (c.type === "text" ? c.text : "")).join("")) : "")).join("");
+			if (typeof child === "number") reports.set(child, [...(reports.get(child) ?? []), text]);
+		}
 		for (const message of (entry.model ?? []) as Message[]) {
 			last = message;
 			if (message.role === "user") users.push(typeof message.content === "string" ? message.content : message.content.map((c) => (c.type === "text" ? c.text : "")).join(""));
@@ -91,13 +101,20 @@ async function check(harness: Harness, id: ConversationId, where: string, option
 
 	let subagents = 0;
 	for (const [callId, got] of results) {
-		const child = (got[0]?.message.details as { conversationId?: unknown } | undefined)?.conversationId;
+		const details = got[0]?.message.details as { conversationId?: unknown; background?: unknown } | undefined;
+		const child = details?.conversationId;
 		if (typeof child !== "number") continue;
 		subagents++;
-		const childWhere = `subagent of call ${callId} (conversation ${child})`;
+		const childWhere = `${details?.background === true ? "background " : ""}subagent of call ${callId} (conversation ${child})`;
 		const nested = await check(harness, child as ConversationId, childWhere, options, problems, false);
 		subagents += nested.subagents;
 		const answerText = await finalText(harness, child as ConversationId);
+		if (details?.background === true) {
+			const posted = reports.get(child) ?? [];
+			if (posted.length !== 1) problems.push(`${childWhere}: its answer reached the parent ${posted.length} times (expected once)`);
+			else if (answerText === undefined || !posted[0]!.includes(answerText)) problems.push(`${childWhere}: its report doesn't carry its answer (lost)`);
+			continue;
+		}
 		const resultText = got[0]!.message.content.map((c) => (c.type === "text" ? c.text : "")).join("");
 		if (answerText === undefined || !resultText.includes(answerText)) problems.push(`${childWhere}: its answer didn't reach the parent's result (lost)`);
 	}

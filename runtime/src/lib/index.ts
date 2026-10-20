@@ -28,9 +28,10 @@ export {
 	type StartOptions,
 	startAgent,
 } from "./agent.ts";
-export { runAgentProcess } from "./process.ts";
+export { type AgentChoice, runAgentProcess } from "./process.ts";
+export { type Author, runAuthor } from "./author.ts";
 export { assistantAgent, assistantExtension, DEFAULT_INSTRUCTIONS } from "./assistant.ts";
-export { defineSubagent, type SubagentDetails, type SubagentOptions } from "./subagent.ts";
+export { defineSubagent, SUBAGENT_REPORT, type SubagentDetails, type SubagentOptions, type SubagentReport } from "./subagent.ts";
 export {
 	type ApprovalDecision,
 	approvalHook,

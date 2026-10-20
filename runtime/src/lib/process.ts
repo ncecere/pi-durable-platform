@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import { type AgentConfig, AgentOwnedElsewhereError, type AgentProcess, startAgent } from "./agent.ts";
 import { assistantAgent, DEFAULT_INSTRUCTIONS } from "./assistant.ts";
-import type { AgentDefinition } from "./define.ts";
+import { AgentDefinitionError, type AgentDefinition } from "./define.ts";
 import { createStandbyServer } from "./standby.ts";
 import { refusedHandler, RuntimeRefusedError } from "./upgrade.ts";
 
@@ -9,7 +9,8 @@ import { refusedHandler, RuntimeRefusedError } from "./upgrade.ts";
  * Starts the agent, or, when the platform refuses this runtime (the upgrade check), serves the refusal without ever
  * opening the agent's storage: the platform sees why and stops it.
  */
-async function startOrRefuse(config: AgentConfig, definition: AgentDefinition): Promise<AgentProcess> {
+async function startOrRefuse(config: AgentConfig, choose: AgentChoice): Promise<AgentProcess> {
+	const definition = typeof choose === "function" ? choose(config.modelEnv) : choose;
 	try {
 		return await startAgent(config, definition);
 	} catch (error) {
@@ -20,7 +21,14 @@ async function startOrRefuse(config: AgentConfig, definition: AgentDefinition): 
 }
 
 /**
- * Runs one agent process with a definition, started one of two ways (docs/runtime-contract.md lists every variable):
+ * What a process runs: one definition, or a function that picks one from the agent's variables (the platform's runtime
+ * picks by AGENT_KIND, docs/first-party-agents.md). The function runs when the agent starts (in standby, at
+ * activation, with the variables the activation sent); throwing an AgentDefinitionError there is a misconfiguration.
+ */
+export type AgentChoice = AgentDefinition | ((env: Readonly<Record<string, string | undefined>>) => AgentDefinition);
+
+/**
+ * Runs one agent process with a definition (or a choice of one, see AgentChoice), started one of two ways (docs/runtime-contract.md lists every variable):
  *
  * 1. As a given agent, from environment variables (local processes, Kubernetes pods):
  *      AGENT_ID, AGENT_NAME, AGENT_INSTRUCTIONS   identity and prompt from the agent's template
@@ -36,7 +44,7 @@ async function startOrRefuse(config: AgentConfig, definition: AgentDefinition): 
  * When the platform refuses this runtime for the agent (it is older than the one that last wrote the agent's data),
  * it never opens the storage and answers every request with the refusal (upgrade.ts).
  */
-export async function runAgentProcess(definition: AgentDefinition = assistantAgent, env: NodeJS.ProcessEnv = process.env): Promise<Server> {
+export async function runAgentProcess(definition: AgentChoice = assistantAgent, env: NodeJS.ProcessEnv = process.env): Promise<Server> {
 	const get = (name: string, fallback?: string): string => {
 		const value = env[name] || fallback;
 		if (value === undefined || value === "") {
@@ -65,6 +73,11 @@ export async function runAgentProcess(definition: AgentDefinition = assistantAge
 		try {
 			agent = await startOrRefuse(config, definition);
 		} catch (error) {
+			if (error instanceof AgentDefinitionError) {
+				// A definition the agent's variables can't make (an unknown AGENT_KIND, bad AGENT_KIND_SETTINGS): misconfigured.
+				console.error(`[agent ${config.agentId}] ${error.message}`);
+				process.exit(2);
+			}
 			if (error instanceof AgentOwnedElsewhereError) {
 				// The supervisor (the platform, or Kubernetes) sees exit code 3 and retries later.
 				console.error(`[agent ${config.agentId}] another process owns this agent; exiting`);
