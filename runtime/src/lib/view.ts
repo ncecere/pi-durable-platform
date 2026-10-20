@@ -1,8 +1,14 @@
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import type { EntryRecord, LiveState } from "@earendil-works/pi-durable";
 
-/** Who sent a user message, as the platform says (never as its client says). `via`: the app a person used. */
-export type Author = { kind: "user" | "service_account"; id: string; name: string; via?: string };
+/**
+ * Who sent a user message, as the platform says (never as its client says): a person, a service account, or a trigger
+ * (an unattended run the platform started). `via`: the app a person used.
+ */
+export type Author = { kind: "user" | "service_account" | "trigger"; id: string; name: string; via?: string };
+
+/** The author kinds the platform sends. */
+export const AUTHOR_KINDS: ReadonlySet<string> = new Set(["user", "service_account", "trigger"]);
 
 /**
  * The entry a user message is placed as: pi's user message (what the model sees, which may start with a line naming
@@ -107,8 +113,8 @@ function userData(value: unknown): Partial<UserEntryData> | undefined {
 	if (typeof at === "number") out.at = at;
 	if (typeof author === "object" && author !== null) {
 		const { kind, id, name, via } = author as Record<string, unknown>;
-		if ((kind === "user" || kind === "service_account") && typeof id === "string" && typeof name === "string") {
-			out.author = { kind, id, name, ...(typeof via === "string" ? { via } : {}) };
+		if (typeof kind === "string" && AUTHOR_KINDS.has(kind) && typeof id === "string" && typeof name === "string") {
+			out.author = { kind: kind as Author["kind"], id, name, ...(typeof via === "string" ? { via } : {}) };
 		}
 	}
 	return out;
