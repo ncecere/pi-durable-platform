@@ -8,6 +8,87 @@ the entry says how to adapt. The design is in [DESIGN.md](DESIGN.md), and each r
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-19
+
+Run it anywhere, safely: deployment manifests, several replicas, metrics, key rotation, and a set of safety fixes.
+Includes database migration `00017`. Read [the upgrade notes](docs/releases/v0.2.0.md#upgrading-from-v012).
+
+### Added
+
+- **A Helm chart and a Kustomize base** (`deploy/`) with RBAC, NetworkPolicies (a Cilium flavour too), Pod Security
+  `restricted`, the Kubernetes and Agent Sandbox launchers, an Ingress, a PodDisruptionBudget and a ResourceQuota. The
+  chart is the source of truth and the Kustomize base is generated from it (checked in CI with Helm 3 and 4). The chart
+  is published, signed with cosign, to `oci://ghcr.io/ncecere/charts/pi-durable-platform` on release tags. CI installs it
+  into a kind cluster and checks the isolation, using the images built for the commit under test (#1).
+- **Several platform replicas.** `replicaCount: 2` is supported, with rolling updates that leave none missing, spreading
+  over nodes and zones, and a PodDisruptionBudget. The runtime reports its open streams and its work to `/status`, and
+  the idle reaper believes it, so a replica that never saw an agent can't hibernate it; one replica reaps at a time;
+  starting an agent is serialised across replicas; concurrent start-up no longer races creating or hardening the agents
+  database. Design: [`docs/replicas.md`](docs/replicas.md) (#2).
+- **Metrics and tracing.** Prometheus `/metrics` on its own listener (`METRICS_ADDR`; on in the chart on port 9090, with
+  no ingress allowed by default), covering requests, agent wakes, hibernations, model and MCP proxies, OAuth, sign-ins,
+  rate limits, background loops, group re-checks and database pools. Labels are values the platform defines, never ids,
+  team names or URLs. Optional OpenTelemetry traces over OTLP/HTTP (`OTEL_EXPORTER_OTLP_ENDPOINT`). A Grafana dashboard
+  and example alerts in `deploy/grafana/`, and chart support for a ServiceMonitor, a scraper NetworkPolicy and a
+  dashboard ConfigMap (#3).
+- **`pi-durable-platform rekey`** re-seals every stored secret under the current `ENCRYPTION_KEY` (`--dry-run`,
+  `--batch`), and `doctor` counts values still under the previous key. A test fails for any sealed column it doesn't
+  cover (#4).
+- **Platform-chosen thread IDs.** `POST /v1/agents/{id}/threads` returns a new random thread ID (`t_` and 128 random
+  bits). MCP servers can be set only on a thread that exists or that the same call creates (#5).
+- **IdP group re-checks.** With `OIDC_ALLOWED_GROUPS`, the platform asks the identity provider every
+  `OIDC_GROUP_RECHECK_INTERVAL` (15 minutes) whether the person is still in an allowed group, using the refresh token of
+  their last sign-in (sealed). When not, their sessions, API keys and connected apps stop working and Admin › People
+  shows "Group access ended"; signing in again restores access. If the IdP can't answer, access lasts
+  `OIDC_GROUP_RECHECK_GRACE` (24 hours). Needs the `offline_access` scope. Audit: `user.group_denied`,
+  `user.group_restored` (#6).
+- **Agents database hardening.** An agent's ownership is a row in its own schema, naming the owning database session,
+  taken over only when that session is gone, so another agent's role can't block it with an advisory lock. New commands
+  `prune-roles` and `prune-agent-storage`; `doctor` reports agent roles that belong to no agent, and warns when PUBLIC may
+  connect to the platform database (where an agent's role could take the platform's advisory locks) (#7).
+- **A configuration reference.** `.env.example` lists every setting, a test fails when one is missing, and the comments
+  match the code (#23).
+- **Vulnerability checks in CI:** `govulncheck` and the production-dependency audits of the web app and the runtime,
+  weekly and when a dependency file changes.
+
+### Changed
+
+- **Thread MCP servers follow the thread record.** Setting servers on an unknown thread ID claims it (the caller becomes
+  its creator; send `visibility` on the PUT for a private thread). Servers set on a thread nobody had started, which
+  earlier releases accepted, are removed by migration `00017`. Servers set on a reserved thread don't reach another
+  person's first message.
+- **The idle reaper trusts the runtime.** `/status` reports `openStreams` next to `busyThreads` and `lastActivityAt`.
+  An agent on a runtime image from before this release doesn't report it and is judged by its own replica's streams
+  until it restarts.
+- **Open event streams end when access ends.** Every 30 seconds a stream re-checks that the person is still active and
+  may use the agent.
+- `terminationGracePeriodSeconds` of the chart is 75 (the platform's own shutdown takes up to 65 seconds), and the chart
+  adds `offline_access` to the OIDC scopes when `oidc.allowedGroups` is set.
+
+### Fixed
+
+- A runtime sending an oversized `/status` reply can no longer exhaust the platform's memory (the reply is read through
+  a 64 KiB limit).
+- Agents whose role created large objects or stray tables can now be deleted, and `prune-roles` removes such leftovers.
+- An agent's database role can no longer block platform start-up by holding the agents database's prepare lock.
+- A client's `traceparent` no longer forces tracing: `OTEL_TRACES_SAMPLER_ARG` decides.
+- An unreadable stored IdP token (an `ENCRYPTION_KEY` change without `ENCRYPTION_KEY_PREVIOUS`) ends access after the
+  grace period instead of exempting the person; a rotated refresh token is no longer lost when the platform restarts in
+  the middle of a check; people in more than 200 IdP groups are no longer wrongly refused.
+- Sign-ins that bring no refresh token while groups are enforced are logged, counted (`pdp_group_recheck_*`) and
+  flagged by `doctor`.
+- A status report from the agent's runtime that arrives after a thread was deleted no longer brings the thread back
+  (as a shared record with the deleted thread's title, even for a private thread). In v0.1.x too.
+- A reserved thread (created with `POST .../threads` or by setting servers on a new ID, no message yet) can be deleted;
+  it returned 404 and stayed for 30 days.
+
+### Security
+
+- `golang.org/x/net` 0.60.0 fixes four HTTP/2 advisories (GO-2026-6603, -6611, -6612, -6617) that `govulncheck`
+  reports as reachable from the platform. v0.1.2 and earlier are affected.
+- See Fixed for the review's other findings. Keep agent roles out of the platform database: [the upgrade
+  notes](docs/releases/v0.2.0.md#upgrading-from-v012) give the statements.
+
 ## [0.1.2] - 2026-10-19
 
 ### Fixed
