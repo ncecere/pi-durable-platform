@@ -387,6 +387,48 @@ on `GET /v1/agents/events`.
 - **Message metadata.** User and assistant messages carry `at` (Unix ms: sent, or the reply's start); assistant
   messages `model` ({provider, id}), `usage` (input, output, cache read and write, total tokens) and `stopReason`; tool
   calls `startedAt` (the reply's end) and `endedAt` (when the result arrived). Older entries show what they have.
+- **Paging and search.** Both are opt-in, so clients that pass nothing get the whole list and the whole transcript as
+  before. `GET /v1/agents/{id}/threads?limit=&cursor=&q=` pages the platform's record, newest activity first
+  (`updated_at DESC, thread_id`, served by `agent_threads_updated`): with `limit` (1-200) the reply is
+  `{"data": [...], "nextCursor": "..."}`, the array as before and the cursor beside it, absent on the last page. The
+  cursor is opaque (base64url of the last row's `updated_at` in microseconds and its ID; a malformed one is 400
+  `invalid_cursor`). `q` is a case-insensitive substring of the title (at most 200 characters, LIKE wildcards
+  escaped), with or without `limit`; an agent's threads are few enough to filter without a trigram index, so no
+  migration. Visibility applies to every page as to the whole list. A conversation pages backwards in the runtime,
+  which serves the view: `GET …/threads/{thread}?limit=&before=` returns the `limit` (default 50) messages before the
+  one `before` names, or the latest, and `earlierCursor` when earlier ones exist (opaque: the base64url of the first
+  message's ID). A page never starts with a tool result (it then also holds the reply that made the call), and a
+  cursor whose message has left the view (compacted or reset) gives an empty page. The event streams take `limit`
+  too: whole views and snapshots keep the latest messages, with `earlierCursor`.
+- **Incremental event streams.** `GET …/threads/{thread}/events?format=delta&v=1` sends a `snapshot` event (a ChatView)
+  and then only changes, each an SSE event whose name is its `type` and whose `id` is its `seq` (counting up by one):
+  `message.added`, `message.updated` (a transcript message replaced by ID: a tool call's end time, for instance),
+  `partial.set`, `partial.appended` (text and thinking appended to the reply in progress), `partial.cleared`,
+  `tool.started`, `tool.updated` and `tool.finished` (status, `outputAppended` or `output`, null for none),
+  `tool.removed`, `tools.set` and `run` (`busy`). Tool events carry `startedAt` (the call's time in the transcript,
+  else when the stream first saw it) and `elapsedMs`, live metadata outside the view. Without `format` (or with
+  `format=view`) the stream is unchanged: whole views. The runtime's stream is coalesced like whole views (at most 10
+  flushes a second); each flush compares the view the client holds with the current one (`runtime/src/delta.ts`), so
+  applying the events in order to the snapshot gives exactly the view a new snapshot would (a property test checks
+  it on random evolutions, and an end-to-end test on a recorded run with a tool round and a steer). The reply grows
+  by appends, so the bytes follow the new tokens, not the transcript's length (tested). The transcript is rebuilt
+  only when pi-durable's watch frame brings new entries (unchanged parts are shared between frames), so a token costs
+  no transcript work either. Whatever can't be a change (the conversation was compacted or reset, or the window's
+  first message left it) is sent as a new snapshot. Every connection starts with a snapshot; with `Last-Event-ID`
+  (EventSource sends it when reconnecting; the platform relays that header and no other) the numbering goes on after
+  it, so a client keeps one increasing sequence, and a gap in `seq` means it should reconnect. *Not chosen:*
+  pi-durable's `watchEvents` (experimental). Its events describe pi's structure (entries, content blocks, task
+  records), not the platform's chat view (`pdp.user` entries shown as sent, tool calls timed from their results,
+  system and compaction entries hidden, the transcript cut at a compaction's head), so translating them would
+  duplicate `buildView` in a second form that must stay in step with it, and merging coalesced batches is its own
+  problem. Comparing chat views is correct by construction and its cost is the same `buildView` work the whole-view
+  stream already did. The console follows threads with the delta format.
+- **Steering.** `POST …/messages` takes `whenBusy`: `followUp` (the default, as before) waits for the reply in
+  progress to end and starts the next; `steer` is passed to pi-durable's submit and joins the running reply: it is
+  placed after the reply's current tool round (or at its answer), so the model sees it before going on, and the run
+  continues. The transcript shows a steering message where it was placed: a user message after the tool results of
+  the reply it changed and before that reply's next answer (in the delta format, a `message.added`). On an idle
+  thread both start a reply. The console's test chat offers Steer while a reply runs.
 - **Platform admins' reasoned reads.** `GET /v1/admin/agents/{id}/threads` lists every thread of any agent, private
   ones too, with visibility, creator and participants; the titles of private threads, of every thread of a
   personal workspace's agent and of every thread of a service-managed agent (an app's agent for one of its users)
@@ -710,7 +752,8 @@ with the inventory of what each replica keeps). In short:
 ## Known limits and open items
 
 The [v0.1.0 release notes](docs/releases/v0.1.0.md#known-limitations) list the product limits as of v0.1.0 (no budget
-enforcement, text-only messages, no paging, …; several replicas and metrics are supported since v0.2, see above). The design-level ones:
+enforcement, text-only messages, no paging, …; several replicas and metrics are supported since v0.2, paging, delta
+event streams and steering since v0.3, see above). The design-level ones:
 
 - Agent roles still share the server's connection and CPU capacity (no per-role quotas), and any role can see that
   other roles' sessions exist. Cross-agent ownership interference is closed (see Agent storage and ownership), but

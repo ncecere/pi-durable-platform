@@ -129,7 +129,13 @@ curl -X PUT $PLATFORM/v1/teams/support/agents/by-key/user-42 -H "Authorization: 
 # Send a message (202), then follow the conversation (server-sent events, the whole view on every change).
 curl -X POST $PLATFORM/v1/agents/$AGENT/threads/conv-1/messages -H "Authorization: Bearer $KEY" -d '{"text": "Hello", "requestId": "m1"}'
 curl -N $PLATFORM/v1/agents/$AGENT/threads/conv-1/events -H "Authorization: Bearer $KEY"
+# Or a snapshot of the latest 50 messages, then only changes (new tokens, not the whole view).
+curl -N "$PLATFORM/v1/agents/$AGENT/threads/conv-1/events?format=delta&v=1&limit=50" -H "Authorization: Bearer $KEY"
 ```
+
+Long lists and conversations page: `GET …/threads?limit=50` (then `&cursor=<nextCursor>`, `&q=` searches titles) and
+`GET …/threads/conv-1?limit=50` (then `&before=<earlierCursor>`). A message sent with `"whenBusy": "steer"` changes
+the reply in progress instead of waiting for it. See DESIGN.md, "Threads".
 
 Agents made this way are service-managed: only the team's service accounts talk to them. The team's owners and admins
 see them in the console (status, last use) but not their conversations, and can delete them. For the team's other
