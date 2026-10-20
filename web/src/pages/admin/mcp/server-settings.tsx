@@ -2,7 +2,9 @@
  * An MCP server's Settings: name, description, URL, access mode, who may
  * attach it and the switch (If-Match on its revision), and the write-only
  * headers, sent only when replaced. A new URL or headers make the platform
- * read the tools again. Delete is in the Danger zone. A team's own server
+ * read the tools again. Identity: whether, in proxy mode, requests carry the
+ * platform's signed identity token, for which audience, with the person's
+ * email or not (docs/mcp-identity.md). Delete is in the Danger zone. A team's own server
  * (in its team, or in Admin) has no access mode (proxy only) and no
  * publishing (its team's alone), and a refused address shows on the URL field.
  */
@@ -33,6 +35,9 @@ type Form = {
   visibility: McpVisibility;
   teams: string[];
   personal: boolean;
+  sendIdentity: boolean;
+  identityAudience: string;
+  identityEmail: boolean;
 };
 const formOf = (m: McpServer): Form => ({
   name: m.name,
@@ -43,6 +48,9 @@ const formOf = (m: McpServer): Form => ({
   visibility: m.visibility,
   teams: (m.teams ?? []).map((t) => t.slug),
   personal: m.personal,
+  sendIdentity: m.sendIdentity,
+  identityAudience: m.identityAudience ?? "",
+  identityEmail: m.identityEmail,
 });
 const labels = {
   name: "Name",
@@ -53,6 +61,9 @@ const labels = {
   visibility: "Published to",
   teams: "Teams",
   personal: "Personal workspaces",
+  sendIdentity: "Send the identity token",
+  identityAudience: "Token audience",
+  identityEmail: "Include the person's email",
 };
 const choices = { accessMode: accessLabels, visibility: { all: "All teams", teams: "Selected teams" } };
 
@@ -72,6 +83,7 @@ export function McpSettingsTab({ catalog, server, onDelete }: Props) {
     url: urlProblem(form.url, true, teamOwned),
     teams: teamOwned ? undefined : teamsProblem(form.visibility, form.teams),
     headers: headers ? headersProblem(headers) : undefined,
+    identityAudience: /\s/.test(form.identityAudience.trim()) ? "No spaces: an audience is usually a URL." : undefined,
   };
   const invalid = submitted && Object.values(problems).some(Boolean);
   const save = useMutation({
@@ -82,6 +94,9 @@ export function McpSettingsTab({ catalog, server, onDelete }: Props) {
         url: form.url.trim(),
         enabled: form.enabled,
         headers: headers ? headersOf(headers) : undefined,
+        sendIdentity: form.sendIdentity,
+        identityAudience: form.identityAudience.trim(),
+        identityEmail: form.identityEmail,
       };
       // A team's server: no access mode or publishing (the API refuses them).
       return updateMcpServer(
@@ -188,6 +203,35 @@ export function McpSettingsTab({ catalog, server, onDelete }: Props) {
           error={shown(problems.headers)}
           isAdmin={canManage}
           hint="Sent with every request to the server. Saving reads the tools again."
+        />
+      </SettingsSection>
+      <SettingsSection
+        title="Identity"
+        description="Through the platform (proxy), every request carries a short-lived token the platform signs (MCP-Gateway-Identity): the agent, its team, the thread's visibility and, in a personal workspace or a private thread, the person. Direct access never does."
+      >
+        <Switch
+          label="Send the identity token"
+          description="Turn it off for servers outside your organisation."
+          disabled={!canManage}
+          checked={form.sendIdentity}
+          onCheckedChange={(v) => set({ sendIdentity: v })}
+        />
+        <Field label="Token audience" labelHint="Optional" description="What the token's aud says. Empty: the server's URL." error={shown(problems.identityAudience)}>
+          <Input
+            maxLength={2048}
+            spellCheck={false}
+            disabled={!canManage || !form.sendIdentity}
+            placeholder={form.url}
+            value={form.identityAudience}
+            onValueChange={(v) => set({ identityAudience: v })}
+          />
+        </Field>
+        <Switch
+          label="Include the person's email"
+          description="Off: the server finds the person by their sign-in identity (issuer and subject)."
+          disabled={!canManage || !form.sendIdentity}
+          checked={form.identityEmail}
+          onCheckedChange={(v) => set({ identityEmail: v })}
         />
       </SettingsSection>
       {canManage && (

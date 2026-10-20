@@ -28,6 +28,9 @@ const mcpServer = (extra: Partial<Schemas["McpServer"]> = {}): Schemas["McpServe
   ],
   toolsRefreshedAt: "2026-10-01T10:00:00Z",
   toolsError: null,
+  sendIdentity: true,
+  identityAudience: null,
+  identityEmail: false,
   revision: 3,
   createdAt: "2026-10-01T10:00:00Z",
   updatedAt: "2026-10-01T10:00:00Z",
@@ -120,7 +123,7 @@ describe("Admin › MCP servers › a server", () => {
     expect(screen.getByText("Extra headers are set. Their values aren't shown.")).toBeInTheDocument();
   });
 
-  it("saves with If-Match, sends headers only when replaced, and surfaces mcp_server_in_use on delete", async () => {
+  it("saves with If-Match, sends headers only when replaced, the identity token's settings, and surfaces mcp_server_in_use on delete", async () => {
     const u = userEvent.setup();
     const calls = mockApi(
       adminRoutes("platform_admin", {
@@ -131,6 +134,14 @@ describe("Admin › MCP servers › a server", () => {
     renderApp(`/admin/mcp-servers/${serverId}?tab=settings`);
     await u.click(await screen.findByRole("switch", { name: "Enabled" }));
     await u.click(screen.getByRole("checkbox", { name: "Also available in personal workspaces" }));
+    expect(screen.getByRole("switch", { name: "Send the identity token" })).toBeChecked();
+    await u.type(screen.getByRole("textbox", { name: "Token audience" }), "https://portal example.com");
+    await u.click(screen.getByRole("switch", { name: "Include the person's email" }));
+    await u.click(screen.getByRole("button", { name: "Save settings" }));
+    expect(await screen.findByText("No spaces: an audience is usually a URL.")).toBeInTheDocument();
+    expect(made(calls, "PATCH", serverPath)).toHaveLength(0);
+    await u.clear(screen.getByRole("textbox", { name: "Token audience" }));
+    await u.type(screen.getByRole("textbox", { name: "Token audience" }), "https://portal.example.com");
     await u.click(screen.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(made(calls, "PATCH", serverPath)).toHaveLength(1));
     const patch = made(calls, "PATCH", serverPath)[0]!;
@@ -143,6 +154,9 @@ describe("Admin › MCP servers › a server", () => {
       enabled: false,
       visibility: "all",
       personal: false,
+      sendIdentity: true,
+      identityAudience: "https://portal.example.com",
+      identityEmail: true,
     });
     await u.click(screen.getByRole("button", { name: "Delete MCP server" }));
     const ask = await screen.findByRole("alertdialog", { name: "Delete Fake Tools?" });
