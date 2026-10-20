@@ -127,6 +127,7 @@ await runAgentProcess(
 | `runAgentProcess(definition)` | Runs the definition as an agent process: from environment variables or in standby, with the exit codes and signals of the [contract](runtime-contract.md). A custom agent's entry point. |
 | `startAgent(config, definition, options)` | Starts one agent in this process and returns its HTTP handler, harness and thread store. `options` replaces storage, models or the fatal-error handler (for tests). |
 | `assistantExtension(instructions)`, `assistantAgent` | The platform's own agent: the template's instructions as the prompt's preamble and `get_time`. `assistantAgent` is `defineAgent({ extensions: ({ instructions }) => [assistantExtension(instructions)] })`, what `src/main.ts` runs. |
+| `approvalHook(approvals, decide)`, `AgentContext.approvals` | Tool approvals ([approvals.md](approvals.md)): `approvals.request(call, api, context, {summary?, key?})` in a `beforeTool` hook asks a person and waits, durably (across restarts and hibernation), returning `{approved, status, reason?, decidedBy?, message}`; `approvalHook` is a `ToolTask` hook that asks when `decide(call)` returns options (or `true`) and blocks a denied call. The template's marked tools (`TOOL_APPROVALS`) are asked by the library's own `pdp-approvals` extension, selected last. |
 | `defineSubagent(options)` | A foreground subagent as an extension: a replay-safe tool whose call creates a conversation it owns, gives it the task (request ID: the call's task) and returns its answer, with `details: { conversationId }`. Options: `name`, `description`, `model`, `instructions`, `extensions` (the child's selection, computed from the caller's resolved selection). |
 | The facade | `defineTool`, `defineExtension`, `section`, `hook`, `wrapTool`, `wrapSection`, `defineDoc`, `defineEntry`, `defineTask`, `configure`, `ToolTask`, `GenerationTask`, `CompactionTask`, `Type`, and the types an author needs (`Extension`, `ToolExecutionApi`, `HookApi`, `Tx`, `Context`, ...). |
 | `CONTRACT_VERSION`, `PI_DURABLE_VERSION` | What `/status` reports, and the runtime reports when it starts ([Upgrades](#upgrades)). |
@@ -281,6 +282,9 @@ the platform's own runtime tests use it:
 - `startTestAgent(definition, options)`: the agent on in-memory storage and a fake model, with its HTTP API on a loopback
   port; `send`, `view`, `settled`, `status`, `document` (an exposed document, as apps read it), and `restart()`, which crashes the process wherever it is (nothing more
   reaches storage, running code is aborted) and starts it again on the same storage.
+- `agent.approvals(threadId?)`, `agent.pendingApproval(threadId?)` and `agent.decide(id, "approve" | "deny", body?)`:
+  tool approvals as the platform would decide them (`POST /approvals/{id}`); without a platform the runtime denies
+  a request itself when it expires. `restart({ graceful: true })` stops the agent as hibernation does.
 - `expectReplayed(agent, threadId)`: after any number of restarts, every tool call has exactly one result, none was
   interrupted (unless `allowInterrupted`), the run ended with an answer, and every subagent was given its task once and
   its answer reached the parent.
