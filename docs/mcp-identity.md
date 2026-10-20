@@ -108,7 +108,7 @@ workspace's agent in a private thread, to a server that receives email:
 | `team` | The agent's team: `id`, `slug`, and `kind` (`team`, or `personal` for a personal workspace) |
 | `thread_visibility` | `private`, `shared`, or `none` when the call belongs to no thread. An unknown thread is `shared` |
 | `person` | Present only when the platform names a person (above): `iss` and `sub` are the person's OIDC issuer and subject at the platform's identity provider (stable; the portal finds the same person by them); `email` only when the server's `identityEmail` is on |
-| `person_present` | `true` when the call belongs to a thread of the named person's conversation; `false` when no person is named, or a personal workspace's call belongs to no thread (work nobody is present for) |
+| `person_present` | `true` when the call belongs to a thread of the named person's conversation; `false` when no person is named, or a personal workspace's call belongs to no thread or to a thread working on a triggered run (a schedule, the agent's own reminders included, or a webhook): work nobody is present for |
 | `tool` | On a `tools/call`, the server's own name of the tool called (one call per request); absent otherwise |
 | `jti`, `iat`, `nbf`, `exp` | A unique ID; issued at; valid from 30 seconds before; valid for 5 minutes |
 
@@ -211,8 +211,9 @@ A description only; nothing here changes the portal.
 
 ## Open questions
 
-- Personal workspace work with no thread (future schedules, #15) names the owner with `person_present: false`. Should
-  triggers' runs name nobody even in a personal workspace? The `person_present` claim lets servers decide today.
+- Personal workspace work with no thread, or in a thread working on a triggered run (#15), names the owner with
+  `person_present: false`. Should triggers' runs name nobody even in a personal workspace? The `person_present` claim
+  lets servers decide today.
 - Binding a call to a run in progress (residual risk above) before team code runs in runtimes (#29).
 - Whether app servers should be able to opt in to the token.
 - Whether the platform's own tool-list reads should carry a token (`principal_type: platform`) for servers that refuse

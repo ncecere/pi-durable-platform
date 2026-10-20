@@ -47,8 +47,9 @@ A runtime starts in one of two modes, chosen by its environment:
 | `DEMO_TOKENS_PER_SECOND` | The demo model's speed. |
 | `MCP_SERVERS` | JSON array of the template's MCP servers (slug, name, URL, headers in direct mode, tools). |
 | `MCP_THREADS_URL`, `MCP_KEY` | Where to fetch the MCP servers apps gave a thread, and the credential. |
-| `PLATFORM_GATEWAY_URL`, `PLATFORM_KEY` | Where to report thread status and tool approvals, and the credential. |
+| `PLATFORM_GATEWAY_URL`, `PLATFORM_KEY` | Where to report thread status and tool approvals (and schedule), and the credential. |
 | `TOOL_APPROVALS` | JSON `{tools, timeoutSeconds}`: the template version's tools (names, or patterns with `*`) that wait for a person's approval before they run ([approvals.md](approvals.md)). Absent: none. |
+| `PLATFORM_SCHEDULES` | `true` when the agent's template version lets it set its own schedules (the library's schedule tools, [triggers.md](triggers.md#agent-made-schedules)); absent otherwise. |
 
 `MODEL_API_KEY` (in proxy mode), `MODEL_USAGE_KEY`, `MCP_KEY` and `PLATFORM_KEY` are the agent's gateway credential.
 None of these values may be logged.
@@ -169,7 +170,7 @@ and sends `POST /activate` with `Authorization: Bearer <RUNTIME_ACTIVATION_TOKEN
 
 `schema` is an agent schema name (`agent_[a-z0-9_]{1,56}`), `databaseUrl` a PostgreSQL URL, `token` at least 16
 characters, and `env` holds only the model, MCP and platform variables above (`MODEL_*`, `MCP_SERVERS`,
-`MCP_THREADS_URL`, `MCP_KEY`, `PLATFORM_GATEWAY_URL`, `PLATFORM_KEY`, `TOOL_APPROVALS`, `DEMO_TOKENS_PER_SECOND`); the body is at most
+`MCP_THREADS_URL`, `MCP_KEY`, `PLATFORM_GATEWAY_URL`, `PLATFORM_KEY`, `TOOL_APPROVALS`, `PLATFORM_SCHEDULES`, `DEMO_TOKENS_PER_SECOND`); the body is at most
 4 MiB.
 
 | Answer | When |
@@ -201,12 +202,15 @@ Best effort: each is retried a few times, and the next start reconciles what was
   `Authorization: Bearer <MODEL_USAGE_KEY>`, a moment after responses end and when the runtime stops.
 - **Thread MCP servers**, when `MCP_THREADS_URL` is set: `GET MCP_THREADS_URL?thread=<thread>` (before each message;
   without `thread` at start, for every thread) with `Authorization: Bearer <MCP_KEY>` returns `{data: [server]}`.
+- **Schedules**, when `PLATFORM_SCHEDULES` is `true`: the agent's own reminders and recurring work, with
+  `Authorization: Bearer <PLATFORM_KEY>`: `POST /schedules`, `GET /schedules`, `DELETE /schedules/{id}` on
+  `PLATFORM_GATEWAY_URL` ([triggers.md](triggers.md#agent-made-schedules)). Not retried: the tool answers the model.
 
 ## Versions of this contract
 
 | Version | Change |
 |---|---|
-| 1 | First written version: what runtimes of platform 0.1 to 0.3 did, plus `contractVersion` and `piDurableVersion` at `/status`. Additions since (both sides may ignore them): the upgrade check at start (`/runtime/start`, `refused` at `/status`), tool `details` and exposed `documents` in the view, `document.updated`, `GET /threads/{thread}/documents/{kind}`, and tool approvals (`TOOL_APPROVALS`, `/approvals`, `waitingThreads` and `pendingApprovals` at `/status`, the view's `approvals`, the `approvals.set` delta event, the approval reports). |
+| 1 | First written version: what runtimes of platform 0.1 to 0.3 did, plus `contractVersion` and `piDurableVersion` at `/status`. Additions since (both sides may ignore them): the upgrade check at start (`/runtime/start`, `refused` at `/status`), tool `details` and exposed `documents` in the view, `document.updated`, `GET /threads/{thread}/documents/{kind}`, and tool approvals (`TOOL_APPROVALS`, `/approvals`, `waitingThreads` and `pendingApprovals` at `/status`, the view's `approvals`, the `approvals.set` delta event, the approval reports), and `PLATFORM_SCHEDULES` with the gateway's schedule routes (sent only to agents whose version allows it). |
 | 2 | `backgroundWork` at `/status`, `POST /background/abort`, and `busyThreads` no longer counts a reply that only waits for a person (platform 0.4). Tool approvals add `waitingThreads` and `pendingApprovals` (approval waits are already left out of `busyThreads`). A platform reads a version 1 runtime as before. |
 
 The version goes up when a runtime and a platform of different versions can't work together (a route or field one side
