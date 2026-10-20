@@ -11,6 +11,7 @@ import {
 	defineTool,
 	hook,
 	isSecretKey,
+	isSecretValue,
 	redactArguments,
 	runStarter,
 	ToolTask,
@@ -312,7 +313,7 @@ describe("tool approvals", () => {
 		await until(() => gw.bodies("/approvals/report").length > 0);
 		const report = gw.bodies("/approvals/report")[0] as Record<string, unknown>;
 		expect(report).toMatchObject({ id: request.id, threadId: "t", tool: "call_api", callId: "c1", requestedFor: ann, status: "pending" });
-		expect(report.arguments).toEqual({ url: "https://example.com", headers: "[redacted]", apiKey: "[redacted]" });
+		expect(report.arguments).toEqual({ url: "https://example.com", headers: { Authorization: "[redacted, 13 characters]" }, apiKey: "[redacted, 5 characters]" });
 		expect(JSON.stringify(gw.all())).not.toContain("s3cret");
 		await until(async () => (await agent.approvals("t"))[0]!.expiresAt === expiresAt);
 		// The platform decided before this call asked again (after a restart): its answer is applied at once.
@@ -335,13 +336,31 @@ describe("approval helpers", () => {
 	});
 
 	it("redact credentials and bound the arguments", () => {
-		for (const key of ["Authorization", "api_key", "apiKey", "clientSecret", "refresh-token", "headers", "Cookie", "password", "x-api-key"]) {
+		for (const key of ["Authorization", "api_key", "apiKey", "clientSecret", "client_secret", "refresh-token", "access_token", "Cookie", "password", "x-api-key", "private_key", "github_token"]) {
 			expect(isSecretKey(key)).toBe(true);
 		}
-		for (const key of ["max_tokens", "url", "title", "body", "keyword"]) expect(isSecretKey(key)).toBe(false);
+		// Names that only might be: an S3 object's key, an auth method, headers (their own keys are checked), pagination.
+		for (const key of ["key", "object_key", "auth", "headers", "signature", "max_tokens", "pageToken", "url", "title", "body", "keyword"]) {
+			expect(isSecretKey(key)).toBe(false);
+		}
+		for (const value of [`pdp_${"A1b2".repeat(11)}`, `pdpat_${"Zz0".repeat(15)}`, `pdpk_${"q".repeat(20)}`, `sk-proj-${"aB3".repeat(16)}`, `ghp_${"a1B2".repeat(9)}`,
+			"AKIAIOSFODNN7EXAMPLE", "Bearer abcdefgh12345678", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.c2lnbmF0dXJl", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+			"-----BEGIN OPENSSH PRIVATE KEY-----\nb3Blbg==\n-----END OPENSSH PRIVATE KEY-----"]) {
+			expect(isSecretValue(value)).toBe(true);
+		}
+		for (const value of ["reports/2026/10/summary.csv", "550e8400-e29b-41d4-a716-446655440000", "da39a3ee5e6b4b0d3255bfef95601890afd80709", "Fix the login page",
+			"token limit exceeded", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", "issue-1234-fix-the-thing-in-the-parser"]) {
+			expect(isSecretValue(value)).toBe(false);
+		}
+		expect(redactArguments({ key: "reports/2026/10/summary.csv", query: "AKIAIOSFODNN7EXAMPLE", password: { a: 1 }, apiKey: "[redacted, 42 characters]" })).toEqual({
+			key: "reports/2026/10/summary.csv",
+			query: "[redacted, 20 characters]",
+			password: "[redacted, 7 characters]",
+			apiKey: "[redacted, 42 characters]",
+		});
 		const long = "x".repeat(5000);
 		const view = redactArguments({ nested: { token: "t", deep: { a: { b: { c: { d: { e: 1 } } } } } }, long, list: Array.from({ length: 150 }, (_, i) => i) }) as Record<string, any>;
-		expect(view.nested.token).toBe("[redacted]");
+		expect(view.nested.token).toBe("[redacted, 1 character]");
 		expect(view.long).toHaveLength(2001);
 		expect(view.list).toHaveLength(101);
 		expect(JSON.stringify(view)).toContain("[…]");

@@ -118,10 +118,27 @@ unattended.
 | `GET /v1/me/approvals` | The inbox: pending approvals the caller may decide, across agents. |
 
 A `ToolApproval` is `{id, agentId, agentName, threadId, tool, callId, arguments, summary?, requestedFor?, status,
-requestedAt, expiresAt, decidedAt?, decidedBy?, reason?, canDecide}`. `arguments` is a redacted view: values under keys
-that look like credentials (`authorization`, `cookie`, `token`, `secret`, `password`, `api_key`, `headers`, ...) read
-`[redacted]`, strings are cut at 2,000 characters, nesting at 6 levels, and the whole view at 16 KiB. Audit entries
-never hold arguments: the tool, the thread, the decision and its reason.
+requestedAt, expiresAt, decidedAt?, decidedBy?, reason?, canDecide}`. `arguments` is a redacted view, made by the
+runtime and again by the platform with the same rules (`runtime/src/lib/redact.ts`, `internal/agents/redact.go`):
+
+- **By name**: a value whose key clearly names a credential: `password`, `passwd`, `passphrase`, `secret` and names
+  ending in it (`client_secret`), `token` and names ending in it (`access_token`, `refresh_token`, `github_token`; not
+  pagination's `page_token`, `next_page_token`), `api_key`/`apiKey`/`x-api-key`, `secret_key`, `private_key`,
+  `aws_secret_access_key`, `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `credentials`,
+  `session_id`, `bearer` (case, `-` and `_` don't matter). Names that only might hold one (`key`, `auth`, `headers`,
+  `signature`) are not redacted by name: an S3 object's `key` is shown, and a `headers` object's own keys
+  (`Authorization`, `Cookie`) are checked.
+- **By value**, under any name: strings that look like credentials, kept conservative: known token prefixes (the
+  platform's `pdp_…`, `pdpat_…` and other `pdp…_` keys, `sk-…`, `sk_live_…`, GitHub's `ghp_…` and `github_pat_…`,
+  `glpat-…`, Slack's `xoxb-…`, AWS `AKIA…`, Google `AIza…`, `hf_…`, `npm_…`), an Authorization value (`Bearer …`,
+  `Basic …`), a JWT, a PEM private key, and a 32-512 character base64 or base64url string mixing upper and lower case
+  letters and digits with at least 4 bits of entropy per character. UUIDs, one-case hashes (a commit SHA), paths and
+  prose are shown.
+- A redacted value reads `[redacted, 42 characters]` (a string's length, or its JSON's for another value), never any
+  of it, so an approver sees that something was there.
+
+Strings are cut at 2,000 characters, nesting at 6 levels, and the whole view at 16 KiB. Audit entries never hold
+arguments: the tool, the thread, the decision and its reason.
 
 ## The thread view and its streams
 

@@ -67,5 +67,5 @@ export {
 	USER_ENTRY,
 } from "./view.ts";
 export { Approvals, ApprovalsDoc, approvalId, parseApprovalPolicy, runStarter, toolMatches } from "./approvals.ts";
-export { isSecretKey, redactArguments } from "./redact.ts";
+export { isSecretKey, isSecretValue, redactArguments } from "./redact.ts";
 export { applyDelta, type DeltaEvent, DELTA_VERSION } from "./delta.ts";

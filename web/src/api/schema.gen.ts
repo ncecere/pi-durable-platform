@@ -3508,7 +3508,7 @@ export interface components {
             threadTitle?: string | null;
             tool: string;
             callId: string;
-            /** @description A bounded, redacted view: values under credential-like keys read [redacted], strings are cut at 2,000 characters, the whole at 16 KiB */
+            /** @description A bounded, redacted view: values under keys that name a credential, and values that look like one, read "[redacted, N characters]"; strings are cut at 2,000 characters, the whole at 16 KiB */
             arguments: {
                 [key: string]: unknown;
             };

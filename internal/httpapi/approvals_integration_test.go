@@ -318,7 +318,8 @@ func TestRuntimeReportsAreRedactedAndReconciled(t *testing.T) {
 		t.Fatalf("report: %+v %v", ans, err)
 	}
 	args := e.scalar(`SELECT arguments::text FROM tool_approvals WHERE id = 'ap_reported1'`)
-	if strings.Contains(args, "s3cret") || !strings.Contains(args, `"apiKey": "[redacted]"`) || !strings.Contains(args, `"record": "42"`) {
+	if strings.Contains(args, "s3cret") || !strings.Contains(args, `"apiKey": "[redacted, 1 character]"`) ||
+		!strings.Contains(args, `"Authorization": "[redacted, 13 characters]"`) || !strings.Contains(args, `"record": "42"`) {
 		t.Fatalf("stored arguments = %s", args)
 	}
 	if kind := e.scalar(`SELECT coalesce(requested_for_kind, 'none') FROM tool_approvals WHERE id = 'ap_reported1'`); kind != "none" {

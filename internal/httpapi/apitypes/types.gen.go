@@ -3465,7 +3465,7 @@ type ToolApproval struct {
 	AgentId   openapi_types.UUID `json:"agentId"`
 	AgentName string             `json:"agentName"`
 
-	// Arguments A bounded, redacted view: values under credential-like keys read [redacted], strings are cut at 2,000 characters, the whole at 16 KiB
+	// Arguments A bounded, redacted view: values under keys that name a credential, and values that look like one, read "[redacted, N characters]"; strings are cut at 2,000 characters, the whole at 16 KiB
 	Arguments map[string]interface{} `json:"arguments"`
 	CallId    string                 `json:"callId"`
 
