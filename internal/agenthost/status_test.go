@@ -75,3 +75,55 @@ func TestStatusReadsAnOrdinaryReply(t *testing.T) {
 		t.Fatalf("status = %+v, %v", st, err)
 	}
 }
+
+// The runtime reports its contract and pi-durable versions (contract version
+// 1). Nothing is stored yet; what is out of bounds or of another type is
+// dropped without failing the report (the reaper still reads the activity),
+// and a runtime that predates the fields still decodes.
+func TestStatusReadsBoundedVersions(t *testing.T) {
+	cases := []struct {
+		name     string
+		body     string
+		contract int // 0: none
+		pi       string
+	}{
+		{"current", `{"data":{"busyThreads":0,"contractVersion":1,"piDurableVersion":"1.3.0"}}`, 1, "1.3.0"},
+		{"pre-release", `{"data":{"contractVersion":2,"piDurableVersion":"1.4.0-rc.1"}}`, 2, "1.4.0-rc.1"},
+		{"older runtime", `{"data":{"busyThreads":1}}`, 0, ""},
+		{"contract version zero", `{"data":{"contractVersion":0}}`, 0, ""},
+		{"contract version negative", `{"data":{"contractVersion":-4}}`, 0, ""},
+		{"contract version too large", `{"data":{"contractVersion":1000000}}`, 0, ""},
+		{"not a version", `{"data":{"piDurableVersion":"latest"}}`, 0, ""},
+		{"markup", `{"data":{"piDurableVersion":"1.3.0<script>"}}`, 0, ""},
+		{"too long", `{"data":{"piDurableVersion":"1.3.0-` + strings.Repeat("a", 200) + `"}}`, 0, ""},
+		{"wrong types", `{"data":{"busyThreads":2,"contractVersion":"one","piDurableVersion":13}}`, 0, ""},
+		{"fractional contract version", `{"data":{"contractVersion":1.5}}`, 0, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rt := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer rt.Close()
+			st, err := statusManager(rt.URL).status(context.Background(), launcher.Endpoint{BaseURL: rt.URL, Token: "tok"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := 0
+			if st.ContractVersion != nil {
+				got = *st.ContractVersion
+			}
+			if got != tc.contract || st.PiDurableVersion != tc.pi {
+				t.Fatalf("contract %d, pi-durable %q; want %d, %q", got, st.PiDurableVersion, tc.contract, tc.pi)
+			}
+		})
+	}
+	// A malformed activity field is still an error.
+	rt := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"data":{"busyThreads":"two","contractVersion":1}}`)
+	}))
+	defer rt.Close()
+	if _, err := statusManager(rt.URL).status(context.Background(), launcher.Endpoint{BaseURL: rt.URL, Token: "tok"}); err == nil {
+		t.Fatal("a string busyThreads was accepted")
+	}
+}

@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"sync"
 	"time"
 
@@ -391,13 +392,53 @@ func isEventStream(path string) bool {
 	return len(path) > len("/events") && path[len(path)-len("/events"):] == "/events"
 }
 
-// runtimeStatus is what a runtime reports at /status. OpenStreams is nil for
-// a runtime that predates it (an agent started before the platform was
-// upgraded): the reaper then goes by this replica's streams alone.
+// runtimeStatus is what a runtime reports at /status (docs/runtime-contract.md).
+// OpenStreams is nil for a runtime that predates it (an agent started before
+// the platform was upgraded): the reaper then goes by this replica's streams
+// alone. ContractVersion and PiDurableVersion are nil and empty for a runtime
+// before contract version 1. Nothing is stored or decided on them yet.
 type runtimeStatus struct {
-	BusyThreads    int   `json:"busyThreads"`
-	OpenStreams    *int  `json:"openStreams"`
-	LastActivityAt int64 `json:"lastActivityAt"`
+	BusyThreads      int
+	OpenStreams      *int
+	LastActivityAt   int64
+	ContractVersion  *int
+	PiDurableVersion string
+}
+
+// maxContractVersion and piDurableVersionPattern bound what a runtime may
+// report about its versions.
+const maxContractVersion = 1000
+
+var piDurableVersionPattern = regexp.MustCompile(`^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}(-[0-9A-Za-z.-]{1,32})?$`)
+
+// UnmarshalJSON reads the activity fields strictly (a malformed one is an
+// error, as before) and the version fields leniently: the runtime is not
+// trusted, and a version the platform would not accept (a contract version
+// outside 1..maxContractVersion, a pi-durable version that is not a short
+// semantic version, or a value of another type) is dropped rather than making
+// the whole report unreadable, which would keep the reaper from hibernating
+// the agent.
+func (s *runtimeStatus) UnmarshalJSON(raw []byte) error {
+	var wire struct {
+		BusyThreads      int             `json:"busyThreads"`
+		OpenStreams      *int            `json:"openStreams"`
+		LastActivityAt   int64           `json:"lastActivityAt"`
+		ContractVersion  json.RawMessage `json:"contractVersion"`
+		PiDurableVersion json.RawMessage `json:"piDurableVersion"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return err
+	}
+	*s = runtimeStatus{BusyThreads: wire.BusyThreads, OpenStreams: wire.OpenStreams, LastActivityAt: wire.LastActivityAt}
+	var contract int
+	if json.Unmarshal(wire.ContractVersion, &contract) == nil && contract >= 1 && contract <= maxContractVersion {
+		s.ContractVersion = &contract
+	}
+	var pi string
+	if json.Unmarshal(wire.PiDurableVersion, &pi) == nil && piDurableVersionPattern.MatchString(pi) {
+		s.PiDurableVersion = pi
+	}
+	return nil
 }
 
 // ReapOnce hibernates every running agent that has been idle for longer than
