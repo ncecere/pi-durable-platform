@@ -172,6 +172,8 @@ pi-durable-platform rekey [--dry-run] [--batch N]
                               re-seal every stored secret under the current ENCRYPTION_KEY
 pi-durable-platform rotate-mcp-identity-key [--prepublish 24h] [--now [--drop-previous]]
                               add a new key for the identity tokens MCP servers receive
+pi-durable-platform reset-storage-version --agent ID [--to VERSION]
+                              remove or set an agent's recorded pi-durable storage version (docs/custom-agents.md)
 pi-durable-platform version   print the version
 ```
 

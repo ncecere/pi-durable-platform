@@ -69,7 +69,8 @@ None of these values may be logged.
 Before it opens the agent's storage (in either mode, after activation in standby), a runtime with `PLATFORM_GATEWAY_URL`
 and `PLATFORM_KEY` sends `POST {PLATFORM_GATEWAY_URL}/runtime/start` with `Authorization: Bearer <PLATFORM_KEY>` and
 `{contractVersion, piDurableVersion}`. The platform records, per agent, the newest pi-durable version that has written
-its storage, and answers:
+its storage (only up to one minor version ahead of the pi-durable it ships: a version beyond that is answered `200`
+and not recorded; [custom-agents.md](custom-agents.md#upgrades)), and answers:
 
 | Answer | The runtime |
 |---|---|
@@ -198,7 +199,9 @@ Best effort: each is retried a few times, and the next start reconciles what was
   expiresAt}`: the platform's expiry, and its decision if it has one, which the runtime applies. At start
   `POST /approvals/sync {approvals: [report], at}` with every pending request, answered with the decisions the platform
   has for them (a list of the same answers); the platform cancels pending requests asked before `at` that the list
-  lacks. `arguments` is a redacted, bounded view (the platform redacts again).
+  lacks. `arguments` is a redacted, bounded view (the platform redacts again). Beyond 100 pending requests per agent
+  the platform refuses a new one by answering `{status: "denied", decidedBy: {kind: "system", name: "Platform"},
+  reason}` without recording it, and the runtime applies that like any denial.
 - **Usage**, when `MODEL_USAGE_URL` is set: batches of `{requests, input, output, cacheRead, cacheWrite}` to it, with
   `Authorization: Bearer <MODEL_USAGE_KEY>`, a moment after responses end and when the runtime stops.
 - **Thread MCP servers**, when `MCP_THREADS_URL` is set: `GET MCP_THREADS_URL?thread=<thread>` (before each message;

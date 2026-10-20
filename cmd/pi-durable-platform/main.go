@@ -7,6 +7,7 @@
 //	pi-durable-platform prune-roles           drop agent database roles no agent owns
 //	pi-durable-platform rekey     re-seal every stored secret under the current ENCRYPTION_KEY
 //	pi-durable-platform rotate-mcp-identity-key   add a new key for MCP identity tokens
+//	pi-durable-platform reset-storage-version     reset an agent's recorded pi-durable storage version
 //	pi-durable-platform version   print the version
 package main
 
@@ -21,6 +22,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/ncecere/pi-durable-platform/internal/app"
 	"github.com/ncecere/pi-durable-platform/internal/buildinfo"
@@ -47,6 +50,9 @@ commands:
   rotate-mcp-identity-key
             add a new key for the identity tokens MCP servers receive
             (--prepublish, --now, --drop-previous, --help)
+  reset-storage-version
+            remove or set an agent's recorded pi-durable storage version, the
+            upgrade check's record (--agent, --to, --help)
   version   print the version
 
 Configuration comes from environment variables and the optional YAML file
@@ -85,6 +91,8 @@ func run(args []string) error {
 		return runRekey(args[1:], os.Stdout)
 	case "rotate-mcp-identity-key":
 		return runRotateMCPIdentityKey(args[1:], os.Stdout)
+	case "reset-storage-version":
+		return runResetStorageVersion(args[1:], os.Stdout)
 	case app.ModeServe, app.ModeMigrate:
 	default:
 		fmt.Fprint(os.Stderr, usage)
@@ -322,6 +330,54 @@ func runRotateMCPIdentityKey(args []string, stdout io.Writer) error {
 	if rot.Deleted > 0 {
 		fmt.Fprintf(stdout, "deleted %d previous key(s)\n", rot.Deleted)
 	}
+	return nil
+}
+
+// runResetStorageVersion implements `pi-durable-platform
+// reset-storage-version --agent ID [--to VERSION]`.
+func runResetStorageVersion(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("reset-storage-version", flag.ContinueOnError)
+	agent := fs.String("agent", "", "the agent's ID (required)")
+	to := fs.String("to", "", "record this pi-durable version instead of removing the record")
+	fs.Usage = func() {
+		fmt.Fprint(fs.Output(), "usage: pi-durable-platform reset-storage-version --agent ID [--to VERSION]\n\n"+
+			"Removes the pi-durable version the upgrade check recorded for the agent (or sets\n"+
+			"it to --to) and ends any refusal, so that the next runtime start records its own\n"+
+			"version (docs/custom-agents.md, Upgrades). Use it when a version was recorded that\n"+
+			"no runtime has written the agent's data with; resetting below a version that did\n"+
+			"write it lets an older runtime fail on the agent's data. Writes one audit entry.\n\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); errors.Is(err, flag.ErrHelp) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("reset-storage-version takes no arguments (got %q)", fs.Arg(0))
+	}
+	id, err := uuid.Parse(*agent)
+	if err != nil {
+		return errors.New("--agent must be the agent's ID")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("configuration:\n%w", err)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	res, err := app.ResetStorageVersion(ctx, cfg, id, *to)
+	if err != nil {
+		return err
+	}
+	from, now := res.From, res.To
+	if from == "" {
+		from = "none"
+	}
+	if now == "" {
+		now = "none (the next runtime start records its version)"
+	}
+	fmt.Fprintf(stdout, "agent %s: recorded storage version %s, now %s\n", id, from, now)
 	return nil
 }
 

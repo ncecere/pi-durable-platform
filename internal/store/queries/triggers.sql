@@ -140,6 +140,12 @@ SELECT count(*) FROM trigger_runs WHERE agent_id = $1 AND status IN ('pending', 
 -- name: TriggerCostSince :one
 SELECT coalesce(sum(cost_usd), 0)::float8 FROM trigger_runs WHERE trigger_id = sqlc.arg(trigger_id) AND created_at >= sqlc.arg(since);
 
+-- name: AgentMadeRunsSince :one
+-- The agent's runs of its own schedules since a time that weren't skipped
+-- (TRIGGERS_AGENT_DAILY_RUNS).
+SELECT count(*) FROM trigger_runs
+WHERE agent_id = sqlc.arg(agent_id) AND created_at >= sqlc.arg(since) AND trigger_source = 'agent' AND status <> 'skipped';
+
 -- name: AgentRunCostSince :one
 SELECT coalesce(sum(cost_usd), 0)::float8 FROM trigger_runs WHERE agent_id = sqlc.arg(agent_id) AND created_at >= sqlc.arg(since);
 

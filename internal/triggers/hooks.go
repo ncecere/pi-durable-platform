@@ -30,6 +30,14 @@ type WebhookResult struct {
 // delivery fires the trigger (or finds the run of an earlier delivery with
 // the same signature). The run is delivered in the background.
 func (s *Service) Webhook(ctx context.Context, hookID, signature string, body []byte) (WebhookResult, error) {
+	return s.WebhookVerified(ctx, hookID, signature, body, nil)
+}
+
+// WebhookVerified is Webhook, asking admit (when not nil) once the signature
+// is verified and before anything else: its error (the address's rate
+// limit) ends the delivery. So only verified deliveries count against the
+// trigger's limit, and a sender without the secret can't spend it.
+func (s *Service) WebhookVerified(ctx context.Context, hookID, signature string, body []byte, admit func(context.Context) error) (WebhookResult, error) {
 	now := s.now()
 	trig, err := s.q.GetTriggerByHook(ctx, &hookID)
 	if errors.Is(store.NotFound(err), store.ErrNotFound) {
@@ -44,6 +52,11 @@ func (s *Service) Webhook(ctx context.Context, hookID, signature string, body []
 	sig, ok := verify(signature, string(secret), body, now)
 	if !ok {
 		return WebhookResult{}, errBadSignature
+	}
+	if admit != nil {
+		if err := admit(ctx); err != nil {
+			return WebhookResult{}, err
+		}
 	}
 	payload, isJSON := decodePayload(body)
 	if trig.FilterPath != nil && !(Filter{Path: *trig.FilterPath, Equals: *trig.FilterEquals}).matches(payload, isJSON) {

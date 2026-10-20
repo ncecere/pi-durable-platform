@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/ncecere/pi-durable-platform/internal/agents"
 	"github.com/ncecere/pi-durable-platform/internal/triggers"
 )
@@ -258,4 +260,31 @@ func TestDeliveryRetryIsIdempotent(t *testing.T) {
 	e.clock.Add(time.Second)
 	res2, _ := e.deliver(e.svc, saved, `{"title":"y"}`)
 	wantStatus(t, e.run(res2.Run.ID), triggers.StatusFailed, "thread_private")
+}
+
+// A run fired before its agent moved to another team is not delivered
+// afterwards: the old team's message would land in a thread the new team
+// reads. It fails (agent_moved) at its next delivery attempt.
+func TestARunFiredBeforeAMoveIsNotDeliveredToTheNewTeam(t *testing.T) {
+	e := newEnv(t)
+	e.runner.fail, e.runner.failN = &agents.TriggerError{Code: "agent_unavailable"}, 1
+	saved := e.webhook("Old team's", triggers.Input{})
+	res, err := e.deliver(e.svc, saved, `{"title":"the old team's secret"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatus(t, e.run(res.Run.ID), triggers.StatusPending, "")
+	// The agent moves (as agents.Move does: the team changes, its triggers are deleted).
+	other := uuid.New()
+	e.exec(`INSERT INTO teams (id, slug, name) VALUES ($1, 'other', 'Other')`, other)
+	e.exec(`UPDATE agents SET team_id = $2 WHERE id = $1`, e.agentID, other)
+	e.exec(`DELETE FROM agent_triggers WHERE agent_id = $1`, e.agentID)
+	e.clock.Add(30 * time.Second)
+	e.tick(e.svc)
+	if n := len(e.runner.sends()); n != 1 {
+		t.Fatalf("delivered after the move: %d attempts", n)
+	}
+	if got := e.scalar(`SELECT status || ' ' || coalesce(reason, '') FROM trigger_runs WHERE id = $1`, res.Run.ID); got != "failed agent_moved" {
+		t.Fatalf("the run = %s", got)
+	}
 }

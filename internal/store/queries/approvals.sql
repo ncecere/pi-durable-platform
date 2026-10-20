@@ -126,3 +126,9 @@ DELETE FROM tool_approvals WHERE agent_id = $1 AND thread_id = $2;
 -- Whether a thread's run waits for a person (a triggered run's time limit
 -- doesn't count that wait; the approval's own expiry bounds it).
 SELECT EXISTS (SELECT 1 FROM tool_approvals WHERE agent_id = $1 AND thread_id = $2 AND status = 'pending');
+
+-- name: CountPendingToolApprovals :one
+-- The agent's pending requests, counted up to a bound (MaxPendingApprovals).
+SELECT count(*) FROM (
+  SELECT 1 FROM tool_approvals WHERE agent_id = sqlc.arg(agent_id) AND status = 'pending' LIMIT sqlc.arg(bound)::int
+) AS pending;

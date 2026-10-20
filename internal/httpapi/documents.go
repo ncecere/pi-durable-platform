@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -68,8 +69,12 @@ func (a *api) getAgentThreadDocument(w http.ResponseWriter, r *http.Request) {
 
 // adminReadAgentThreadDocument is a platform admin's reasoned read of an
 // exposed document of any thread: recorded as thread.admin_read (with the
-// document's kind) in the agent's team's audit log before it is returned,
-// like a read of the conversation itself.
+// document's kind and the outcome: read, not_found or failed) in the agent's
+// team's audit log before it is answered, like a read of the conversation
+// itself, whether it found a document or not. A thread the agent doesn't
+// have and a kind it doesn't expose (any 4xx of the runtime but a conflict)
+// answer the same 404 document_not_found, so a read reveals nothing about
+// which threads or kinds exist.
 func (a *api) adminReadAgentThreadDocument(w http.ResponseWriter, r *http.Request) {
 	id, threadID, kind, ok := documentPath(w, r)
 	if !ok {
@@ -85,7 +90,17 @@ func (a *api) adminReadAgentThreadDocument(w http.ResponseWriter, r *http.Reques
 	}
 	read.Entry.Metadata["document"] = kind
 	reply := a.relayDocument(r, read.Spec, threadID, kind)
-	if reply.status == http.StatusOK && failed(w, r, a.Agents.RecordAdminRead(r.Context(), read)) {
+	outcome := "read"
+	switch {
+	case reply.status == http.StatusOK:
+	case reply.status >= 400 && reply.status < 500 && reply.status != http.StatusConflict && reply.status != http.StatusTooManyRequests:
+		outcome = "not_found"
+		reply = documentReply{status: http.StatusNotFound, raw: errorJSON("document_not_found", "No such document"), contentType: "application/json"}
+	default:
+		outcome = "failed"
+	}
+	read.Entry.Metadata["outcome"] = outcome
+	if failed(w, r, a.Agents.RecordAdminRead(context.WithoutCancel(r.Context()), read)) {
 		return
 	}
 	reply.write(w)

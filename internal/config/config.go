@@ -224,6 +224,10 @@ type Triggers struct {
 	// AgentMinInterval is the shortest time between two fires of a recurring
 	// schedule an agent makes itself.
 	AgentMinInterval time.Duration
+	// AgentDailyRuns is the most runs an agent's own schedules may start per
+	// UTC day (fires beyond it are skipped): what bounds a chain of
+	// reminders that each set the next.
+	AgentDailyRuns int
 }
 
 // Enabled reports whether an OIDC provider is configured.
@@ -254,7 +258,7 @@ func Defaults() Config {
 		ShutdownDelay:          5 * time.Second,
 		ShutdownTimeout:        60 * time.Second,
 		Triggers: Triggers{Interval: 10 * time.Second, MaxRunTime: 30 * time.Minute, MaxConcurrentRuns: 5, PauseAfterFailures: 5,
-			AgentMax: 20, AgentMinInterval: 5 * time.Minute},
+			AgentMax: 20, AgentMinInterval: 5 * time.Minute, AgentDailyRuns: 300},
 		Agents: Agents{
 			Launcher:      LauncherLocal,
 			RuntimeDir:    "runtime",

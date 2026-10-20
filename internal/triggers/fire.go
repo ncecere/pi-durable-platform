@@ -48,6 +48,12 @@ const (
 	ReasonReplyError    = "reply_error"
 	ReasonThreadDeleted = "thread_deleted"
 	ReasonDelivery      = "delivery_failed"
+	// ReasonAgentDailyRuns: the agent's own schedules ran
+	// TRIGGERS_AGENT_DAILY_RUNS times this UTC day.
+	ReasonAgentDailyRuns = "agent_daily_runs"
+	// ReasonAgentMoved: the agent moved to another team after the run was
+	// fired; the old team's message is not delivered to the new team.
+	ReasonAgentMoved = "agent_moved"
 )
 
 const (
@@ -218,6 +224,18 @@ func (s *Service) skipReason(ctx context.Context, q *dbgen.Queries, f fire, now 
 		return ReasonConcurrency, nil
 	}
 	since := dayStart(now)
+	// The agent's own schedules (a chain of reminders, each setting the
+	// next) run at most AgentDailyRuns times a UTC day; a person's Run now
+	// is not counted against it, nor held by it.
+	if f.manual == nil && f.trig.Source == SourceAgent && s.cfg.AgentDailyRuns > 0 {
+		n, err := q.AgentMadeRunsSince(ctx, dbgen.AgentMadeRunsSinceParams{AgentID: f.trig.AgentID, Since: since})
+		if err != nil {
+			return "", err
+		}
+		if n >= int64(s.cfg.AgentDailyRuns) {
+			return ReasonAgentDailyRuns, nil
+		}
+	}
 	if f.trig.DailyBudgetUsd.Valid {
 		spent, err := q.TriggerCostSince(ctx, dbgen.TriggerCostSinceParams{TriggerID: uuid.NullUUID{UUID: f.trig.ID, Valid: true}, Since: since})
 		if err != nil {
@@ -266,6 +284,17 @@ func (s *Service) deliver(ctx context.Context, id uuid.UUID) {
 			s.log.Warn("triggers: claim a run's delivery", "run", id, "err", err)
 		}
 		return // delivered, finished, or another replica has the lease
+	}
+	// Fired for the agent's team at the time: once the agent has moved (its
+	// triggers deleted), the old team's message must not reach the new
+	// team's threads.
+	if ag, err := s.q.GetAgent(ctx, run.AgentID); err == nil && ag.TeamID != run.TeamID {
+		s.log.Info("triggers: run not delivered: the agent moved to another team", "run", id, "agent", run.AgentID)
+		s.finish(ctx, run, StatusFailed, ReasonAgentMoved, now)
+		return
+	} else if err != nil && !errors.Is(store.NotFound(err), store.ErrNotFound) {
+		s.log.Warn("triggers: load a run's agent", "run", id, "err", err)
+		return // tried again after the lease
 	}
 	text, err := s.box.Open(run.MessageEnc, []byte(runAD(run.ID)))
 	if err != nil || run.ThreadID == nil {

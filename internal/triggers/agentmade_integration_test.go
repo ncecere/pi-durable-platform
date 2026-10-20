@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ncecere/pi-durable-platform/internal/authz"
 	"github.com/ncecere/pi-durable-platform/internal/triggers"
 )
 
@@ -233,15 +234,26 @@ func TestAOneTimeReminderFiresOnceIntoItsThreadAndRemovesItself(t *testing.T) {
 
 // Where a schedule fires: its thread when that thread may take a trigger's
 // message (the triggers rules), otherwise a new thread, and the answer says
-// why. In a personal workspace the owner's private threads may.
+// why. A shared team's private thread takes none at all (its text would
+// reach the team); in a personal workspace the owner's private threads may.
 func TestWhereAnAgentMadeScheduleFires(t *testing.T) {
 	e := newEnv(t)
 	e.allowSchedules(true)
 	e.thread(e.agentID, "private1", "private", &e.owner.UserID)
 	e.thread(e.agentID, "apps1", "shared", nil)
 	e.exec(`INSERT INTO thread_mcp_servers (agent_id, thread_id, name, slug, url, expires_at) VALUES ($1, 'apps1', 'Mail', 'mail', 'https://mcp.example.com', now() + interval '1 hour')`, e.agentID)
+	// A shared team's private thread: refused, whichever thread it would fire in, with what to do.
+	for _, where := range []string{"", triggers.WhereThis, triggers.WhereNew} {
+		_, err := e.agentSchedule(e.agentID, triggers.AgentScheduleInput{Cron: "@daily", Message: "My salary is low", ThreadID: "private1", Thread: where})
+		if !isCode(err, "schedule_private_thread") || !strings.Contains(err.Error(), "shared conversation") {
+			t.Errorf("from a private thread (thread %q): %v", where, err)
+		}
+	}
+	if n := e.scalar(`SELECT count(*)::text FROM agent_triggers WHERE agent_id = $1`, e.agentID); n != "0" {
+		t.Fatalf("%s triggers made from a private thread", n)
+	}
 	for _, c := range []struct{ thread, why string }{
-		{"private1", "private"}, {"apps1", "MCP servers"}, {"nowhere", "no record"},
+		{"apps1", "MCP servers"}, {"nowhere", "no record"},
 	} {
 		made, err := e.agentSchedule(e.agentID, triggers.AgentScheduleInput{Cron: "@daily", Message: "In " + c.thread, ThreadID: c.thread})
 		if err != nil || made.Where != triggers.WhereNew || made.Trigger.ThreadID != nil || !strings.Contains(made.WhyNotHere, c.why) {
@@ -260,7 +272,7 @@ func TestWhereAnAgentMadeScheduleFires(t *testing.T) {
 	}
 	// Someone else's private thread in it (a person no longer the owner) may not.
 	e.thread(e.agentID, "private2", "private", &e.member.UserID)
-	if other, err := e.agentSchedule(e.agentID, triggers.AgentScheduleInput{Cron: "@daily", Message: "x", ThreadID: "private2"}); err != nil || other.Where != triggers.WhereNew {
+	if other, err := e.agentSchedule(e.agentID, triggers.AgentScheduleInput{Cron: "@daily", Message: "x", ThreadID: "private2"}); !isCode(err, "schedule_private_thread") {
 		t.Fatalf("another person's private thread: %+v (%v)", other, err)
 	}
 
@@ -345,5 +357,149 @@ func TestPeopleManageAgentMadeSchedules(t *testing.T) {
 	if n := e.scalar(`SELECT count(*)::text FROM audit_log WHERE action = 'trigger.delete' AND actor_user_id = $1 AND target_id = $2`,
 		e.owner.UserID, recurring.Trigger.ID.String()); n != "1" {
 		t.Fatalf("the owner's delete: %s entries", n)
+	}
+}
+
+// An agent-made trigger's message is conversation-derived text: platform
+// staff never read it (a shared team's agent or a personal workspace's, from
+// a shared thread or none), and people who may use the agent read it only
+// when they may read the thread it was made in. People's triggers' messages
+// are the team's settings, shown as before.
+func TestAgentMadeMessagesAreWithheld(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.allowSchedules(true)
+	e.thread(e.agentID, "shared1", "shared", nil)
+	fromShared, err := e.agentSchedule(e.agentID, triggers.AgentScheduleInput{Cron: "@daily", Message: "From the shared chat", ThreadID: "shared1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromNowhere, err := e.agentSchedule(e.agentID, triggers.AgentScheduleInput{Cron: "@weekly", Message: "From a subagent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One made before private threads were refused: from the member's private thread.
+	e.thread(e.agentID, "private1", "private", &e.member.UserID)
+	fromPrivate, err := e.agentSchedule(e.agentID, triggers.AgentScheduleInput{Cron: "@monthly", Message: "x", ThreadID: "shared1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.exec(`UPDATE agent_triggers SET origin_thread_id = 'private1', message_template = 'My private worry' WHERE id = $1`, fromPrivate.Trigger.ID)
+	person := e.schedule("Nightly", "0 2 * * *", triggers.MissedSkip)
+
+	shown := func(a authz.Actor) map[uuid.UUID]string {
+		t.Helper()
+		list, err := e.svc.List(ctx, a, e.agentID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[uuid.UUID]string{}
+		for _, v := range list {
+			if v.MessageHidden != (v.Trigger.MessageTemplate == "") {
+				t.Fatalf("hidden %v with message %q", v.MessageHidden, v.Trigger.MessageTemplate)
+			}
+			out[v.Trigger.ID] = v.Trigger.MessageTemplate
+			one, err := e.svc.Get(ctx, a, e.agentID, v.Trigger.ID)
+			if err != nil || one.MessageHidden != v.MessageHidden || one.Trigger.MessageTemplate != v.Trigger.MessageTemplate {
+				t.Fatalf("Get differs from List: %+v %v", one, err)
+			}
+		}
+		return out
+	}
+	check := func(who string, a authz.Actor, want map[uuid.UUID]string) {
+		t.Helper()
+		got := shown(a)
+		for id, msg := range want {
+			if got[id] != msg {
+				t.Errorf("%s reads %q, want %q", who, got[id], msg)
+			}
+		}
+	}
+	personMsg := person.Trigger.MessageTemplate
+	// The member whose private thread it was reads all of them.
+	check("the private thread's member", e.member, map[uuid.UUID]string{fromShared.Trigger.ID: "From the shared chat",
+		fromNowhere.Trigger.ID: "From a subagent", fromPrivate.Trigger.ID: "My private worry", person.Trigger.ID: personMsg})
+	// The team's owner and its service account: not another's private thread's.
+	for who, a := range map[string]authz.Actor{"the owner": e.owner, "the service account": e.service} {
+		check(who, a, map[uuid.UUID]string{fromShared.Trigger.ID: "From the shared chat", fromNowhere.Trigger.ID: "From a subagent",
+			fromPrivate.Trigger.ID: "", person.Trigger.ID: personMsg})
+	}
+	// Platform staff: no agent-made message at all, a person's as before.
+	admin := authz.Actor{UserID: uuid.New(), PlatformRole: authz.PlatformAdmin}
+	e.exec(`INSERT INTO users (id, oidc_issuer, oidc_subject, email, platform_role) VALUES ($1, 'test', $2, $3, 'platform_admin')`,
+		admin.UserID, admin.UserID.String(), admin.UserID.String()+"@example.com")
+	staffWant := map[uuid.UUID]string{fromShared.Trigger.ID: "", fromNowhere.Trigger.ID: "", fromPrivate.Trigger.ID: "", person.Trigger.ID: personMsg}
+	check("an auditor", e.staff, staffWant)
+	check("a platform admin", admin, staffWant)
+	// Pausing returns the trigger as the caller may see it.
+	cur, err := e.svc.Get(ctx, e.owner, e.agentID, fromPrivate.Trigger.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, err := e.svc.Update(ctx, e.owner, e.agentID, fromPrivate.Trigger.ID, triggers.Input{Paused: ptr(true)}, cur.Trigger.Revision)
+	if err != nil || !paused.MessageHidden || paused.Trigger.MessageTemplate != "" {
+		t.Fatalf("the owner pauses it: %+v (%v)", paused.View, err)
+	}
+	// A deleted origin thread: withheld (nobody can tell whose it was).
+	e.exec(`DELETE FROM agent_threads WHERE agent_id = $1 AND thread_id = 'shared1'`, e.agentID)
+	check("the owner, once the thread is gone", e.owner, map[uuid.UUID]string{fromShared.Trigger.ID: ""})
+
+	// A personal workspace: the owner reads their agent's messages, platform staff don't.
+	e.exec(`UPDATE teams SET kind = 'personal', personal_owner = $2 WHERE id = $1`, e.teamID, e.owner.UserID)
+	e.exec(`DELETE FROM team_members WHERE team_id = $1 AND user_id <> $2`, e.teamID, e.owner.UserID)
+	e.thread(e.agentID, "mine", "private", &e.owner.UserID)
+	e.exec(`DELETE FROM agent_triggers WHERE id = $1`, fromPrivate.Trigger.ID) // room for one more (AgentMax 3)
+	mine, err := e.agentSchedule(e.agentID, triggers.AgentScheduleInput{Cron: "@daily", Message: "Call the dentist", ThreadID: "mine", Thread: triggers.WhereNew})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("the workspace's owner", e.owner, map[uuid.UUID]string{mine.Trigger.ID: "Call the dentist", fromNowhere.Trigger.ID: "From a subagent"})
+	check("an auditor in a personal workspace", e.staff, map[uuid.UUID]string{mine.Trigger.ID: "", fromNowhere.Trigger.ID: ""})
+	check("a platform admin in a personal workspace", admin, map[uuid.UUID]string{mine.Trigger.ID: "", fromNowhere.Trigger.ID: ""})
+}
+
+// A chain of reminders, each run setting the next a minute ahead, is
+// bounded: the agent's own schedules start at most TRIGGERS_AGENT_DAILY_RUNS
+// runs a UTC day; beyond it a fire is skipped (and a one-time reminder
+// removed, ending the chain). The next day counts afresh.
+func TestAChainOfRemindersIsBounded(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.allowSchedules(true)
+	e.cfg.AgentDailyRuns = 3
+	svc := e.replica()
+	e.thread(e.agentID, "chat1", "shared", nil)
+	chain := func() (sent bool, id uuid.UUID) {
+		t.Helper()
+		before := len(e.runner.sends())
+		at := e.clock.Now().Add(time.Minute).UTC().Format(time.RFC3339)
+		made, err := svc.AgentCreate(ctx, e.agentID, triggers.AgentScheduleInput{At: at, Message: "Do the next step, then remind yourself", ThreadID: "chat1"})
+		if err != nil {
+			t.Fatalf("the reminder: %v", err)
+		}
+		e.clock.Add(time.Minute + 5*time.Second)
+		e.tick(svc)
+		e.replyEnds("chat1", false)
+		e.clock.Add(time.Second)
+		e.tick(svc)
+		return len(e.runner.sends()) > before, made.Trigger.ID
+	}
+	for i := 0; i < 3; i++ {
+		if sent, _ := chain(); !sent {
+			t.Fatalf("run %d of the chain wasn't sent", i+1)
+		}
+	}
+	sent, id := chain()
+	if sent {
+		t.Fatal("the chain went past the daily runs")
+	}
+	if n := e.scalar(`SELECT count(*)::text FROM agent_triggers WHERE id = $1`, id); n != "0" {
+		t.Fatal("the skipped reminder is still there")
+	}
+	wantStatus(t, e.runs()[0], triggers.StatusSkipped, triggers.ReasonAgentDailyRuns)
+	// The next UTC day: the agent's schedules run again.
+	e.clock.Set(time.Date(2026, 10, 21, 8, 0, 0, 0, time.UTC))
+	if sent, _ := chain(); !sent {
+		t.Fatal("the next day's reminder wasn't sent")
 	}
 }

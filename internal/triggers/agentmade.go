@@ -62,6 +62,12 @@ var (
 		fmt.Sprintf("The message is what the agent will be told when the schedule fires: 1-%d characters", maxAgentMessage))
 	errAgentThread = apperr.Invalid("invalid_thread", `thread must be "this" (the conversation it is set in) or "new" (a new conversation at every fire)`)
 	errAgentName   = apperr.Invalid("invalid_trigger_name", "A name is at most 100 characters on one line")
+	// A private conversation's text must not reach the team: a schedule's
+	// message is shown to the team's people and lands in a shared
+	// conversation when it fires in a new one.
+	errAgentPrivate = apperr.New(403, "schedule_private_thread",
+		"Schedules can't be set from a private conversation in a shared team: the message would be shown to the team and posted "+
+			"in a shared conversation. Tell the person to set it from a shared conversation, or in their personal workspace")
 )
 
 func errAgentTooMany(n int) error {
@@ -99,8 +105,6 @@ type AgentScheduled struct {
 // whyNot says, for the model, why a thread can't take a schedule's message.
 func whyNot(code string) string {
 	switch code {
-	case "thread_private":
-		return "this conversation is private to a person in a shared team, and a schedule acts as no person"
 	case "thread_reserved":
 		return "this conversation hasn't started yet"
 	case "thread_mcp_servers":
@@ -211,7 +215,10 @@ func agentFor(ctx context.Context, q *dbgen.Queries, agentID uuid.UUID, create b
 // (TRIGGERS_AGENT_MAX, TRIGGERS_AGENT_MIN_INTERVAL) and the 50 triggers an
 // agent may have. It fires into the thread it was set in when that thread
 // may take a trigger's message, otherwise into a new thread at every fire;
-// the answer says which.
+// the answer says which. It is refused when set in a private thread that
+// can't take it (a shared team's, or one a personal workspace's owner didn't
+// start): its message is conversation-derived text the team would read, and
+// a new thread is shared.
 func (s *Service) AgentCreate(ctx context.Context, agentID uuid.UUID, in AgentScheduleInput) (AgentScheduled, error) {
 	now := s.now()
 	message := strings.TrimSpace(in.Message)
@@ -310,8 +317,13 @@ func (s *Service) AgentCreate(ctx context.Context, agentID uuid.UUID, in AgentSc
 				id := in.ThreadID
 				origin = &id
 			}
+			code := agents.TriggerThreadRefusal(info, true)
+			if code == "thread_private" {
+				// Another's private thread, whichever thread it is to fire in.
+				return errAgentPrivate
+			}
 			if in.Thread != WhereNew {
-				if code := agents.TriggerThreadRefusal(info, true); code != "" {
+				if code != "" {
 					out.WhyNotHere = whyNot(code)
 				} else {
 					thread, out.Where = origin, WhereThis

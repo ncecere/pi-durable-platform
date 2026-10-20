@@ -85,7 +85,11 @@ is then `cancelled` (checked after the stop, and at every start for requests who
 
 The runtime is untrusted, as for thread reports: the platform bounds and redacts the arguments again, ignores a thread
 or person that doesn't parse, and a runtime that names someone as the run's person only lets them decide calls in
-threads they could already read.
+threads they could already read. **At most 100 requests wait per agent** (`agents.MaxPendingApprovals`): beyond it a
+new report is refused, not recorded (no row, no audit entry, a warning in the log with the agent's ID), and its answer
+denies the call (`denied` by the system, "Platform", with the reason), which the runtime applies like a person's
+denial: the tool doesn't run and the model reads why. Requests already recorded are answered as before; once some are
+decided, new ones are taken again.
 
 ## Who may decide
 
@@ -103,6 +107,15 @@ admins. **Staff can't decide**: platform admins and auditors don't use agents of
 reasoned read doesn't extend to approvals. Someone who may see but not decide gets `canDecide: false` and 403
 `approval_forbidden` when they try.
 
+**What approvals guard against: the model, not the caller.** An approval stops the model from running a sensitive
+tool on its own judgement (a prompt injection in a web page, a webhook payload or a tool result included). It does not
+guard against the person, app or service account that started the run: the one whose message started the run may
+decide its approvals, so an app or a service account with the team's key can send a message and approve the calls it
+leads to through the same API, and a person's app (OAuth, acting for them) can approve calls in that person's runs. A
+caller who can talk to the agent could already ask it to use its tools; to keep a caller from approving its own calls,
+leave its runs to others (a shared thread where owners and admins decide, `role`) and give the agent no tool a caller
+may not use.
+
 **Who the run is for** is the author of the user message that started the run: the runtime walks back from the call's
 reply through the transcript to the first message after the previous answer (a steer that joined the run doesn't change
 it). For a call in a subagent's conversation, the thread's. A run with no author (none recorded, or a trigger) is
@@ -118,10 +131,27 @@ unattended.
 | `GET /v1/me/approvals` | The inbox: pending approvals the caller may decide, across agents. |
 
 A `ToolApproval` is `{id, agentId, agentName, threadId, tool, callId, arguments, summary?, requestedFor?, status,
-requestedAt, expiresAt, decidedAt?, decidedBy?, reason?, canDecide}`. `arguments` is a redacted view: values under keys
-that look like credentials (`authorization`, `cookie`, `token`, `secret`, `password`, `api_key`, `headers`, ...) read
-`[redacted]`, strings are cut at 2,000 characters, nesting at 6 levels, and the whole view at 16 KiB. Audit entries
-never hold arguments: the tool, the thread, the decision and its reason.
+requestedAt, expiresAt, decidedAt?, decidedBy?, reason?, canDecide}`. `arguments` is a redacted view, made by the
+runtime and again by the platform with the same rules (`runtime/src/lib/redact.ts`, `internal/agents/redact.go`):
+
+- **By name**: a value whose key clearly names a credential: `password`, `passwd`, `passphrase`, `secret` and names
+  ending in it (`client_secret`), `token` and names ending in it (`access_token`, `refresh_token`, `github_token`; not
+  pagination's `page_token`, `next_page_token`), `api_key`/`apiKey`/`x-api-key`, `secret_key`, `private_key`,
+  `aws_secret_access_key`, `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `credentials`,
+  `session_id`, `bearer` (case, `-` and `_` don't matter). Names that only might hold one (`key`, `auth`, `headers`,
+  `signature`) are not redacted by name: an S3 object's `key` is shown, and a `headers` object's own keys
+  (`Authorization`, `Cookie`) are checked.
+- **By value**, under any name: strings that look like credentials, kept conservative: known token prefixes (the
+  platform's `pdp_…`, `pdpat_…` and other `pdp…_` keys, `sk-…`, `sk_live_…`, GitHub's `ghp_…` and `github_pat_…`,
+  `glpat-…`, Slack's `xoxb-…`, AWS `AKIA…`, Google `AIza…`, `hf_…`, `npm_…`), an Authorization value (`Bearer …`,
+  `Basic …`), a JWT, a PEM private key, and a 32-512 character base64 or base64url string mixing upper and lower case
+  letters and digits with at least 4 bits of entropy per character. UUIDs, one-case hashes (a commit SHA), paths and
+  prose are shown.
+- A redacted value reads `[redacted, 42 characters]` (a string's length, or its JSON's for another value), never any
+  of it, so an approver sees that something was there.
+
+Strings are cut at 2,000 characters, nesting at 6 levels, and the whole view at 16 KiB. Audit entries never hold
+arguments: the tool, the thread, the decision and its reason.
 
 ## The thread view and its streams
 

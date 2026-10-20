@@ -55,9 +55,13 @@ secret is start anything.
   they need end-to-end de-duplication.
 - **Unknown, deleted or paused**: an unknown `hookId` is 404 (the ID is 128 random bits; its existence reveals
   nothing). The signature is checked before anything else is read or recorded, including the trigger's pause state.
-- **Flooding**: each address is rate-limited (120 deliveries a minute, shared by the replicas through the rate limit
-  store; 429 beyond). A sender with the secret can still start runs at that rate: the limits below bound what they
-  cost.
+- **Flooding**: two limits, shared by the replicas through the rate limit store, 429 beyond. Each address takes at
+  most 120 **verified** deliveries a minute: the trigger's bucket is counted only once the signature checks, so
+  someone with a leaked address but not the secret can't spend it and keep the real sender out. Every request, verified
+  or not, also counts in a bucket per address and client address (240 a minute, counted before the body is read; the
+  client address is the one the request log shows, `X-Forwarded-For` only from `TRUSTED_PROXIES`), so a flood of bad
+  signatures is limited on its own address and costs little. A sender with the secret can still start runs at 120 a
+  minute: the limits below bound what they cost.
 - **Never logged**: the body, the signature, the secret. The request log names the route pattern only
   (`/v1/hooks/{hookId}`), never the path.
 
@@ -68,6 +72,7 @@ secret is start anything.
 | Someone finds the address (a log, a referrer, a leaked config) | Without the secret nothing starts: 401 |
 | A captured delivery is replayed | Same fire ID: the first run is returned, nothing starts; after 5 minutes, 401 |
 | A captured delivery is re-dated or its body changed | The signature covers both: 401 |
+| Someone with the address but not the secret floods it | Their requests count per client address, never against the address's verified deliveries: the real sender gets through |
 | A sender with the secret floods the address | Rate limit per address; concurrency, budgets and back-off per trigger and agent |
 | The payload carries instructions for the model (prompt injection) | Inherent: a webhook's payload is untrusted text given to a model that may call the team's tools. The template should frame it as data; connect senders the team trusts; tool approvals (#16) let a person approve sensitive tool calls. The run never acts as a person (below), so the worst case is bounded by the team's own tools and budgets |
 | A template is crafted to execute something | Templates only insert text (above) |
@@ -178,7 +183,9 @@ triggers are `trigger.create`, `trigger.update`, `trigger.delete` and `trigger.s
 - An archived team's triggers are read-only, and its schedules don't fire. A turned-off agent's runs fail
   (`agent_disabled`) and count as failures.
 - **Moving an agent** deletes its triggers (their addresses stop working; the move plan counts them, `triggers`): a
-  trigger was set up with the old team's limits, callback and secrets in mind. Runs stay where they happened.
+  trigger was set up with the old team's limits, callback and secrets in mind. Runs stay where they happened. A run
+  fired before the move and not delivered yet (waiting to wake the agent, or retrying) is never delivered to the new
+  team: at its next delivery attempt it fails with reason `agent_moved`.
 
 ## Limits that hold
 
@@ -276,8 +283,23 @@ These routes are the gateway's (the agents' listener), not the public API.
 future (`time_passed`) and at most a year ahead (`too_far_ahead`); a message of 1-8,000 characters. Every trigger limit
 holds for their runs: the agent's pause, runs at once, budgets, back-off and the automatic pause.
 
+**Runs per day.** One-time reminders have no minimum interval ("remind me in two minutes" works), so a run could set
+the next reminder a minute ahead, and that one the next, without end. The agent's own schedules start at most
+`TRIGGERS_AGENT_DAILY_RUNS` (300) runs per UTC day, counted over all of them (runs that were skipped don't count); a
+fire beyond it is `skipped` with reason `agent_daily_runs`, and a skipped one-time reminder is removed, which ends the
+chain. A person's *Run now* is neither counted nor held. Set a daily budget on the agent too to bound what those runs
+cost.
+
+**Not from a private conversation.** A schedule set in a shared team's private thread (someone's own conversation with
+the agent) is refused, whether it would fire there or in a new thread (`403 schedule_private_thread`, with what to do):
+its message is written by the agent from that conversation, a new thread is shared, and the team's owners and admins
+see agent-made schedules. Firing only in that private thread would need the run to act for its person, which a
+schedule never does. The same goes for a private thread in a personal workspace that its owner didn't start. A personal
+workspace owner's own private threads may set schedules (below): the workspace, its agent and its new threads are
+theirs. A schedule set outside any thread the platform knows (a subagent's conversation) fires in a new thread.
+
 **Where it fires.** In the thread it was set in when that thread may take a trigger's message (the rules above: not
-reserved, no app's MCP servers, not private, and known to the platform), otherwise in a new thread at every fire;
+reserved, no app's MCP servers, and known to the platform), otherwise in a new thread at every fire;
 `whyNotHere` says why. One relaxation: in a personal workspace, a private thread its owner started may take it (the
 workspace and its agent are the owner's; their MCP identity token names them with `person_present: false` while the
 thread works on a triggered run). The thread is checked again at each fire: one that can no longer take it (made
@@ -292,7 +314,13 @@ that is skipped, by a limit or a paused agent, removes it at once), audited as `
 **Records and control.** `agent_triggers.source = 'agent'`, with `once` and `origin_thread_id` (migration 00025), and
 `created_by` null; each run keeps `trigger_source`. The console's Triggers tab lists them with *Made by the agent* and
 a link to the conversation; the team's owners and admins (a personal workspace's owner) pause, resume, run now or
-delete them like any trigger, but can't change them (`409 agent_made_trigger`). Names come from the agent or from the
+delete them like any trigger, but can't change them (`409 agent_made_trigger`).
+**Their message is withheld** (`messageTemplate: null`, `messageHidden: true` in the Triggers API) from those who
+mustn't read the conversation it came from: always from platform admins and auditors reading the agent's triggers
+through their platform role (in shared teams and personal workspaces alike; a platform admin reads conversations only
+with the reasoned, audited read), and from people and service accounts who may use the agent but not read the thread
+it was set in (another's private one, made before such schedules were refused, or a thread that is gone). People's
+triggers' messages are the team's settings and stay visible. Names come from the agent or from the
 time (`Reminder 2026-10-21 09:00 Europe/Paris`, `Schedule 0 9 * * 1 UTC`), never from the message: names are in the
 audit log, messages never are.
 

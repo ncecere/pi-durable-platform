@@ -23,3 +23,8 @@ SET pi_durable_version = EXCLUDED.pi_durable_version,
 
 -- name: RefuseAgentRuntime :exec
 UPDATE agent_storage_versions SET refused_version = $2, refused_at = now() WHERE agent_id = $1;
+
+-- name: DeleteAgentStorageVersion :exec
+-- The operator's reset (reset-storage-version): the next runtime start
+-- records its own version.
+DELETE FROM agent_storage_versions WHERE agent_id = $1;

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -21,8 +22,20 @@ import (
 // The webhook address takes no session or key: its signature is checked by
 // internal/triggers.
 
-// webhookRatePerMinute bounds deliveries to one webhook address.
+// webhookRatePerMinute bounds verified deliveries to one webhook address
+// (the trigger's bucket: only deliveries whose signature checks count).
 const webhookRatePerMinute = 120
+
+// webhookAttemptsPerMinute bounds the requests one client address sends to
+// one webhook address, verified or not (counted before the body is read, so
+// a flood of bad signatures costs little and fills only its own sender's
+// bucket, never the trigger's).
+const webhookAttemptsPerMinute = 2 * webhookRatePerMinute
+
+// errWebhookRate is a webhook address's rate limit (verified deliveries).
+type errWebhookRate struct{ wait time.Duration }
+
+func (e *errWebhookRate) Error() string { return "webhook rate limited" }
 
 func (a *api) triggerRoutes() []route {
 	const list = "/v1/agents/{agentId}/triggers"
@@ -48,10 +61,17 @@ func (a *api) triggerRoutes() []route {
 func toAPITrigger(v triggers.View) apitypes.Trigger {
 	t := v.Trigger
 	out := apitypes.Trigger{Id: t.ID, AgentId: t.AgentID, Kind: apitypes.TriggerKind(t.Kind), Name: t.Name,
-		Source: apitypes.TriggerSource(t.Source), Once: t.Once, OriginThreadId: t.OriginThreadID, Paused: t.Paused, ThreadId: t.ThreadID, MessageTemplate: t.MessageTemplate,
+		Source: apitypes.TriggerSource(t.Source), Once: t.Once, OriginThreadId: t.OriginThreadID, Paused: t.Paused, ThreadId: t.ThreadID,
 		WebhookSecretPrefix: t.WebhookSecretPrefix, CallbackUrl: t.CallbackUrl, CallbackSecretPrefix: t.CallbackSecretPrefix,
 		ConsecutiveFailures: t.ConsecutiveFailures, BackoffUntil: t.BackoffUntil, LastFiredAt: t.LastFiredAt,
 		CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt, Revision: t.Revision}
+	if v.MessageHidden {
+		hidden := true
+		out.MessageHidden = &hidden
+	} else {
+		msg := t.MessageTemplate
+		out.MessageTemplate = &msg
+	}
 	if t.PausedReason != nil {
 		r := apitypes.TriggerPausedReason(*t.PausedReason)
 		out.PausedReason = &r
@@ -351,23 +371,31 @@ func (a *api) listTeamRuns(w http.ResponseWriter, r *http.Request) {
 	writeRuns(w, r, rows, limit, err)
 }
 
-// deliverWebhook takes a delivery to a webhook's address: at most 120 a
-// minute per address, a body of at most 256 KiB, signed (internal/triggers
-// checks the signature before anything else). Neither the body nor the
-// signature is logged.
+// deliverWebhook takes a delivery to a webhook's address: a body of at most
+// 256 KiB, signed (internal/triggers checks the signature before anything
+// else). Two limits: at most 240 requests a minute per address from one
+// client address (verified or not, before the body is read; the client
+// address honours TRUSTED_PROXIES), and at most 120 verified deliveries a
+// minute per address, counted only once the signature checks, so someone
+// with the address but not the secret can't keep the real sender out.
+// Neither the body nor the signature is logged.
 func (a *api) deliverWebhook(w http.ResponseWriter, r *http.Request) {
 	hookID := r.PathValue("hookId")
 	if len(hookID) > 64 {
 		httpx.Error(w, http.StatusNotFound, "hook_not_found", "No webhook at this address")
 		return
 	}
-	ok, wait, err := ratelimit.Allow(r.Context(), a.limiter, ratelimit.Bucket("webhook", hookID), webhookRatePerMinute)
+	limited := func(wait time.Duration) {
+		w.Header().Set("Retry-After", strconv.Itoa(ratelimit.RetryAfter(wait)))
+		httpx.Error(w, http.StatusTooManyRequests, "rate_limited", "Too many deliveries to this address. Try again shortly.")
+	}
+	ip := httpx.ClientIP(r, a.Config.TrustedProxies)
+	ok, wait, err := ratelimit.Allow(r.Context(), a.limiter, ratelimit.Bucket("webhook_attempt", hookID+" "+ip), webhookAttemptsPerMinute)
 	if failed(w, r, err) {
 		return
 	}
 	if !ok {
-		w.Header().Set("Retry-After", strconv.Itoa(ratelimit.RetryAfter(wait)))
-		httpx.Error(w, http.StatusTooManyRequests, "rate_limited", "Too many deliveries to this address. Try again shortly.")
+		limited(wait)
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, triggers.MaxWebhookBody))
@@ -379,7 +407,22 @@ func (a *api) deliverWebhook(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "invalid_request", "The body could not be read")
 		return
 	}
-	res, err := a.Triggers.Webhook(r.Context(), hookID, r.Header.Get(triggers.SignatureHeader), body)
+	admit := func(ctx context.Context) error {
+		ok, wait, err := ratelimit.Allow(ctx, a.limiter, ratelimit.Bucket("webhook", hookID), webhookRatePerMinute)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return &errWebhookRate{wait: wait}
+		}
+		return nil
+	}
+	res, err := a.Triggers.WebhookVerified(r.Context(), hookID, r.Header.Get(triggers.SignatureHeader), body, admit)
+	var rate *errWebhookRate
+	if errors.As(err, &rate) {
+		limited(rate.wait)
+		return
+	}
 	if failed(w, r, err) {
 		return
 	}

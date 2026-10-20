@@ -39,9 +39,10 @@ var (
 	errBadApprovalState = apperr.Invalid("invalid_status", "status must be pending, decided or all")
 	errBadApprovals     = apperr.Invalid("invalid_approvals",
 		"approvals.tools are at most 100 tool names or patterns of 1-200 letters, digits, _ . - or *; role is admin, editor or member; timeoutSeconds is 60 to 2592000")
-	approvalIDRE   = regexp.MustCompile(`^ap_[A-Za-z0-9_-]{1,64}$`)
-	toolPatternRE  = regexp.MustCompile(`^[A-Za-z0-9_.*-]{1,200}$`)
-	approvalClient = &http.Client{Timeout: 15 * time.Second}
+	errTooManyApprovals = errors.New("too many pending approvals")
+	approvalIDRE        = regexp.MustCompile(`^ap_[A-Za-z0-9_-]{1,64}$`)
+	toolPatternRE       = regexp.MustCompile(`^[A-Za-z0-9_.*-]{1,200}$`)
+	approvalClient      = &http.Client{Timeout: 15 * time.Second}
 )
 
 // Approval statuses.
@@ -52,6 +53,16 @@ const (
 	ApprovalTimedOut  = "timed_out"
 	ApprovalCancelled = "cancelled"
 )
+
+// MaxPendingApprovals is how many requests may wait for a decision per
+// agent. The runtime reports requests and is not trusted: beyond it a new
+// request is refused, not recorded (no row, no audit entry), and the answer
+// denies it, which the runtime applies like a person's denial (the call
+// doesn't run, and the model reads why).
+const MaxPendingApprovals = 100
+
+// tooManyApprovals is the denial's reason, for the model.
+const tooManyApprovals = "too many approval requests of this agent are waiting for a decision; ask again once people have decided some"
 
 // DefaultApprovalTimeout is how long a request waits for a decision unless
 // the version says otherwise.
@@ -462,7 +473,11 @@ func (s *Service) ReportApproval(ctx context.Context, agentID uuid.UUID, r Appro
 			return err
 		}
 		t, err := s.recordRequest(ctx, q, ag, r)
-		if err != nil {
+		if errors.Is(err, errTooManyApprovals) {
+			out = ApprovalAnswer{ID: r.ID, Status: ApprovalDenied, Reason: tooManyApprovals,
+				DecidedBy: &ApprovalPrincipal{Kind: "system", Name: "Platform"}}
+			return nil
+		} else if err != nil {
 			return err
 		}
 		if r.Status == ApprovalCancelled && t.Status == ApprovalPending {
@@ -480,13 +495,24 @@ func (s *Service) ReportApproval(ctx context.Context, agentID uuid.UUID, r Appro
 }
 
 // recordRequest inserts a reported request (audited) or returns the one
-// already recorded.
+// already recorded; errTooManyApprovals when the agent has
+// MaxPendingApprovals waiting.
 func (s *Service) recordRequest(ctx context.Context, q *dbgen.Queries, ag dbgen.Agent, r ApprovalReport) (dbgen.ToolApproval, error) {
 	existing, err := q.GetToolApproval(ctx, dbgen.GetToolApprovalParams{AgentID: ag.ID, ID: r.ID})
 	if err == nil {
 		return existing, nil
 	} else if !errors.Is(store.NotFound(err), store.ErrNotFound) {
 		return existing, err
+	}
+	// One new request of the agent at a time (the count holds).
+	if _, err := q.LockAgentRuntime(ctx, ag.ID); err != nil {
+		return dbgen.ToolApproval{}, err
+	}
+	if n, err := q.CountPendingToolApprovals(ctx, dbgen.CountPendingToolApprovalsParams{AgentID: ag.ID, Bound: MaxPendingApprovals}); err != nil {
+		return dbgen.ToolApproval{}, err
+	} else if n >= MaxPendingApprovals {
+		slog.Warn("approvals: a request refused, the agent has too many waiting", "agent", ag.ID, "max", MaxPendingApprovals)
+		return dbgen.ToolApproval{}, errTooManyApprovals
 	}
 	tv, err := version(ctx, q, ag.TemplateID, ag.TemplateVersion)
 	if err != nil {

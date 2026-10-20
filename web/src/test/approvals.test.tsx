@@ -19,7 +19,7 @@ const approval = (over: Partial<ToolApproval> = {}): ToolApproval => ({
   threadTitle: "Clean up the CRM",
   tool: "mcp__crm__delete_record",
   callId: "c1",
-  arguments: { record: "42", headers: "[redacted]" },
+  arguments: { record: "42", headers: { Authorization: "[redacted, 13 characters]" } },
   requestedFor: { kind: "user", id: "u1", name: "Ann" },
   status: "pending",
   requestedAt: "2026-10-20T10:00:00Z",

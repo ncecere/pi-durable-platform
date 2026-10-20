@@ -3465,7 +3465,7 @@ type ToolApproval struct {
 	AgentId   openapi_types.UUID `json:"agentId"`
 	AgentName string             `json:"agentName"`
 
-	// Arguments A bounded, redacted view: values under credential-like keys read [redacted], strings are cut at 2,000 characters, the whole at 16 KiB
+	// Arguments A bounded, redacted view: values under keys that name a credential, and values that look like one, read "[redacted, N characters]"; strings are cut at 2,000 characters, the whole at 16 KiB
 	Arguments map[string]interface{} `json:"arguments"`
 	CallId    string                 `json:"callId"`
 
@@ -3545,9 +3545,12 @@ type Trigger struct {
 	Kind           TriggerKind        `json:"kind"`
 	LastFiredAt    *time.Time         `json:"lastFiredAt,omitempty"`
 
-	// MessageTemplate The message, with placeholders {{payload}}, {{payload.<path>}} (webhooks), {{trigger.name}}, {{trigger.kind}}, {{fire.id}} and {{fire.time}}
-	MessageTemplate string `json:"messageTemplate"`
-	Name            string `json:"name"`
+	// MessageHidden The message is withheld from the caller (messageTemplate is null)
+	MessageHidden *bool `json:"messageHidden,omitempty"`
+
+	// MessageTemplate The message, with placeholders {{payload}}, {{payload.<path>}} (webhooks), {{trigger.name}}, {{trigger.kind}}, {{fire.id}} and {{fire.time}}. Null when withheld (messageHidden): an agent-made trigger's message is conversation-derived text, so platform staff never see it, and people who may use the agent see it only when they may read the thread it was made in.
+	MessageTemplate *string `json:"messageTemplate"`
+	Name            string  `json:"name"`
 
 	// Once A one-time reminder (agent-made), removed when it fires
 	Once bool `json:"once"`
@@ -3639,7 +3642,7 @@ type TriggerRun struct {
 	// Link The console's path of the run's thread
 	Link *string `json:"link,omitempty"`
 
-	// Reason Why it was skipped (trigger_paused, agent_paused, team_archived, concurrency, budget, backoff, missed), stopped (max_run_time, budget) or failed (reply_error, delivery_failed, agent_disabled, thread_private, …)
+	// Reason Why it was skipped (trigger_paused, agent_paused, team_archived, concurrency, budget, backoff, missed, agent_daily_runs), stopped (max_run_time, budget) or failed (reply_error, delivery_failed, agent_moved, agent_disabled, thread_private, …)
 	Reason       *string             `json:"reason"`
 	Requests     int64               `json:"requests"`
 	ScheduledFor *time.Time          `json:"scheduledFor,omitempty"`

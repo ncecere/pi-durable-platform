@@ -455,7 +455,7 @@ export interface paths {
         put?: never;
         /**
          * Read an exposed document of any conversation, with a reason (platform admins)
-         * @description A document is part of the conversation: platform admins read it only this way, like the conversation itself (adminReadAgentThread). Each read is recorded as thread.admin_read in the agent's team's audit log, with the reason and the document's kind, before the document is returned.
+         * @description A document is part of the conversation: platform admins read it only this way, like the conversation itself (adminReadAgentThread). Each read is recorded as thread.admin_read in the agent's team's audit log, with the reason, the document's kind and the outcome (read, not_found, failed), before it is answered, whether it found a document or not. A thread the agent doesn't have and a kind it doesn't expose are the same 404 document_not_found.
          */
         post: operations["adminReadAgentThreadDocument"];
         delete?: never;
@@ -2279,7 +2279,7 @@ export interface paths {
         put?: never;
         /**
          * Deliver to a webhook trigger (no session or key - the signature is the credential)
-         * @description Sign the raw body - `X-PDP-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>." + body)>`. A missing, malformed or wrong signature, or one more than 5 minutes from the platform's clock, is 401 invalid_signature. The body (at most 256 KiB, JSON or text) fills the trigger's template; a JSON body that doesn't meet the trigger's filter is answered `matched: false` and starts nothing. A replay of a delivery is answered with the first delivery's run (`replayed: true`). Each address takes at most 120 deliveries a minute (429).
+         * @description Sign the raw body - `X-PDP-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>." + body)>`. A missing, malformed or wrong signature, or one more than 5 minutes from the platform's clock, is 401 invalid_signature. The body (at most 256 KiB, JSON or text) fills the trigger's template; a JSON body that doesn't meet the trigger's filter is answered `matched: false` and starts nothing. A replay of a delivery is answered with the first delivery's run (`replayed: true`). Each address takes at most 120 verified deliveries a minute, and at most 240 requests a minute from one client address, verified or not (429).
          */
         post: operations["deliverWebhook"];
         delete?: never;
@@ -2336,8 +2336,10 @@ export interface components {
             pausedReason?: "user" | "failures" | null;
             /** @description The thread every fire sends to (null - a new thread at every fire) */
             threadId: string | null;
-            /** @description The message, with placeholders {{payload}}, {{payload.<path>}} (webhooks), {{trigger.name}}, {{trigger.kind}}, {{fire.id}} and {{fire.time}} */
-            messageTemplate: string;
+            /** @description The message, with placeholders {{payload}}, {{payload.<path>}} (webhooks), {{trigger.name}}, {{trigger.kind}}, {{fire.id}} and {{fire.time}}. Null when withheld (messageHidden): an agent-made trigger's message is conversation-derived text, so platform staff never see it, and people who may use the agent see it only when they may read the thread it was made in. */
+            messageTemplate: string | null;
+            /** @description The message is withheld from the caller (messageTemplate is null) */
+            messageHidden?: boolean;
             schedule?: components["schemas"]["TriggerSchedule"] | null;
             /** @description Where a webhook's sender POSTs (webhooks) */
             webhookUrl?: string | null;
@@ -2473,7 +2475,7 @@ export interface components {
             fireId: string;
             threadId: string | null;
             status: components["schemas"]["TriggerRunStatus"];
-            /** @description Why it was skipped (trigger_paused, agent_paused, team_archived, concurrency, budget, backoff, missed), stopped (max_run_time, budget) or failed (reply_error, delivery_failed, agent_disabled, thread_private, …) */
+            /** @description Why it was skipped (trigger_paused, agent_paused, team_archived, concurrency, budget, backoff, missed, agent_daily_runs), stopped (max_run_time, budget) or failed (reply_error, delivery_failed, agent_moved, agent_disabled, thread_private, …) */
             reason: string | null;
             /** Format: date-time */
             scheduledFor?: string | null;
@@ -3506,7 +3508,7 @@ export interface components {
             threadTitle?: string | null;
             tool: string;
             callId: string;
-            /** @description A bounded, redacted view: values under credential-like keys read [redacted], strings are cut at 2,000 characters, the whole at 16 KiB */
+            /** @description A bounded, redacted view: values under keys that name a credential, and values that look like one, read "[redacted, N characters]"; strings are cut at 2,000 characters, the whole at 16 KiB */
             arguments: {
                 [key: string]: unknown;
             };

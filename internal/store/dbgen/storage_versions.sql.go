@@ -11,6 +11,17 @@ import (
 	"github.com/google/uuid"
 )
 
+const deleteAgentStorageVersion = `-- name: DeleteAgentStorageVersion :exec
+DELETE FROM agent_storage_versions WHERE agent_id = $1
+`
+
+// The operator's reset (reset-storage-version): the next runtime start
+// records its own version.
+func (q *Queries) DeleteAgentStorageVersion(ctx context.Context, agentID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteAgentStorageVersion, agentID)
+	return err
+}
+
 const getAgentStorageVersion = `-- name: GetAgentStorageVersion :one
 SELECT agent_id, pi_durable_version, recorded_at, refused_version, refused_at FROM agent_storage_versions WHERE agent_id = $1
 `
