@@ -5,6 +5,7 @@ import { AssistantEntry, type ConversationHandle, type ConversationId, type Entr
 
 type ConversationHandleSubmit = ConversationHandle["submit"];
 import { configure, defineExtension, defineTask, defineTool, type Extension, type ModelRef, type ToolExecutionApi, Type } from "./facade.ts";
+import { SCHEDULE_EXTENSION } from "./schedule.ts";
 
 export type SubagentOptions = {
 	/** The tool's name (the model calls it) and its extension's. */
@@ -17,8 +18,9 @@ export type SubagentOptions = {
 	instructions?: string;
 	/**
 	 * The child's extensions, from the calling conversation's resolved selection (this subagent's own extension already
-	 * left out, so a child can't start subagents of its own). Absent: all of them, guards included. Leaving out a guard
-	 * here runs the child without it.
+	 * left out, so a child can't start subagents of its own, and the schedule tools, so only the conversation a person
+	 * or a trigger talks to sets schedules). Absent: all of them, guards included. Leaving out a guard here runs the
+	 * child without it.
 	 */
 	extensions?: (parent: readonly Extension[]) => readonly Extension[];
 	/**
@@ -65,7 +67,9 @@ export function defineSubagent(options: SubagentOptions): Extension {
 	// The child's selection, computed from the caller's resolved selection, and its configuration. An array: an
 	// { add, remove } edit would start from the host default instead and could drop what the caller had.
 	const selectionOf = async (api: ToolExecutionApi, context: Context) => {
-		const parent = (await api.agent(context)).extensions.filter((extension) => extension.name !== own);
+		const parent = (await api.agent(context)).extensions.filter(
+			(extension) => extension.name !== own && extension.name !== SCHEDULE_EXTENSION,
+		);
 		return options.extensions ? options.extensions(parent) : parent;
 	};
 	const configureChild = (tx: Tx, child: ConversationId, selection: readonly Extension[]) =>

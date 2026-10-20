@@ -159,7 +159,8 @@ the facade adapts it where it can.
   extensions, unless the definition says `schedules: false`. They call the gateway with the agent's own credential;
   the platform decides what is allowed ([triggers.md](triggers.md#agent-made-schedules)).
 - **Subagents keep the guards.** `defineSubagent` computes the child's selection from the caller's resolved selection
-  (leaving out only its own extension), never from an `{ add, remove }` edit, which would start from the host default.
+  (leaving out its own extension and the schedule tools, `pdp-schedules`: only the conversation a person or a trigger
+  talks to sets schedules), never from an `{ add, remove }` edit, which would start from the host default.
 - **Declared documents exist.** Each conversation document in `documents` is created in every conversation (threads,
   subagents' children, forks) in its creating commit, before `conversationCreated` runs; each session document once,
   at start.

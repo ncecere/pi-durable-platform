@@ -246,7 +246,8 @@ and `cancel_schedule`). Each one is an ordinary schedule trigger of that agent, 
 **Who may.** A template version's `agentSchedules` flag (off by default; the template editor's *Schedules* setting)
 lets its agents schedule. The platform then gives the runtime `PLATFORM_SCHEDULES=true`, and the library adds the
 tools (an extension named `pdp-schedules`) to every thread after the definition's own extensions: the default
-assistant and any custom agent built with `defineAgent` (`schedules: false` leaves them out). The gateway checks the
+assistant and any custom agent built with `defineAgent` (`schedules: false` leaves them out). A subagent's
+conversation doesn't get them. The gateway checks the
 version again when the agent schedules. Service-managed agents (an app's agent for one of its users) and an archived
 team's agents can't.
 
