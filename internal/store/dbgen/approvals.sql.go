@@ -764,3 +764,21 @@ func (q *Queries) MarkToolApprovalDelivered(ctx context.Context, arg MarkToolApp
 	_, err := q.db.Exec(ctx, markToolApprovalDelivered, arg.AgentID, arg.ID)
 	return err
 }
+
+const threadHasPendingToolApproval = `-- name: ThreadHasPendingToolApproval :one
+SELECT EXISTS (SELECT 1 FROM tool_approvals WHERE agent_id = $1 AND thread_id = $2 AND status = 'pending')
+`
+
+type ThreadHasPendingToolApprovalParams struct {
+	AgentID  uuid.UUID
+	ThreadID string
+}
+
+// Whether a thread's run waits for a person (a triggered run's time limit
+// doesn't count that wait; the approval's own expiry bounds it).
+func (q *Queries) ThreadHasPendingToolApproval(ctx context.Context, arg ThreadHasPendingToolApprovalParams) (bool, error) {
+	row := q.db.QueryRow(ctx, threadHasPendingToolApproval, arg.AgentID, arg.ThreadID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}

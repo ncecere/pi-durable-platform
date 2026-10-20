@@ -121,3 +121,8 @@ LIMIT 500;
 
 -- name: DeleteThreadToolApprovals :exec
 DELETE FROM tool_approvals WHERE agent_id = $1 AND thread_id = $2;
+
+-- name: ThreadHasPendingToolApproval :one
+-- Whether a thread's run waits for a person (a triggered run's time limit
+-- doesn't count that wait; the approval's own expiry bounds it).
+SELECT EXISTS (SELECT 1 FROM tool_approvals WHERE agent_id = $1 AND thread_id = $2 AND status = 'pending');

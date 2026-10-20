@@ -69,7 +69,7 @@ secret is start anything.
 | A captured delivery is replayed | Same fire ID: the first run is returned, nothing starts; after 5 minutes, 401 |
 | A captured delivery is re-dated or its body changed | The signature covers both: 401 |
 | A sender with the secret floods the address | Rate limit per address; concurrency, budgets and back-off per trigger and agent |
-| The payload carries instructions for the model (prompt injection) | Inherent: a webhook's payload is untrusted text given to a model that may call the team's tools. The template should frame it as data; connect senders the team trusts; tool approvals (#16) will let a person approve sensitive tool calls. The run never acts as a person (below), so the worst case is bounded by the team's own tools and budgets |
+| The payload carries instructions for the model (prompt injection) | Inherent: a webhook's payload is untrusted text given to a model that may call the team's tools. The template should frame it as data; connect senders the team trusts; tool approvals (#16) let a person approve sensitive tool calls. The run never acts as a person (below), so the worst case is bounded by the team's own tools and budgets |
 | A template is crafted to execute something | Templates only insert text (above) |
 | Timing on the comparison | `hmac.Equal` |
 
@@ -223,15 +223,16 @@ called once its run ends (any status but `skipped`).
 - 2xx is delivered. Anything else is retried with back-off (30 s, 1, 2, 4, 8 minutes), then `failed` (the run shows
   `callbackStatus`). Errors are logged with the run and trigger IDs, never the URL's response.
 
-## Approvals (#16) later
+## Approvals (#16)
 
-A run that reaches a tool needing a person's approval will be waiting on a person, not working. The seam: the run's
-status gains `waiting` (the runtime will report a thread waiting for approval in its thread status, next to `busy`);
-the supervisor then neither finishes the run nor counts its time against `max_run_time` while it waits (the run time
-is the time spent working; a separate, longer limit bounds the wait and then stops it), and the idle reaper may
-hibernate the agent (#34). The approval, when given, wakes the agent and the run goes on in the same thread; the
-callback is sent when it ends. Nothing in this design assumes a run ends without a person: `succeeded` means the
-thread's reply ended, whenever that is.
+A run that reaches a tool needing a person's approval waits on a person, not working ([approvals.md](approvals.md)):
+it is unattended (its author is a trigger), so the team's owners and admins decide. The supervisor doesn't stop it for
+`max_run_time` while its thread has a pending approval: the approval's own expiry (the template version's timeout,
+default 24 h) bounds the wait and denies the call, and the run goes on. The idle reaper may hibernate the agent
+meanwhile (the runtime's `/status` says `waitingThreads`, #34); the decision wakes it and the run goes on in the same
+thread; the callback is sent when it ends. Nothing in this design assumes a run ends without a person: `succeeded`
+means the thread's reply ended, whenever that is. Not built: a `waiting` run status of its own (the run shows
+`running`).
 
 ## Agent-made schedules (later, with the library, #28)
 

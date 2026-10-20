@@ -180,8 +180,18 @@ func (s *Service) supervise(ctx context.Context) error {
 			maxRun = min(maxRun, time.Duration(*row.MaxRunSeconds)*time.Second)
 		}
 		if now.Sub(started) > maxRun {
-			s.stop(ctx, run, ReasonMaxRunTime, now)
-			continue
+			// A run waiting for a person's approval of a tool call (docs/approvals.md) isn't working: its wait is
+			// bounded by the approval's own expiry, which denies the call, and the run goes on.
+			waiting := false
+			if run.ThreadID != nil {
+				if waiting, err = s.q.ThreadHasPendingToolApproval(ctx, dbgen.ThreadHasPendingToolApprovalParams{AgentID: run.AgentID, ThreadID: *run.ThreadID}); err != nil {
+					return err
+				}
+			}
+			if !waiting {
+				s.stop(ctx, run, ReasonMaxRunTime, now)
+				continue
+			}
 		}
 		u, err := s.q.AgentUsageBetween(ctx, dbgen.AgentUsageBetweenParams{AgentID: run.AgentID, Since: started, Until: now.Add(time.Second)})
 		if err != nil {
