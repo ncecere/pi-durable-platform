@@ -63,7 +63,13 @@ func TestAnAgentSchedulesListsAndCancelsItsOwn(t *testing.T) {
 	// A person's trigger is listed to people, never to the agent's tool.
 	e.schedule("Nightly", "0 2 * * *", triggers.MissedSkip)
 	list, err := e.svc.AgentList(ctx, e.agentID)
-	if err != nil || len(list) != 2 || list[0].Trigger.ID != tr.ID || list[1].Trigger.ID != weekly.Trigger.ID {
+	// Exactly the two the agent made (in creation order, but two made within the same microsecond tie on created_at and
+	// then go by id, so the test doesn't depend on the order).
+	listed := map[uuid.UUID]bool{}
+	for _, l := range list {
+		listed[l.Trigger.ID] = true
+	}
+	if err != nil || len(list) != 2 || !listed[tr.ID] || !listed[weekly.Trigger.ID] {
 		t.Fatalf("the agent's list = %+v (%v)", list, err)
 	}
 	// Created and cancelled by the agent: the audit log names it as the actor.
