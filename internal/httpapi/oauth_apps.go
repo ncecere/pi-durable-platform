@@ -15,8 +15,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	"github.com/ncecere/pi-durable-platform/internal/agents"
 	"github.com/ncecere/pi-durable-platform/internal/apperr"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
@@ -108,7 +110,7 @@ func (a *api) getAppEvents(w http.ResponseWriter, r *http.Request) {
 			}
 			body := apitypes.AppThreadEvent{Subjects: ev.Subjects, AgentId: ev.AgentID, ThreadId: ev.Thread.ThreadID, Deleted: ev.Deleted}
 			if !ev.Deleted {
-				t := toAPIThread(ev.Thread)
+				t := a.toAPIAppThread(ctx, c.ClientID, ev.Thread)
 				body.Thread = &t
 			}
 			b, _ := json.Marshal(body)
@@ -116,6 +118,48 @@ func (a *api) getAppEvents(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// toAPIAppThread is a thread as the app-level stream shows it: people only
+// as the app's subjects (those with an active connection to the app), never
+// platform user IDs, emails or names; anyone else without an identifier.
+func (a *api) toAPIAppThread(ctx context.Context, clientID string, t agents.ThreadView) apitypes.AppThread {
+	var users []uuid.UUID
+	if t.CreatedBy != nil && t.CreatedBy.Kind == agents.PrincipalUser {
+		users = append(users, t.CreatedBy.ID)
+	}
+	for _, p := range t.Participants {
+		if p.Kind == agents.PrincipalUser {
+			users = append(users, p.ID)
+		}
+	}
+	subjects, err := a.OAuth.AppSubjects(ctx, clientID, users)
+	if err != nil && ctx.Err() == nil {
+		// Nobody is named rather than the change being lost.
+		a.Log.WarnContext(ctx, "app event stream: subjects of a thread's people", "err", err)
+		subjects = nil
+	}
+	subjectOf := func(p agents.Principal) *openapi_types.UUID {
+		if s, ok := subjects[p.ID]; ok && p.Kind == agents.PrincipalUser {
+			return &s
+		}
+		return nil
+	}
+	out := apitypes.AppThread{ThreadId: t.ThreadID, Title: t.Title, CreatedAt: t.CreatedAt.UnixMilli(), UpdatedAt: t.UpdatedAt.UnixMilli(),
+		Busy: t.Busy, LastError: t.LastError, Visibility: threadVisibility(t.Visibility),
+		Participants: make([]apitypes.AppThreadParticipant, len(t.Participants))}
+	if t.LastReplyAt != nil {
+		ms := t.LastReplyAt.UnixMilli()
+		out.LastReplyAt = &ms
+	}
+	if t.CreatedBy != nil {
+		out.CreatedBy = &apitypes.AppThreadPerson{Kind: apitypes.AppThreadPersonKind(t.CreatedBy.Kind), Subject: subjectOf(*t.CreatedBy)}
+	}
+	for i, p := range t.Participants {
+		out.Participants[i] = apitypes.AppThreadParticipant{Kind: apitypes.AppThreadParticipantKind(p.Kind), Subject: subjectOf(p.Principal),
+			LastSentAt: p.LastSentAt.UnixMilli()}
+	}
+	return out
 }
 
 // getAppUsage is a page of the usage of the app's people, by person and day.

@@ -245,7 +245,11 @@ else (not sessions, not people's tokens):
   stream when its secret was deleted or the app is no longer trusted. A slow reader misses events, as on the person
   stream.
 - *Subjects* (`oauth_client_subjects`) are random UUIDs per app and person, made at consent: not the email or the
-  platform user ID, the same for one app across disconnecting and connecting again, different for each app.
+  platform user ID, the same for one app across disconnecting and connecting again, different for each app. The
+  stream's threads (`AppThread`) name people only this way: a thread's creator and participants who have an active
+  connection to the app appear as their subjects; anyone else (people who didn't connect the app or whose connection
+  ended, service accounts) appears with only their kind, so the app sees that someone else took part, and when, but
+  never a platform user ID, email or name.
 - *Usage per connected app.* Model and MCP requests are made by agents, not apps, so the platform records the latest
   sender of each thread and the grant behind it (`agent_run_senders`, written before a message is relayed), and the
   gateway attributes an agent's request to a grant when that is unambiguous: the latest senders of its threads that

@@ -64,6 +64,20 @@ WHERE g.client_id = @client_id AND g.revoked_at IS NULL AND g.resource = @resour
               WHERE t.grant_id = g.id AND t.kind = 'refresh' AND t.expires_at > now() AND t.resource = @resource)
 ORDER BY s.subject;
 
+-- name: AppStreamSubjects :many
+-- The subjects of those of user_ids who are a client's people now (as in
+-- AppStreamPeople, whatever their team): how the app-level event stream
+-- names a thread's creator and participants.
+SELECT g.user_id, s.subject
+FROM oauth_grants g
+JOIN users u ON u.id = g.user_id
+JOIN oauth_client_subjects s ON s.client_id = g.client_id AND s.user_id = g.user_id
+WHERE g.client_id = @client_id AND g.revoked_at IS NULL AND g.resource = @resource
+  AND g.user_id = ANY(@user_ids::uuid[])
+  AND u.status = 'active' AND u.group_denied_at IS NULL
+  AND EXISTS (SELECT 1 FROM oauth_tokens t
+              WHERE t.grant_id = g.id AND t.kind = 'refresh' AND t.expires_at > now() AND t.resource = @resource);
+
 -- name: RecordRunSender :exec
 -- Who sent the latest message to a thread, and through which connected app
 -- (NULL: not through one).

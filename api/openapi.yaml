@@ -4222,7 +4222,8 @@ paths:
       description: >-
         Authenticated as the app itself: `Authorization: Bearer <app secret>` (pdpcs_…, issued by a platform admin to a
         trusted app; never a person's token). `event: ready` first, then `event: thread` (an AppThreadEvent) whenever a
-        thread changes that one or more of the app's people may see, with their subjects. The people are those with an
+        thread changes that one or more of the app's people may see, with their subjects (the thread names people only by
+        subjects too: AppThread). The people are those with an
         active connection to the app (any scope; a connection whose refresh token expired or that was revoked counts no
         more, from the next change on) who are active (not suspended or denied by the group re-check), and each sees
         what their own GET /v1/agents/events through the app would show: agents of teams they are members of (no
@@ -7432,7 +7433,7 @@ components:
       type: object
       description: >-
         A thread change on the app-level event stream, for the people (subjects) who may see it, by the rules of their
-        own GET /v1/agents/events through the app.
+        own GET /v1/agents/events through the app. People are named only by the app's subjects (AppThread).
       required: [subjects, agentId, threadId, deleted]
       properties:
         subjects:
@@ -7451,8 +7452,84 @@ components:
         thread:
           nullable: true
           allOf:
-          - $ref: '#/components/schemas/AgentThread'
+          - $ref: '#/components/schemas/AppThread'
           description: The thread now (absent when deleted)
+    AppThread:
+      type: object
+      description: >-
+        A thread as the app-level event stream shows it: an AgentThread whose people are named only by the app's
+        subjects, never by platform user ID, email or name. A person with an active connection to the app appears with
+        their subject; anyone else (a person who didn't connect the app, or whose connection ended, and service
+        accounts) appears with no identifier, so the app sees that someone else started or sent to the thread, and
+        when, but not who.
+      required: [threadId, title, createdAt, updatedAt, busy, visibility, participants]
+      properties:
+        threadId:
+          type: string
+        title:
+          type: string
+        createdAt:
+          type: integer
+          format: int64
+          description: Unix milliseconds
+        updatedAt:
+          type: integer
+          format: int64
+          description: Unix milliseconds; moves when a message is sent and when a reply finishes
+        busy:
+          type: boolean
+          description: A reply is in progress
+        lastReplyAt:
+          type: integer
+          format: int64
+          nullable: true
+          description: When the last reply finished (Unix milliseconds)
+        lastError:
+          type: string
+          nullable: true
+          description: Why the last reply failed (absent when it succeeded)
+        visibility:
+          $ref: '#/components/schemas/ThreadVisibility'
+        createdBy:
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/AppThreadPerson'
+          description: Who started the thread (absent when unknown)
+        participants:
+          type: array
+          description: Everyone who has sent to the thread, first sender first
+          items:
+            $ref: '#/components/schemas/AppThreadParticipant'
+    AppThreadPerson:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [user, service_account]
+        subject:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            The person's app-stable subject when they have an active connection to the app; absent for anyone else
+    AppThreadParticipant:
+      type: object
+      required: [kind, lastSentAt]
+      properties:
+        kind:
+          type: string
+          enum: [user, service_account]
+        subject:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            The person's app-stable subject when they have an active connection to the app; absent for anyone else
+        lastSentAt:
+          type: integer
+          format: int64
+          description: When they last sent to the thread (Unix milliseconds)
     AppUsageRow:
       type: object
       required: [day, subject, requests, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd, unpricedRequests, toolCalls]
