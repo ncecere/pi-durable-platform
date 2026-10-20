@@ -173,7 +173,7 @@ func (k *Keys) Invalidate() {
 func (k *Keys) load(ctx context.Context) ([]key, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if k.cached != nil && k.Now().Sub(k.cachedAt) < cacheTTL {
+	if len(k.cached) > 0 && k.Now().Sub(k.cachedAt) < cacheTTL {
 		return k.cached, nil
 	}
 	rows, err := k.q.ListMCPIdentityKeys(ctx)
@@ -189,7 +189,11 @@ func (k *Keys) load(ctx context.Context) ([]key, error) {
 		kk.signer, kk.openErr = k.openSigner(r)
 		out = append(out, kk)
 	}
-	k.cached, k.cachedAt = out, k.Now()
+	// No key yet is not kept: another replica may make the first one any
+	// moment, and the JWKS must show it at once.
+	if len(out) > 0 {
+		k.cached, k.cachedAt = out, k.Now()
+	}
 	return out, nil
 }
 

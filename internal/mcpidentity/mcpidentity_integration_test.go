@@ -208,6 +208,17 @@ func TestSignCreatesTheFirstKey(t *testing.T) {
 	if got := kids(t, k); len(got) != 0 {
 		t.Fatalf("kids before any key: %v", got)
 	}
+	// Another replica makes the first key: the JWKS shows it at once.
+	if _, err := mcpidentity.New(pool, box(t, 1), issuer).Ensure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := kids(t, k); len(got) != 1 {
+		t.Fatalf("kids after another replica made one: %v", got)
+	}
+	if _, err := pool.Exec(context.Background(), `DELETE FROM mcp_identity_keys`); err != nil {
+		t.Fatal(err)
+	}
+	k = mcpidentity.New(pool, box(t, 1), issuer)
 	raw, err := k.Sign(context.Background(), "aud", claims)
 	if err != nil {
 		t.Fatal(err)
