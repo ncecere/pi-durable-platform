@@ -42,6 +42,15 @@ func JSON(w http.ResponseWriter, status int, data any) {
 	writeJSON(w, status, envelope{Data: data})
 }
 
+// JSONWithCursor writes a success envelope with nextCursor beside data
+// (omitted when nil): opt-in paging of a list whose data stays an array.
+func JSONWithCursor(w http.ResponseWriter, status int, data any, nextCursor *string) {
+	writeJSON(w, status, struct {
+		Data       any     `json:"data"`
+		NextCursor *string `json:"nextCursor,omitempty"`
+	}{data, nextCursor})
+}
+
 // Error writes an error envelope. Messages must be safe to show to users.
 func Error(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, errorBody{Error: ErrorDetail{Code: code, Message: message}})

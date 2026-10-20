@@ -250,7 +250,8 @@ func (m *Manager) touch(agentID string) {
 
 // Proxy relays the request to path on the agent's runtime (waking it first)
 // and streams the response back, flushing as it arrives (server-sent events).
-// Only the method, path, query, Content-Type and body are forwarded.
+// Only the method, path, query, Content-Type, Last-Event-ID and body are
+// forwarded.
 func (m *Manager) Proxy(w http.ResponseWriter, r *http.Request, spec launcher.Spec, path string) {
 	ep, err := m.Wake(r.Context(), spec)
 	if err != nil {
@@ -300,10 +301,14 @@ func (m *Manager) Proxy(w http.ResponseWriter, r *http.Request, spec launcher.Sp
 			pr.Out.URL.RawPath = ""
 			pr.Out.URL.RawQuery = pr.In.URL.RawQuery
 			pr.Out.Host = target.Host
-			contentType := pr.In.Header.Get("Content-Type")
+			contentType, lastEvent := pr.In.Header.Get("Content-Type"), pr.In.Header.Get("Last-Event-ID")
 			pr.Out.Header = http.Header{}
 			if contentType != "" {
 				pr.Out.Header.Set("Content-Type", contentType)
+			}
+			// A reconnecting event stream's position (the runtime numbers delta events after it).
+			if lastEvent != "" && len(lastEvent) <= 32 {
+				pr.Out.Header.Set("Last-Event-ID", lastEvent)
 			}
 			pr.Out.Header.Set("Authorization", "Bearer "+ep.Token)
 			tracing.Inject(pr.Out.Context(), pr.Out.Header)

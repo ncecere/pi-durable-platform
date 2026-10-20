@@ -3,7 +3,8 @@ import { createServer, type IncomingMessage, type RequestListener, type Server, 
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type Harness, LiveDoc, type Conversation } from "@earendil-works/pi-durable";
 import type { ThreadStore } from "./threads.ts";
-import { type Author, buildView, type ChatView, USER_ENTRY, type UserEntryData } from "./view.ts";
+import { DELTA_VERSION, DeltaStream } from "./delta.ts";
+import { type Author, buildMessages, buildView, type ChatMessage, type ChatView, liveParts, type MessagePage, pageView, parsePage, USER_ENTRY, type UserEntryData } from "./view.ts";
 
 const ctx = BACKGROUND_CONTEXT;
 const MAX_BODY = 256 * 1024;
@@ -86,10 +87,13 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		const action = parts[2];
 
 		if (method === "GET" && action === undefined) {
+			const { page, error } = parsePage(url.searchParams);
+			if (error !== undefined) return fail(response, 400, error.code, error.message);
 			// Someone reading a thread (often right after its reply) is using the agent.
 			touch();
 			const view = await viewOf(threadId);
-			return view === undefined ? fail(response, 404, "thread_not_found", "Thread not found") : json(response, 200, view);
+			if (view === undefined) return fail(response, 404, "thread_not_found", "Thread not found");
+			return json(response, 200, page === undefined ? view : pageView(view, page));
 		}
 		if (method === "DELETE" && action === undefined) {
 			const conversation = await threads.get(threadId);
@@ -98,11 +102,14 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		}
 		if (method === "POST" && action === "messages") {
 			touch();
-			const body = (await readJson(request)) as { text?: unknown; requestId?: unknown; author?: unknown; announceAuthor?: unknown };
+			const body = (await readJson(request)) as { text?: unknown; requestId?: unknown; author?: unknown; announceAuthor?: unknown; whenBusy?: unknown };
 			const text = typeof body.text === "string" ? body.text.trim() : "";
 			const requestId = typeof body.requestId === "string" ? body.requestId : undefined;
 			if (text.length === 0 || text.length > 32_000) return fail(response, 400, "invalid_text", "text is required (at most 32,000 characters)");
 			if (requestId !== undefined && !THREAD_ID.test(requestId)) return fail(response, 400, "invalid_request_id", "requestId must be 1-64 letters, digits, dashes or underscores");
+			// While a reply runs: a follow-up waits for it to end; a steer joins it after its current tool round.
+			const whenBusy = body.whenBusy ?? "followUp";
+			if (whenBusy !== "followUp" && whenBusy !== "steer") return fail(response, 400, "invalid_when_busy", "whenBusy must be followUp or steer");
 			// The platform (the only caller) says who sent the message, and whether the model is told (shared threads).
 			const author = parseAuthor(body.author);
 			const conversation = await threads.ensure(threadId, text);
@@ -113,7 +120,7 @@ export function createRuntimeServer(options: RuntimeOptions): {
 				{
 					type: "input",
 					content,
-					whenBusy: "followUp",
+					whenBusy,
 					entry: { kind: USER_ENTRY, data },
 					...(requestId === undefined ? {} : { requestId }),
 				},
@@ -130,22 +137,52 @@ export function createRuntimeServer(options: RuntimeOptions): {
 			await conversation.abort(ctx);
 			return json(response, 202, { ok: true });
 		}
-		if (method === "GET" && action === "events") return streamThread(threadId, request, response, url.searchParams.get("once") === "true");
+		if (method === "GET" && action === "events") {
+			const options = streamOptions(url.searchParams, request.headers["last-event-id"]);
+			if ("error" in options) return fail(response, 400, options.error.code, options.error.message);
+			return streamThread(threadId, request, response, options);
+		}
 		return fail(response, 404, "not_found", "Not found");
 	};
 
-	/** Server-sent events: the whole chat view after every commit that touches the thread, coalesced to 10/s. */
-	const streamThread = async (threadId: string, request: IncomingMessage, response: ServerResponse, once: boolean) => {
+	/**
+	 * Server-sent events, coalesced to 10/s: by default the whole chat view after every commit that touches the thread
+	 * (`view` events); with `format=delta` a snapshot and then only the changes (see delta.ts). `limit` keeps either to
+	 * the latest messages.
+	 */
+	const streamThread = async (threadId: string, request: IncomingMessage, response: ServerResponse, options: StreamOptions) => {
 		const conversation = await threads.get(threadId);
 		if (conversation === undefined) return fail(response, 404, "thread_not_found", "Thread not found");
 		const watch = await conversation.watch(ctx);
 		response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
 		touch();
+		// The transcript is rebuilt only when the entries changed: a frame that only moves the reply in progress or a
+		// tool keeps the same entries (pi-durable shares unchanged parts between frames).
+		let entries: unknown;
+		let messages: ChatMessage[] = [];
+		const current = (value: typeof watch.value): { view: ChatView; changed: boolean } => {
+			const changed = value.entries !== entries;
+			if (changed) {
+				entries = value.entries;
+				messages = buildMessages(value.entries);
+			}
+			const live = value.docs["pi.live"] as never as Parameters<typeof liveParts>[0];
+			return { view: { busy: live?.run !== undefined, messages, ...liveParts(live) }, changed };
+		};
+		const deltas = options.format === "delta" ? new DeltaStream(options.limit, options.lastSeq) : undefined;
+		const page: MessagePage | undefined = options.limit === undefined ? undefined : { limit: options.limit };
 		const send = (value: typeof watch.value) => {
-			response.write(`event: view\ndata: ${JSON.stringify(buildView(value.entries, value.docs["pi.live"] as never))}\n\n`);
+			const { view, changed } = current(value);
+			if (deltas === undefined) {
+				response.write(`event: view\ndata: ${JSON.stringify(page === undefined ? view : pageView(view, page))}\n\n`);
+				return;
+			}
+			let out = "";
+			for (const event of deltas.next(view, changed)) out += `id: ${event.seq}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
+			if (out !== "") response.write(out);
 		};
 		send(watch.value);
-		if (once) {
+		if (options.once) {
 			await watch.stop();
 			response.end();
 			return;
@@ -190,6 +227,30 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		});
 	};
 	return { server: createServer(handler), handler, lastActivity: () => lastActivity, touch };
+}
+
+type StreamOptions = { once: boolean; format: "view" | "delta"; limit?: number; lastSeq: number };
+
+/**
+ * An event stream's options: `once`, `format` (view, the default, or delta), `v` (the delta format's version: 1),
+ * `limit` (the latest messages only) and, for deltas, the Last-Event-ID a reconnecting client sends (its sequence
+ * goes on from there, after a new snapshot).
+ */
+export function streamOptions(query: URLSearchParams, lastEventId: string | string[] | undefined): StreamOptions | { error: { code: string; message: string } } {
+	const format = query.get("format") ?? "view";
+	if (format !== "view" && format !== "delta") return { error: { code: "invalid_format", message: "format must be view or delta" } };
+	const v = query.get("v");
+	if (v !== null && (format !== "delta" || v !== String(DELTA_VERSION))) {
+		return { error: { code: "unsupported_version", message: `The delta format's version is ${DELTA_VERSION}` } };
+	}
+	let limit: number | undefined;
+	if (query.get("limit") !== null) {
+		const { page, error } = parsePage(new URLSearchParams({ limit: query.get("limit")! }));
+		if (error !== undefined) return { error };
+		limit = page!.limit;
+	}
+	const last = typeof lastEventId === "string" && /^\d{1,15}$/.test(lastEventId) ? Number(lastEventId) : 0;
+	return { once: query.get("once") === "true", format, ...(limit === undefined ? {} : { limit }), lastSeq: format === "delta" ? last : 0 };
 }
 
 /** The author the platform sent, or undefined when absent or malformed. */

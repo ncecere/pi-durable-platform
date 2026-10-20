@@ -16,10 +16,18 @@ export type ChatView = {
 	busy: boolean;
 	messages: ChatMessage[];
 	/** The assistant reply being generated, if any. */
-	partial?: { text: string; thinking: string };
+	partial?: ChatPartial;
 	/** Tool calls of the current round. */
-	tools: { callId: string; name: string; status: string; output?: string }[];
+	tools: ChatTool[];
+	/**
+	 * Paged reads only (`limit` or `before` given): pass it as `before` for the earlier messages. Absent when there are
+	 * none, and on unpaged reads.
+	 */
+	earlierCursor?: string;
 };
+
+export type ChatPartial = { text: string; thinking: string };
+export type ChatTool = { callId: string; name: string; status: string; output?: string };
 
 export type ChatToolCall = { id: string; name: string; arguments: unknown; startedAt?: number; endedAt?: number };
 export type ChatUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
@@ -42,6 +50,11 @@ export type ChatMessage =
 	| { id: string; role: "tool"; toolCallId: string; name: string; text: string; isError: boolean; at?: number };
 
 export function buildView(entries: readonly EntryRecord[], live: Readonly<LiveState> | undefined): ChatView {
+	return { busy: live?.run !== undefined, messages: buildMessages(entries), ...liveParts(live) };
+}
+
+/** The transcript part of the view: it changes only when entries do (the delta stream reuses it otherwise). */
+export function buildMessages(entries: readonly EntryRecord[]): ChatMessage[] {
 	// When each tool call's result arrived, for the calls' endedAt.
 	const resultAt = new Map<string, number>();
 	for (const entry of entries) {
@@ -66,10 +79,13 @@ export function buildView(entries: readonly EntryRecord[], live: Readonly<LiveSt
 			messages.push(converted);
 		});
 	}
+	return messages;
+}
+
+/** The live part of the view: the reply in progress and the current round's tools. */
+export function liveParts(live: Readonly<LiveState> | undefined): Pick<ChatView, "partial" | "tools"> {
 	const partialMessage = live?.generation?.message as AssistantMessage | undefined;
 	return {
-		busy: live?.run !== undefined,
-		messages,
 		...(partialMessage === undefined
 			? {}
 			: { partial: { text: textOf(partialMessage), thinking: thinkingOf(partialMessage) } }),
@@ -171,3 +187,58 @@ function convert(id: string, message: Message, resultAt: ReadonlyMap<string, num
 const textOf = (message: AssistantMessage) => message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("\n\n");
 const thinkingOf = (message: AssistantMessage) =>
 	message.content.flatMap((b) => (b.type === "thinking" && !b.redacted ? [b.thinking] : [])).join("\n\n");
+
+/** A page of the transcript: the `limit` messages before the message `before` names (the newest when absent). */
+export type MessagePage = { before?: string; limit: number };
+
+export const DEFAULT_PAGE = 50;
+export const MAX_PAGE = 200;
+const MESSAGE_ID = /^e\d{1,15}(:\d{1,6})?$/;
+
+/** The opaque cursor naming a message (clients pass it back as `before`). */
+export function messageCursor(id: string): string {
+	return Buffer.from(`m:${id}`, "utf8").toString("base64url");
+}
+
+/** The message a cursor names, or undefined when it is malformed. */
+export function cursorMessage(cursor: string): string | undefined {
+	if (cursor.length > 64 || !/^[A-Za-z0-9_-]+$/.test(cursor)) return undefined;
+	const raw = Buffer.from(cursor, "base64url").toString("utf8");
+	if (!raw.startsWith("m:")) return undefined;
+	const id = raw.slice(2);
+	return MESSAGE_ID.test(id) && messageCursor(id) === cursor ? id : undefined;
+}
+
+/**
+ * Reads `?before=` and `?limit=`: undefined when neither is given (the whole transcript, as before paging existed),
+ * a page otherwise, or an error for a malformed value.
+ */
+export function parsePage(query: URLSearchParams): { page?: MessagePage; error?: { code: string; message: string } } {
+	const rawLimit = query.get("limit");
+	const rawBefore = query.get("before");
+	if (rawLimit === null && rawBefore === null) return {};
+	let limit = DEFAULT_PAGE;
+	if (rawLimit !== null) {
+		limit = /^\d{1,4}$/.test(rawLimit) ? Number(rawLimit) : Number.NaN;
+		if (!(limit >= 1 && limit <= MAX_PAGE)) return { error: { code: "invalid_limit", message: `limit must be between 1 and ${MAX_PAGE}` } };
+	}
+	if (rawBefore === null || rawBefore === "") return { page: { limit } };
+	const before = cursorMessage(rawBefore);
+	if (before === undefined) return { error: { code: "invalid_cursor", message: "Invalid cursor" } };
+	return { page: { before, limit } };
+}
+
+/**
+ * The view with only one page of its messages, and `earlierCursor` when earlier messages exist. A page never starts
+ * with a tool result: it then also holds the reply that made the call (so it may hold a few more than `limit`). A
+ * cursor whose message is no longer in the view (the conversation was compacted or reset) gives an empty page.
+ */
+export function pageView(view: ChatView, page: MessagePage): ChatView {
+	const all = view.messages;
+	const end = page.before === undefined ? all.length : all.findIndex((m) => m.id === page.before);
+	if (end < 0) return { ...view, messages: [] };
+	let start = Math.max(0, end - page.limit);
+	while (start > 0 && all[start]?.role === "tool") start--;
+	const { earlierCursor: _, ...rest } = view;
+	return { ...rest, messages: all.slice(start, end), ...(start > 0 ? { earlierCursor: messageCursor(all[start]!.id) } : {}) };
+}

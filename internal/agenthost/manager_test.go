@@ -65,3 +65,33 @@ func TestCloseStreamsEndsProxiedStreams(t *testing.T) {
 		t.Fatal("the stream stayed open after CloseStreams")
 	}
 }
+
+// The relay forwards a reconnecting stream's Last-Event-ID and the query, and
+// none of the client's other headers.
+func TestProxyForwardsLastEventID(t *testing.T) {
+	got := make(chan *http.Request, 1)
+	runtime := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got <- r
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: snapshot\ndata: {}\n\n")
+	}))
+	defer runtime.Close()
+	m := New(fixedLauncher{launcher.Endpoint{BaseURL: runtime.URL, Token: "tok"}}, time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	platform := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		m.Proxy(w, r, launcher.Spec{AgentID: "a1", Token: "tok"}, "/threads/t1/events")
+	}))
+	defer platform.Close()
+	req, _ := http.NewRequest("GET", platform.URL+"/v1/agents/x/threads/t1/events?format=delta&v=1", nil)
+	req.Header.Set("Last-Event-ID", "42")
+	req.Header.Set("Cookie", "pdp_session=secret")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	r := <-got
+	if r.Header.Get("Last-Event-ID") != "42" || r.Header.Get("Cookie") != "" || r.Header.Get("Authorization") != "Bearer tok" || r.URL.RawQuery != "format=delta&v=1" {
+		t.Fatalf("relayed %v %q", r.Header, r.URL.RawQuery)
+	}
+}

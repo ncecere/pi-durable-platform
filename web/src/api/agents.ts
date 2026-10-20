@@ -3,8 +3,9 @@
  * events. The platform relays thread routes to the agent's runtime, waking it
  * first; the runtime is the source of truth for the transcript.
  */
-import { queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { applyChatDelta, type ChatDeltaEvent, deltaEventTypes } from "./chat-delta";
 import { ApiError, api, type Schemas, unwrap } from "./client";
 
 export type Agent = Schemas["Agent"];
@@ -41,21 +42,50 @@ export const agentQuery = (agentId: string) =>
 export const templatesQuery = () =>
   queryOptions({ queryKey: ["agent-templates"], queryFn: async () => unwrap(await api.GET("/v1/agent-templates")), staleTime: 5 * 60_000 });
 
-export const threadsQuery = (agentId: string) =>
-  queryOptions({
-    queryKey: [...agentsKey, agentId, "threads"],
-    queryFn: async () => unwrap(await api.GET("/v1/agents/{agentId}/threads", { params: { path: { agentId } } })),
+/** The key of an agent's thread lists (every search and page). */
+export const threadsKey = (agentId: string) => [...agentsKey, agentId, "threads"];
+
+export const THREAD_PAGE = 50;
+
+/** An agent's threads, newest activity first, a page at a time; `q` filters titles. */
+export const threadPagesQuery = (agentId: string, q: string) =>
+  infiniteQueryOptions({
+    queryKey: [...threadsKey(agentId), { q }],
+    queryFn: async ({ pageParam }) => {
+      const res = await api.GET("/v1/agents/{agentId}/threads", {
+        params: { path: { agentId }, query: { limit: THREAD_PAGE, cursor: pageParam, q: q || undefined } },
+      });
+      const threads = unwrap(res);
+      return { threads, nextCursor: res.data?.nextCursor };
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
+
+/** Messages per page of a conversation (the live window, and each earlier page). */
+export const MESSAGE_PAGE = 50;
+
+/** The page of a conversation's messages before `before` (an earlierCursor). */
+export async function earlierMessages(agentId: string, threadId: string, before: string): Promise<ChatView> {
+  return unwrap(
+    await api.GET("/v1/agents/{agentId}/threads/{threadId}", {
+      params: { path: { agentId, threadId }, query: { before, limit: MESSAGE_PAGE } },
+    }),
+  );
+}
+
+/** While a reply runs: followUp waits for it to end; steer joins it after its current tool round. */
+export type WhenBusy = "followUp" | "steer";
 
 /**
  * Sends a message. `visibility` goes with a thread's first message only (it
  * never changes afterwards; the platform refuses a different one).
  */
-export async function sendMessage(agentId: string, threadId: string, text: string, visibility?: ThreadVisibility): Promise<void> {
+export async function sendMessage(agentId: string, threadId: string, text: string, visibility?: ThreadVisibility, whenBusy?: WhenBusy): Promise<void> {
   unwrap(
     await api.POST("/v1/agents/{agentId}/threads/{threadId}/messages", {
       params: { path: { agentId, threadId } },
-      body: { text, requestId: newId(), ...(visibility ? { visibility } : {}) },
+      body: { text, requestId: newId(), ...(visibility ? { visibility } : {}), ...(whenBusy ? { whenBusy } : {}) },
     }),
   );
 }
@@ -102,25 +132,44 @@ export function newId(): string {
   return crypto.randomUUID().replaceAll("-", "");
 }
 
-export type LiveThread = { view: ChatView | undefined; connected: boolean };
+/**
+ * The live view: the latest messages (`view.earlierCursor` pages earlier ones)
+ * and the reply in progress. `snapshots` counts the snapshots received: each
+ * one replaces the view (earlier pages loaded before it may no longer join on).
+ */
+export type LiveThread = { view: ChatView | undefined; connected: boolean; snapshots: number };
 
 /**
- * Follows a thread's view. EventSource reconnects by itself (for example
- * while a hibernated agent wakes up); every event carries the whole view, so
+ * Follows a thread over its delta stream: a snapshot of the latest
+ * MESSAGE_PAGE messages, then only changes (new tokens, not the whole
+ * transcript). EventSource reconnects by itself (for example while a
+ * hibernated agent wakes up) and every connection starts with a snapshot, so
  * nothing is lost across reconnects. `enabled` is false for a thread that has
  * no messages yet (the runtime answers 404 until the first one).
  */
 export function useLiveThread(agentId: string, threadId: string, enabled: boolean): LiveThread {
-  const [state, setState] = useState<LiveThread>({ view: undefined, connected: false });
+  const [state, setState] = useState<LiveThread>({ view: undefined, connected: false, snapshots: 0 });
   useEffect(() => {
-    setState({ view: undefined, connected: false });
+    setState({ view: undefined, connected: false, snapshots: 0 });
     if (!enabled) return;
-    const source = new EventSource(`/v1/agents/${encodeURIComponent(agentId)}/threads/${encodeURIComponent(threadId)}/events`, {
-      withCredentials: true,
-    });
-    source.addEventListener("view", (event) => {
-      setState({ view: JSON.parse((event as MessageEvent<string>).data) as ChatView, connected: true });
-    });
+    const source = new EventSource(
+      `/v1/agents/${encodeURIComponent(agentId)}/threads/${encodeURIComponent(threadId)}/events?format=delta&v=1&limit=${MESSAGE_PAGE}`,
+      { withCredentials: true },
+    );
+    const apply = (event: Event) => {
+      let delta: ChatDeltaEvent;
+      try {
+        delta = JSON.parse((event as MessageEvent<string>).data) as ChatDeltaEvent;
+      } catch {
+        return;
+      }
+      setState((s) => ({
+        view: applyChatDelta(s.view, delta),
+        connected: true,
+        snapshots: s.snapshots + (delta.type === "snapshot" ? 1 : 0),
+      }));
+    };
+    for (const type of deltaEventTypes) source.addEventListener(type, apply);
     source.onerror = () => setState((s) => ({ ...s, connected: false }));
     return () => source.close();
   }, [agentId, threadId, enabled]);

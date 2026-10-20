@@ -5,13 +5,22 @@ SELECT * FROM agent_threads WHERE agent_id = $1 ORDER BY updated_at DESC, thread
 -- name: ListVisibleAgentThreads :many
 -- The agent's shared threads and the viewer's own private ones (viewer_user
 -- for a person, viewer_service for a service account). A reserved thread (no
--- message yet) is listed for its creator only.
+-- message yet) is listed for its creator only. Optionally a page: titles
+-- containing search (LIKE-escaped by the caller), the rows after
+-- (after_at, after_id) in the list's order, at most row_limit of them (each
+-- null: no filter). The agent's threads are few enough to filter titles
+-- without an index (agent_threads_updated serves the order).
 SELECT * FROM agent_threads
 WHERE agent_id = sqlc.arg(agent_id)
   AND ((visibility = 'shared' AND NOT reserved)
        OR (sqlc.narg(viewer_user)::uuid IS NOT NULL AND created_by_user = sqlc.narg(viewer_user)::uuid)
        OR (sqlc.narg(viewer_service)::uuid IS NOT NULL AND created_by_service = sqlc.narg(viewer_service)::uuid))
-ORDER BY updated_at DESC, thread_id;
+  AND (sqlc.narg(search)::text IS NULL OR title ILIKE '%' || sqlc.narg(search)::text || '%' ESCAPE '\')
+  AND (sqlc.narg(after_at)::timestamptz IS NULL
+       OR updated_at < sqlc.narg(after_at)::timestamptz
+       OR (updated_at = sqlc.narg(after_at)::timestamptz AND thread_id > sqlc.narg(after_id)::text))
+ORDER BY updated_at DESC, thread_id
+LIMIT sqlc.narg(row_limit)::int;
 
 -- name: ClaimAgentThread :one
 -- The record of a thread a first message is about to be relayed to, written
