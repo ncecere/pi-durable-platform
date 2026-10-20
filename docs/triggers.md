@@ -159,6 +159,11 @@ triggers are `trigger.create`, `trigger.update`, `trigger.delete` and `trigger.s
 - The run's model and MCP requests are the agent's, through the gateway, with the team's model providers and MCP
   servers. The run's sender is recorded as "not through an app" (`agent_run_senders` without a grant), so its usage
   is never attributed to a connected app, and no OAuth grant or person's credential is involved anywhere.
+- **MCP identity tokens** (#57): the MCP proxy's identity token for a triggered run follows that work's rule for
+  runs nobody is present for. In a shared team it names no person. In a personal workspace it still names the
+  workspace's owner, with `person_present: false`: the workspace and its agent are theirs, but nobody is at the
+  keyboard. Triggers change nothing here. They send no person to the gateway and record the run's sender without a
+  grant, and an MCP server that needs a person present can refuse a token with `person_present: false`.
 - **Who manages triggers**: the agent's team's **owners and admins**, in a browser session (not service accounts,
   personal API keys or apps: an unattended run that spends the team's money with its credentials is a person's
   decision in the console); in a personal workspace, its owner (an owner of it). Editors and members read triggers,
