@@ -27,6 +27,8 @@ const notActions = new Set([
   "index.html",
   // Telemetry (internal/tracing, internal/metrics): span and attribute names, not audit actions.
   "agent.runtime_request", "agent.wake", "mcp.upstream", "model.upstream",
+  // A trigger's completion callback event (internal/triggers), not an audit action.
+  "run.finished",
   "http.route", "pdp.launcher", "pdp.listener", "pdp.model", "pdp.request_id", "service.name", "service.version",
 ]);
 /** Every action recorded at v0.1.0 (the scan must find at least these: a floor for the scan itself). */

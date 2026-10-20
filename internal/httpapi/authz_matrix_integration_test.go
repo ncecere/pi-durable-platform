@@ -46,6 +46,9 @@ type teamFix struct {
 	// provider is a model provider of the team's own, and model one of its
 	// models; mcpServer an MCP server of the team's own.
 	provider, model, mcpServer string
+	// trigger is a webhook trigger of the agent, hook its address, run one of
+	// its runs (made when first needed: authz_matrix_triggers_test.go).
+	trigger, hook, run string
 }
 
 type matrixEnv struct {

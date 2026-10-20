@@ -33,6 +33,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/serviceaccounts"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 	"github.com/ncecere/pi-durable-platform/internal/teams"
+	"github.com/ncecere/pi-durable-platform/internal/triggers"
 )
 
 // Deps are the dependencies shared by handlers. A new domain (for example
@@ -60,6 +61,8 @@ type Deps struct {
 	// MCPIdentity signs the identity tokens the MCP proxy sends servers,
 	// and publishes its keys (nil: none).
 	MCPIdentity *mcpidentity.Keys
+	// Triggers are agents' schedules and webhooks, and their runs.
+	Triggers *triggers.Service
 	// Secrets seals values stored in the database with ENCRYPTION_KEY
 	// (nil in tests that don't need it).
 	Secrets *secrets.Box
@@ -115,7 +118,7 @@ func apiRoutes(d Deps) []route {
 	// Add a new area's route groups here (and its paths to api/openapi.yaml).
 	for _, group := range [][]route{a.authRoutes(), a.teamRoutes(), a.platformAdminRoutes(), a.apiKeyRoutes(),
 		a.serviceAccountRoutes(), a.serviceAccountAdminRoutes(), a.agentRoutes(), a.templateRoutes(), a.modelRoutes(), a.teamModelRoutes(), a.mcpRoutes(), a.personalRoutes(),
-		a.oauthRoutes(), a.oauthRESTRoutes(), a.oauthAppRoutes(), a.mcpIdentityRoutes()} {
+		a.oauthRoutes(), a.oauthRESTRoutes(), a.oauthAppRoutes(), a.mcpIdentityRoutes(), a.triggerRoutes()} {
 		routes = append(routes, group...)
 	}
 	return routes

@@ -234,6 +234,7 @@ func (e AuditViaKind) Valid() bool {
 // Defines values for ChatAuthorKind.
 const (
 	ChatAuthorKindServiceAccount ChatAuthorKind = "service_account"
+	ChatAuthorKindTrigger        ChatAuthorKind = "trigger"
 	ChatAuthorKindUser           ChatAuthorKind = "user"
 )
 
@@ -241,6 +242,8 @@ const (
 func (e ChatAuthorKind) Valid() bool {
 	switch e {
 	case ChatAuthorKindServiceAccount:
+		return true
+	case ChatAuthorKindTrigger:
 		return true
 	case ChatAuthorKindUser:
 		return true
@@ -969,6 +972,204 @@ func (e ThreadVisibility) Valid() bool {
 	}
 }
 
+// Defines values for TriggerPausedReason.
+const (
+	TriggerPausedReasonFailures TriggerPausedReason = "failures"
+	TriggerPausedReasonUser     TriggerPausedReason = "user"
+)
+
+// Valid indicates whether the value is a known member of the TriggerPausedReason enum.
+func (e TriggerPausedReason) Valid() bool {
+	switch e {
+	case TriggerPausedReasonFailures:
+		return true
+	case TriggerPausedReasonUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TriggerSource.
+const (
+	TriggerSourceAgent  TriggerSource = "agent"
+	TriggerSourcePerson TriggerSource = "person"
+)
+
+// Valid indicates whether the value is a known member of the TriggerSource enum.
+func (e TriggerSource) Valid() bool {
+	switch e {
+	case TriggerSourceAgent:
+		return true
+	case TriggerSourcePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TriggerCreateMissedPolicy.
+const (
+	TriggerCreateMissedPolicyRunOnce TriggerCreateMissedPolicy = "run_once"
+	TriggerCreateMissedPolicySkip    TriggerCreateMissedPolicy = "skip"
+)
+
+// Valid indicates whether the value is a known member of the TriggerCreateMissedPolicy enum.
+func (e TriggerCreateMissedPolicy) Valid() bool {
+	switch e {
+	case TriggerCreateMissedPolicyRunOnce:
+		return true
+	case TriggerCreateMissedPolicySkip:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TriggerKind.
+const (
+	TriggerKindSchedule TriggerKind = "schedule"
+	TriggerKindWebhook  TriggerKind = "webhook"
+)
+
+// Valid indicates whether the value is a known member of the TriggerKind enum.
+func (e TriggerKind) Valid() bool {
+	switch e {
+	case TriggerKindSchedule:
+		return true
+	case TriggerKindWebhook:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TriggerRunCallbackStatus.
+const (
+	TriggerRunCallbackStatusDelivered TriggerRunCallbackStatus = "delivered"
+	TriggerRunCallbackStatusFailed    TriggerRunCallbackStatus = "failed"
+	TriggerRunCallbackStatusPending   TriggerRunCallbackStatus = "pending"
+)
+
+// Valid indicates whether the value is a known member of the TriggerRunCallbackStatus enum.
+func (e TriggerRunCallbackStatus) Valid() bool {
+	switch e {
+	case TriggerRunCallbackStatusDelivered:
+		return true
+	case TriggerRunCallbackStatusFailed:
+		return true
+	case TriggerRunCallbackStatusPending:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TriggerRunFiredBy.
+const (
+	TriggerRunFiredByManual   TriggerRunFiredBy = "manual"
+	TriggerRunFiredBySchedule TriggerRunFiredBy = "schedule"
+	TriggerRunFiredByWebhook  TriggerRunFiredBy = "webhook"
+)
+
+// Valid indicates whether the value is a known member of the TriggerRunFiredBy enum.
+func (e TriggerRunFiredBy) Valid() bool {
+	switch e {
+	case TriggerRunFiredByManual:
+		return true
+	case TriggerRunFiredBySchedule:
+		return true
+	case TriggerRunFiredByWebhook:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TriggerRunStatus.
+const (
+	TriggerRunStatusFailed    TriggerRunStatus = "failed"
+	TriggerRunStatusPending   TriggerRunStatus = "pending"
+	TriggerRunStatusRunning   TriggerRunStatus = "running"
+	TriggerRunStatusSkipped   TriggerRunStatus = "skipped"
+	TriggerRunStatusStopped   TriggerRunStatus = "stopped"
+	TriggerRunStatusSucceeded TriggerRunStatus = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the TriggerRunStatus enum.
+func (e TriggerRunStatus) Valid() bool {
+	switch e {
+	case TriggerRunStatusFailed:
+		return true
+	case TriggerRunStatusPending:
+		return true
+	case TriggerRunStatusRunning:
+		return true
+	case TriggerRunStatusSkipped:
+		return true
+	case TriggerRunStatusStopped:
+		return true
+	case TriggerRunStatusSucceeded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TriggerScheduleMissedPolicy.
+const (
+	TriggerScheduleMissedPolicyRunOnce TriggerScheduleMissedPolicy = "run_once"
+	TriggerScheduleMissedPolicySkip    TriggerScheduleMissedPolicy = "skip"
+)
+
+// Valid indicates whether the value is a known member of the TriggerScheduleMissedPolicy enum.
+func (e TriggerScheduleMissedPolicy) Valid() bool {
+	switch e {
+	case TriggerScheduleMissedPolicyRunOnce:
+		return true
+	case TriggerScheduleMissedPolicySkip:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TriggerSecretRotateWhich.
+const (
+	TriggerSecretRotateWhichCallback TriggerSecretRotateWhich = "callback"
+	TriggerSecretRotateWhichWebhook  TriggerSecretRotateWhich = "webhook"
+)
+
+// Valid indicates whether the value is a known member of the TriggerSecretRotateWhich enum.
+func (e TriggerSecretRotateWhich) Valid() bool {
+	switch e {
+	case TriggerSecretRotateWhichCallback:
+		return true
+	case TriggerSecretRotateWhichWebhook:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TriggerUpdateMissedPolicy.
+const (
+	TriggerUpdateMissedPolicyRunOnce TriggerUpdateMissedPolicy = "run_once"
+	TriggerUpdateMissedPolicySkip    TriggerUpdateMissedPolicy = "skip"
+)
+
+// Valid indicates whether the value is a known member of the TriggerUpdateMissedPolicy enum.
+func (e TriggerUpdateMissedPolicy) Valid() bool {
+	switch e {
+	case TriggerUpdateMissedPolicyRunOnce:
+		return true
+	case TriggerUpdateMissedPolicySkip:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UsageReportGroupBy.
 const (
 	UsageReportGroupByAgent    UsageReportGroupBy = "agent"
@@ -1403,6 +1604,9 @@ type AgentMovePlan struct {
 	// ThreadMcpServers MCP servers apps set on its threads, removed by the move
 	ThreadMcpServers int64         `json:"threadMcpServers"`
 	To               AgentMoveTeam `json:"to"`
+
+	// Triggers Its triggers (schedules and webhooks), deleted by the move
+	Triggers *int64 `json:"triggers,omitempty"`
 }
 
 // AgentMoveTeam defines model for AgentMoveTeam.
@@ -1854,7 +2058,7 @@ type Capabilities struct {
 	PlatformAuditor bool `json:"platformAuditor"`
 }
 
-// ChatAuthor Who sent a user message, as the platform recorded it
+// ChatAuthor Who sent a user message, as the platform recorded it (a trigger - an unattended run; id is the trigger's)
 type ChatAuthor struct {
 	Id   string         `json:"id"`
 	Kind ChatAuthorKind `json:"kind"`
@@ -1909,7 +2113,7 @@ type ChatMessage struct {
 	// At When the message was sent or the reply started (Unix milliseconds)
 	At *int64 `json:"at,omitempty"`
 
-	// Author Who sent a user message, as the platform recorded it
+	// Author Who sent a user message, as the platform recorded it (a trigger - an unattended run; id is the trigger's)
 	Author *ChatAuthor `json:"author,omitempty"`
 
 	// Error An assistant reply that failed or was interrupted
@@ -2883,6 +3087,220 @@ type ThreadPrincipalKind string
 // ThreadVisibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen when the thread starts (createAgentThread, its first message, or its MCP servers being set); it never changes.
 type ThreadVisibility string
 
+// Trigger defines model for Trigger.
+type Trigger struct {
+	AgentId              openapi_types.UUID  `json:"agentId"`
+	BackoffUntil         *time.Time          `json:"backoffUntil,omitempty"`
+	CallbackSecretPrefix *string             `json:"callbackSecretPrefix,omitempty"`
+	CallbackUrl          *string             `json:"callbackUrl,omitempty"`
+	ConsecutiveFailures  int32               `json:"consecutiveFailures"`
+	CreatedAt            time.Time           `json:"createdAt"`
+	CreatedBy            *openapi_types.UUID `json:"createdBy,omitempty"`
+
+	// DailyBudgetUsd The most this trigger's runs may cost per UTC day
+	DailyBudgetUsd *float64           `json:"dailyBudgetUsd,omitempty"`
+	Filter         *TriggerFilter     `json:"filter,omitempty"`
+	Id             openapi_types.UUID `json:"id"`
+	Kind           TriggerKind        `json:"kind"`
+	LastFiredAt    *time.Time         `json:"lastFiredAt,omitempty"`
+
+	// MessageTemplate The message, with placeholders {{payload}}, {{payload.<path>}} (webhooks), {{trigger.name}}, {{trigger.kind}}, {{fire.id}} and {{fire.time}}
+	MessageTemplate string `json:"messageTemplate"`
+	Name            string `json:"name"`
+	Paused          bool   `json:"paused"`
+
+	// PausedReason Paused by a person, or by the platform after failed runs in a row
+	PausedReason *TriggerPausedReason `json:"pausedReason,omitempty"`
+
+	// Revision Increases on every change. Send it back in If-Match.
+	Revision Revision         `json:"revision"`
+	Schedule *TriggerSchedule `json:"schedule,omitempty"`
+
+	// Source Who made it - a person, or (later) the agent itself
+	Source TriggerSource `json:"source"`
+
+	// ThreadId The thread every fire sends to (null - a new thread at every fire)
+	ThreadId  *string   `json:"threadId"`
+	UpdatedAt time.Time `json:"updatedAt"`
+
+	// WebhookSecretPrefix The webhook secret's first characters, to tell it apart
+	WebhookSecretPrefix *string `json:"webhookSecretPrefix,omitempty"`
+
+	// WebhookUrl Where a webhook's sender POSTs (webhooks)
+	WebhookUrl *string `json:"webhookUrl,omitempty"`
+}
+
+// TriggerPausedReason Paused by a person, or by the platform after failed runs in a row
+type TriggerPausedReason string
+
+// TriggerSource Who made it - a person, or (later) the agent itself
+type TriggerSource string
+
+// TriggerCreate defines model for TriggerCreate.
+type TriggerCreate struct {
+	// CallbackUrl An https URL called, signed, when each run ends
+	CallbackUrl *string `json:"callbackUrl,omitempty"`
+
+	// Cron Schedules (required)
+	Cron           *string  `json:"cron,omitempty"`
+	DailyBudgetUsd *float64 `json:"dailyBudgetUsd,omitempty"`
+
+	// Filter A webhook's condition - the payload's field at `path` (names or array indexes joined by dots, at most 10) equals `equals` (a string field as is, other values by their JSON text such as 42, true or null)
+	Filter          *TriggerFilter `json:"filter,omitempty"`
+	Kind            TriggerKind    `json:"kind"`
+	MessageTemplate string         `json:"messageTemplate"`
+
+	// MissedPolicy Schedules (default skip)
+	MissedPolicy *TriggerCreateMissedPolicy `json:"missedPolicy,omitempty"`
+	Name         string                     `json:"name"`
+	Paused       *bool                      `json:"paused,omitempty"`
+
+	// ThreadId A thread for every fire (shared, or not used yet); omitted or "" - a new thread at every fire
+	ThreadId *string `json:"threadId,omitempty"`
+
+	// Timezone Schedules (default UTC)
+	Timezone *string `json:"timezone,omitempty"`
+}
+
+// TriggerCreateMissedPolicy Schedules (default skip)
+type TriggerCreateMissedPolicy string
+
+// TriggerFilter A webhook's condition - the payload's field at `path` (names or array indexes joined by dots, at most 10) equals `equals` (a string field as is, other values by their JSON text such as 42, true or null)
+type TriggerFilter struct {
+	Equals string `json:"equals"`
+	Path   string `json:"path"`
+}
+
+// TriggerKind defines model for TriggerKind.
+type TriggerKind string
+
+// TriggerRun defines model for TriggerRun.
+type TriggerRun struct {
+	AgentId        openapi_types.UUID        `json:"agentId"`
+	CallbackStatus *TriggerRunCallbackStatus `json:"callbackStatus,omitempty"`
+
+	// CostUsd The agent's model usage while the run was in progress, at current prices (an upper bound when it did other work meanwhile)
+	CostUsd    float64    `json:"costUsd"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+
+	// FireId The fire's ID, also the message's pi-durable requestId
+	FireId  string             `json:"fireId"`
+	FiredBy TriggerRunFiredBy  `json:"firedBy"`
+	Id      openapi_types.UUID `json:"id"`
+
+	// Link The console's path of the run's thread
+	Link *string `json:"link,omitempty"`
+
+	// Reason Why it was skipped (trigger_paused, agent_paused, team_archived, concurrency, budget, backoff, missed), stopped (max_run_time, budget) or failed (reply_error, delivery_failed, agent_disabled, thread_private, …)
+	Reason       *string             `json:"reason"`
+	Requests     int64               `json:"requests"`
+	ScheduledFor *time.Time          `json:"scheduledFor,omitempty"`
+	StartedAt    *time.Time          `json:"startedAt,omitempty"`
+	Status       TriggerRunStatus    `json:"status"`
+	TeamId       *openapi_types.UUID `json:"teamId,omitempty"`
+	ThreadId     *string             `json:"threadId"`
+
+	// TriggerId Null once the trigger was deleted (its name stays)
+	TriggerId   *openapi_types.UUID `json:"triggerId"`
+	TriggerKind TriggerKind         `json:"triggerKind"`
+	TriggerName string              `json:"triggerName"`
+}
+
+// TriggerRunCallbackStatus defines model for TriggerRun.CallbackStatus.
+type TriggerRunCallbackStatus string
+
+// TriggerRunFiredBy defines model for TriggerRun.FiredBy.
+type TriggerRunFiredBy string
+
+// TriggerRunStatus defines model for TriggerRunStatus.
+type TriggerRunStatus string
+
+// TriggerSaved defines model for TriggerSaved.
+type TriggerSaved struct {
+	// CallbackSecret The callback secret (pdpcb_…), when this request made one - shown once
+	CallbackSecret *string `json:"callbackSecret,omitempty"`
+	Trigger        Trigger `json:"trigger"`
+
+	// WebhookSecret The webhook secret (pdpwh_…), when this request made one - shown once
+	WebhookSecret *string `json:"webhookSecret,omitempty"`
+}
+
+// TriggerSchedule defines model for TriggerSchedule.
+type TriggerSchedule struct {
+	// Cron Five fields (minute hour day month weekday) or @hourly, @daily, @weekly, @monthly, @yearly
+	Cron string `json:"cron"`
+
+	// MissedPolicy A fire missed while the platform wasn't running - skip it, or run once for the latest one
+	MissedPolicy TriggerScheduleMissedPolicy `json:"missedPolicy"`
+	NextFireAt   *time.Time                  `json:"nextFireAt,omitempty"`
+
+	// Timezone IANA time zone
+	Timezone string `json:"timezone"`
+}
+
+// TriggerScheduleMissedPolicy A fire missed while the platform wasn't running - skip it, or run once for the latest one
+type TriggerScheduleMissedPolicy string
+
+// TriggerSecretRotate defines model for TriggerSecretRotate.
+type TriggerSecretRotate struct {
+	Which TriggerSecretRotateWhich `json:"which"`
+}
+
+// TriggerSecretRotateWhich defines model for TriggerSecretRotate.Which.
+type TriggerSecretRotateWhich string
+
+// TriggerSettings defines model for TriggerSettings.
+type TriggerSettings struct {
+	CeilingConcurrentRuns int32 `json:"ceilingConcurrentRuns"`
+	CeilingRunSeconds     int32 `json:"ceilingRunSeconds"`
+
+	// DailyBudgetUsd The most the agent's triggered runs may cost per UTC day
+	DailyBudgetUsd          *float64 `json:"dailyBudgetUsd,omitempty"`
+	EffectiveConcurrentRuns int32    `json:"effectiveConcurrentRuns"`
+	EffectiveRunSeconds     int32    `json:"effectiveRunSeconds"`
+
+	// MaxConcurrentRuns Runs at once (pending and running); null - the default, 1
+	MaxConcurrentRuns *int32 `json:"maxConcurrentRuns,omitempty"`
+
+	// MaxRunSeconds Null - the platform's ceiling
+	MaxRunSeconds *int32 `json:"maxRunSeconds,omitempty"`
+
+	// Paused Every trigger of the agent is paused
+	Paused bool `json:"paused"`
+
+	// Revision Increases on every change. Send it back in If-Match.
+	Revision  Revision   `json:"revision"`
+	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
+}
+
+// TriggerSettingsUpdate defines model for TriggerSettingsUpdate.
+type TriggerSettingsUpdate struct {
+	DailyBudgetUsd    *float64 `json:"dailyBudgetUsd,omitempty"`
+	MaxConcurrentRuns *int32   `json:"maxConcurrentRuns,omitempty"`
+	MaxRunSeconds     *int32   `json:"maxRunSeconds,omitempty"`
+	Paused            bool     `json:"paused"`
+}
+
+// TriggerUpdate defines model for TriggerUpdate.
+type TriggerUpdate struct {
+	CallbackUrl    *string  `json:"callbackUrl,omitempty"`
+	Cron           *string  `json:"cron,omitempty"`
+	DailyBudgetUsd *float64 `json:"dailyBudgetUsd,omitempty"`
+
+	// Filter A webhook's condition - the payload's field at `path` (names or array indexes joined by dots, at most 10) equals `equals` (a string field as is, other values by their JSON text such as 42, true or null)
+	Filter          *TriggerFilter             `json:"filter,omitempty"`
+	MessageTemplate *string                    `json:"messageTemplate,omitempty"`
+	MissedPolicy    *TriggerUpdateMissedPolicy `json:"missedPolicy,omitempty"`
+	Name            *string                    `json:"name,omitempty"`
+	Paused          *bool                      `json:"paused,omitempty"`
+	ThreadId        *string                    `json:"threadId,omitempty"`
+	Timezone        *string                    `json:"timezone,omitempty"`
+}
+
+// TriggerUpdateMissedPolicy defines model for TriggerUpdate.MissedPolicy.
+type TriggerUpdateMissedPolicy string
+
 // TrustedClient defines model for TrustedClient.
 type TrustedClient struct {
 	// ClientId The https URL of the app's Client ID Metadata Document
@@ -2990,6 +3408,18 @@ type UserUpdate struct {
 	Status       *UserStatus   `json:"status,omitempty"`
 }
 
+// WebhookAccepted defines model for WebhookAccepted.
+type WebhookAccepted struct {
+	// Matched False - the filter didn't match; nothing started
+	Matched bool    `json:"matched"`
+	Reason  *string `json:"reason,omitempty"`
+
+	// Replayed True - a replay of an earlier delivery, answered with its run
+	Replayed bool                `json:"replayed"`
+	RunId    *openapi_types.UUID `json:"runId,omitempty"`
+	Status   *TriggerRunStatus   `json:"status,omitempty"`
+}
+
 // WorkspaceLimits defines model for WorkspaceLimits.
 type WorkspaceLimits struct {
 	AgentCount int64 `json:"agentCount"`
@@ -3067,6 +3497,9 @@ type ModelIdParam = openapi_types.UUID
 // ProviderIdParam defines model for ProviderIdParam.
 type ProviderIdParam = openapi_types.UUID
 
+// RunStatusParam defines model for RunStatusParam.
+type RunStatusParam = TriggerRunStatus
+
 // SearchParam defines model for SearchParam.
 type SearchParam = string
 
@@ -3081,6 +3514,9 @@ type TemplateIdParam = openapi_types.UUID
 
 // ThreadIdParam defines model for ThreadIdParam.
 type ThreadIdParam = string
+
+// TriggerIdParam defines model for TriggerIdParam.
+type TriggerIdParam = openapi_types.UUID
 
 // UserIdParam defines model for UserIdParam.
 type UserIdParam = openapi_types.UUID
@@ -3101,6 +3537,14 @@ type HealthReply struct {
 // OkReply defines model for OkReply.
 type OkReply struct {
 	Data Ok `json:"data"`
+}
+
+// RunPageReply defines model for RunPageReply.
+type RunPageReply struct {
+	Data []TriggerRun `json:"data"`
+
+	// NextCursor Pass it back as cursor for the next page
+	NextCursor *string `json:"nextCursor,omitempty"`
 }
 
 // StartLoginParams defines parameters for StartLogin.
@@ -3321,6 +3765,16 @@ type MoveAgentParams struct {
 	IfMatch IfMatchHeader `json:"If-Match"`
 }
 
+// ListAgentRunsParams defines parameters for ListAgentRuns.
+type ListAgentRunsParams struct {
+	TriggerId *openapi_types.UUID `form:"triggerId,omitempty" json:"triggerId,omitempty"`
+	Status    *RunStatusParam     `form:"status,omitempty" json:"status,omitempty"`
+	Limit     *LimitParam         `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor nextCursor from the previous page
+	Cursor *CursorParam `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
 // ListAgentThreadsParams defines parameters for ListAgentThreads.
 type ListAgentThreadsParams struct {
 	// Limit Page size (1-200). Without it, every thread.
@@ -3374,6 +3828,18 @@ type SetThreadMcpServersJSONBody struct {
 	Visibility *ThreadVisibility `json:"visibility,omitempty"`
 }
 
+// SetAgentTriggerSettingsParams defines parameters for SetAgentTriggerSettings.
+type SetAgentTriggerSettingsParams struct {
+	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
+	IfMatch IfMatchHeader `json:"If-Match"`
+}
+
+// UpdateAgentTriggerParams defines parameters for UpdateAgentTrigger.
+type UpdateAgentTriggerParams struct {
+	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
+	IfMatch IfMatchHeader `json:"If-Match"`
+}
+
 // GetAppEventsParams defines parameters for GetAppEvents.
 type GetAppEventsParams struct {
 	Once *bool `form:"once,omitempty" json:"once,omitempty"`
@@ -3388,6 +3854,17 @@ type GetAppUsageParams struct {
 	To     *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
 	Limit  *int                `form:"limit,omitempty" json:"limit,omitempty"`
 	Cursor *string             `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// DeliverWebhookJSONBody defines parameters for DeliverWebhook.
+type DeliverWebhookJSONBody map[string]interface{}
+
+// DeliverWebhookTextBody defines parameters for DeliverWebhook.
+type DeliverWebhookTextBody = string
+
+// DeliverWebhookParams defines parameters for DeliverWebhook.
+type DeliverWebhookParams struct {
+	XPDPSignature string `json:"X-PDP-Signature"`
 }
 
 // GetMeParams defines parameters for GetMe.
@@ -3478,6 +3955,15 @@ type UpdateTeamModelProviderParams struct {
 type UpdateTeamModelParams struct {
 	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
 	IfMatch IfMatchHeader `json:"If-Match"`
+}
+
+// ListTeamRunsParams defines parameters for ListTeamRuns.
+type ListTeamRunsParams struct {
+	Status *RunStatusParam `form:"status,omitempty" json:"status,omitempty"`
+	Limit  *LimitParam     `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor nextCursor from the previous page
+	Cursor *CursorParam `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // UpdateServiceAccountParams defines parameters for UpdateServiceAccount.
@@ -3582,6 +4068,24 @@ type SetThreadMcpServersJSONRequestBody SetThreadMcpServersJSONBody
 
 // SendAgentMessageJSONRequestBody defines body for SendAgentMessage for application/json ContentType.
 type SendAgentMessageJSONRequestBody = AgentMessageCreate
+
+// SetAgentTriggerSettingsJSONRequestBody defines body for SetAgentTriggerSettings for application/json ContentType.
+type SetAgentTriggerSettingsJSONRequestBody = TriggerSettingsUpdate
+
+// CreateAgentTriggerJSONRequestBody defines body for CreateAgentTrigger for application/json ContentType.
+type CreateAgentTriggerJSONRequestBody = TriggerCreate
+
+// UpdateAgentTriggerJSONRequestBody defines body for UpdateAgentTrigger for application/json ContentType.
+type UpdateAgentTriggerJSONRequestBody = TriggerUpdate
+
+// RotateAgentTriggerSecretJSONRequestBody defines body for RotateAgentTriggerSecret for application/json ContentType.
+type RotateAgentTriggerSecretJSONRequestBody = TriggerSecretRotate
+
+// DeliverWebhookJSONRequestBody defines body for DeliverWebhook for application/json ContentType.
+type DeliverWebhookJSONRequestBody DeliverWebhookJSONBody
+
+// DeliverWebhookTextRequestBody defines body for DeliverWebhook for text/plain ContentType.
+type DeliverWebhookTextRequestBody = DeliverWebhookTextBody
 
 // CreateMyApiKeyJSONRequestBody defines body for CreateMyApiKey for application/json ContentType.
 type CreateMyApiKeyJSONRequestBody = ApiKeyCreate

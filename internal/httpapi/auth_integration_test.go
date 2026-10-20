@@ -28,6 +28,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/mcpidentity"
 	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/testutil"
+	"github.com/ncecere/pi-durable-platform/internal/triggers"
 )
 
 type testApp struct {
@@ -47,6 +48,8 @@ type testApp struct {
 	Identity *mcpidentity.Keys
 	// Auth is sign-in and sessions (the group re-check).
 	Auth *auth.Service
+	// Triggers are agents' schedules and webhooks (their loop is the test's to tick).
+	Triggers *triggers.Service
 	// Origin is the origin of the browser's requests when it isn't URL: a
 	// replica is reached at its own address while people know the platform
 	// by APP_URL (the first app's URL).
@@ -157,6 +160,8 @@ func newTestAppWith(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 	if hook != nil {
 		hook(&deps)
 	}
+	// Deliveries a request started end before the runtimes stop (cleanups run last first).
+	t.Cleanup(deps.Triggers.Wait)
 	handler = httpapi.NewAPIHandler(deps)
 	gateway = httpapi.NewGatewayHandler(deps)
 	eventsCtx, stopEvents := context.WithCancel(context.Background())
@@ -164,7 +169,7 @@ func newTestAppWith(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 	go deps.Agents.RunThreadEvents(eventsCtx, log)
 
 	jar, _ := cookiejar.New(nil)
-	return &testApp{t: t, URL: srv.URL, GatewayURL: gw.URL, Pool: pool, Client: &http.Client{Jar: jar}, Agents: deps.Agents, Models: deps.Models, MCP: deps.MCP, Auth: deps.Auth, Metrics: deps.Metrics, cfg: cfg,
+	return &testApp{t: t, URL: srv.URL, GatewayURL: gw.URL, Pool: pool, Client: &http.Client{Jar: jar}, Agents: deps.Agents, Models: deps.Models, MCP: deps.MCP, Auth: deps.Auth, Triggers: deps.Triggers, Metrics: deps.Metrics, cfg: cfg,
 		Identity: deps.MCPIdentity}
 }
 
