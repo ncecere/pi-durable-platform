@@ -50,9 +50,11 @@ func (a *api) agentRoutes() []route {
 		{"POST", thread + "/messages", k(a.agentProxy("/messages"))},
 		{"POST", thread + "/stop", k(a.agentProxy("/stop"))},
 		{"GET", thread + "/events", k(a.agentProxy("/events"))},
+		{"GET", thread + "/documents/{kind}", k(a.getAgentThreadDocument)},
 		// Platform admins: every thread, and reasoned reads (audited).
 		{"GET", "/v1/admin/agents/{agentId}/threads", a.admin(a.adminListAgentThreads)},
 		{"POST", "/v1/admin/agents/{agentId}/threads/{threadId}/read", a.admin(a.adminReadAgentThread)},
+		{"POST", "/v1/admin/agents/{agentId}/threads/{threadId}/documents/{kind}/read", a.admin(a.adminReadAgentThreadDocument)},
 	}
 }
 
@@ -64,8 +66,15 @@ func toAPIAgent(v agents.View) apitypes.Agent {
 		TemplateName: v.TemplateName, TemplateVersion: ag.TemplateVersion, TemplateCurrentVersion: v.TemplateCurrentVersion,
 		Enabled: ag.Enabled, Running: v.Running, LastUsedAt: ag.LastUsedAt, Revision: ag.Revision,
 		CreatedAt: ag.CreatedAt, UpdatedAt: ag.UpdatedAt, ExternalKey: ag.ExternalKey, ServiceManaged: ag.ServiceManaged,
-		Model: agentModel(v.Model),
+		Model: agentModel(v.Model), StorageVersion: nonEmpty(v.Runtime.StorageVersion), RuntimeRefused: runtimeRefusal(v.Runtime.Refused),
 	}
+}
+
+func runtimeRefusal(r *agents.Refusal) *apitypes.AgentRuntimeRefusal {
+	if r == nil {
+		return nil
+	}
+	return &apitypes.AgentRuntimeRefusal{RuntimeVersion: r.RuntimeVersion, StorageVersion: r.StorageVersion, At: r.At, Message: r.Message}
 }
 
 func agentModel(m *agents.ModelRef) *apitypes.AgentModel {

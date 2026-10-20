@@ -589,10 +589,14 @@ func (e *matrixEnv) call(t *testing.T, op string, p policy, tf *teamFix, who cal
 	case code >= 500:
 		t.Errorf("%s: %d %s", label, code, body)
 	case p.anyStatus:
+	case allowed && p.reachedCode != "" && strings.Contains(string(body), `"code":"`+p.reachedCode+`"`):
+		// The request reached what it authorizes access to, which answered with this code.
 	case allowed && (code < 200 || code > 299):
 		t.Errorf("%s: want success, got %d %s", label, code, body)
 	case !allowed && code != 401 && code != 403 && code != 404:
 		t.Errorf("%s: want 401/403/404, got %d %s", label, code, body)
+	case !allowed && p.reachedCode != "" && strings.Contains(string(body), `"code":"`+p.reachedCode+`"`):
+		t.Errorf("%s: a denied request reached the agent: %d %s", label, code, body)
 	}
 	if foreign && !allowed && (strings.Contains(string(body), e.a.id) || strings.Contains(string(body), e.a.name)) {
 		t.Errorf("%s: denied response leaks team A: %s", label, body)

@@ -7,6 +7,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ncecere/pi-durable-platform/internal/agenthost"
 	"github.com/ncecere/pi-durable-platform/internal/agents"
 	"github.com/ncecere/pi-durable-platform/internal/apikeys"
 	"github.com/ncecere/pi-durable-platform/internal/auth"
@@ -215,8 +217,11 @@ func NewGatewayHandler(d Deps) http.Handler {
 	return observeHandler(d.Metrics, metrics.ListenerGateway, mux)
 }
 
-// registerThreadReports takes the runtime's reports of its threads' status:
-// one thread (/threads/report), or all of them when it starts (/threads/sync).
+// registerThreadReports takes the runtime's reports: its threads' status, one
+// thread (/threads/report) or all of them when it starts (/threads/sync), and
+// its versions when it starts, before it opens the agent's storage
+// (/runtime/start: the upgrade check, which answers 409 runtime_too_old to a
+// runtime older than the one that last wrote the agent's data).
 func registerThreadReports(mux *http.ServeMux, ag *agents.Service, log *slog.Logger) {
 	authed := func(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 		id, token, ok := llm.Credential(r)
@@ -241,6 +246,35 @@ func registerThreadReports(mux *http.ServeMux, ag *agents.Service, log *slog.Log
 			return
 		}
 		if failed(w, r, ag.ReportThread(r.Context(), id, in)) {
+			return
+		}
+		httpx.JSON(w, http.StatusOK, apitypes.Ok{Ok: true})
+	})
+	mux.HandleFunc("POST /runtime/start", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := authed(w, r)
+		if !ok {
+			return
+		}
+		var in struct {
+			ContractVersion  json.RawMessage `json:"contractVersion"`
+			PiDurableVersion json.RawMessage `json:"piDurableVersion"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&in); err != nil {
+			httpx.Error(w, http.StatusBadRequest, "invalid_request", "The body must be the runtime's versions")
+			return
+		}
+		var version string // a version of another type counts as none
+		_ = json.Unmarshal(in.PiDurableVersion, &version)
+		err := ag.AdmitRuntime(r.Context(), id, version)
+		var refused *agenthost.RefusedError
+		if errors.As(err, &refused) {
+			httpx.Error(w, http.StatusConflict, "runtime_too_old", refused.Message)
+			return
+		}
+		if err != nil {
+			log.Warn("runtime start check", "agent", id, "err", err)
+		}
+		if failed(w, r, err) {
 			return
 		}
 		httpx.JSON(w, http.StatusOK, apitypes.Ok{Ok: true})
