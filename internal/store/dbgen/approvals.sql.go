@@ -171,6 +171,25 @@ func (q *Queries) ClaimApprovalDeliveries(ctx context.Context) ([]ToolApproval, 
 	return items, nil
 }
 
+const countPendingToolApprovals = `-- name: CountPendingToolApprovals :one
+SELECT count(*) FROM (
+  SELECT 1 FROM tool_approvals WHERE agent_id = $1 AND status = 'pending' LIMIT $2::int
+) AS pending
+`
+
+type CountPendingToolApprovalsParams struct {
+	AgentID uuid.UUID
+	Bound   int32
+}
+
+// The agent's pending requests, counted up to a bound (MaxPendingApprovals).
+func (q *Queries) CountPendingToolApprovals(ctx context.Context, arg CountPendingToolApprovalsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countPendingToolApprovals, arg.AgentID, arg.Bound)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const decideToolApproval = `-- name: DecideToolApproval :one
 UPDATE tool_approvals SET status = $1, decided_at = now(), decided_by_user = $2,
     decided_by_service = $3, decided_by_name = $4,

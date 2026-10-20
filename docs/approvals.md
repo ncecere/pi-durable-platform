@@ -85,7 +85,11 @@ is then `cancelled` (checked after the stop, and at every start for requests who
 
 The runtime is untrusted, as for thread reports: the platform bounds and redacts the arguments again, ignores a thread
 or person that doesn't parse, and a runtime that names someone as the run's person only lets them decide calls in
-threads they could already read.
+threads they could already read. **At most 100 requests wait per agent** (`agents.MaxPendingApprovals`): beyond it a
+new report is refused, not recorded (no row, no audit entry, a warning in the log with the agent's ID), and its answer
+denies the call (`denied` by the system, "Platform", with the reason), which the runtime applies like a person's
+denial: the tool doesn't run and the model reads why. Requests already recorded are answered as before; once some are
+decided, new ones are taken again.
 
 ## Who may decide
 

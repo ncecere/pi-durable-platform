@@ -326,6 +326,22 @@ describe("tool approvals", () => {
 	});
 });
 
+describe("a platform that refuses a request", () => {
+	it("denies the call when the platform answers the report with a denial (too many requests waiting): the tool never runs", async () => {
+		const model = fakeModel();
+		const { runs, definition } = apiTool();
+		const reason = "too many approval requests of this agent are waiting for a decision; ask again once people have decided some";
+		const gw = await gateway({ report: { status: "denied", reason, decidedBy: { kind: "system", name: "Platform" }, expiresAt: 0 } });
+		model.reply(toolCall("call_api", { url: "https://example.com" }, { id: "c1" }), "Understood.");
+		const agent = track(await startTestAgent(definition, { model, env: { ...marks(["call_api"]), ...gw.env } }));
+		await agent.send("t", "call it", { author: ann });
+		const { result } = await resultOf(agent, "t", "c1");
+		expect(result.text).toContain(`denied by Platform: ${reason}`);
+		expect(runs).toHaveLength(0);
+		expect((await agent.approvals("t"))[0]).toMatchObject({ status: "denied", decidedBy: { kind: "system", name: "Platform" } });
+	});
+});
+
 describe("approval helpers", () => {
 	it("match tool names and patterns", () => {
 		expect(toolMatches("get_time", "get_time")).toBe(true);

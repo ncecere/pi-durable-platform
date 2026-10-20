@@ -3,6 +3,8 @@ package httpapi_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -341,5 +343,51 @@ func TestRuntimeReportsAreRedactedAndReconciled(t *testing.T) {
 	}
 	if got := strings.Join(e.auditActions(), ","); got != "tool_approval.request,tool_approval.cancel" {
 		t.Fatalf("audit = %s", got)
+	}
+}
+
+// A runtime can't flood the platform with requests: at most
+// MaxPendingApprovals wait per agent; beyond it a request is not recorded
+// (no row, no audit entry) and the answer denies it, which the runtime
+// applies as a denial. Once one is decided, a new one is taken again.
+func TestPendingApprovalsAreCappedPerAgent(t *testing.T) {
+	e := newApprovalEnv(t)
+	ctx := context.Background()
+	agentID := mustUUID(t, e.agent)
+	report := func(i int) agents.ApprovalAnswer {
+		t.Helper()
+		ans, err := e.app.Agents.ReportApproval(ctx, agentID, agents.ApprovalReport{ID: fmt.Sprintf("ap_flood%d", i), ThreadID: "t1", Tool: "get_time",
+			CallID: fmt.Sprintf("c%d", i), Arguments: json.RawMessage(`{}`), RequestedAt: time.Now().UnixMilli()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ans
+	}
+	for i := range agents.MaxPendingApprovals {
+		if ans := report(i); ans.Status != "pending" {
+			t.Fatalf("request %d: %+v", i, ans)
+		}
+	}
+	over := report(agents.MaxPendingApprovals)
+	if over.Status != "denied" || !strings.Contains(over.Reason, "too many approval requests") || over.DecidedBy == nil || over.DecidedBy.Kind != "system" {
+		t.Fatalf("over the cap: %+v", over)
+	}
+	if n := e.scalar(`SELECT count(*)::text FROM tool_approvals WHERE agent_id = $1`, agentID); n != strconv.Itoa(agents.MaxPendingApprovals) {
+		t.Fatalf("%s requests recorded", n)
+	}
+	if n := e.scalar(`SELECT count(*)::text FROM audit_log WHERE action = 'tool_approval.request'`); n != strconv.Itoa(agents.MaxPendingApprovals) {
+		t.Fatalf("%s requests audited", n)
+	}
+	// A request already recorded is still answered as it stands.
+	if ans := report(0); ans.Status != "pending" {
+		t.Fatalf("a recorded request reported again: %+v", ans)
+	}
+	// One is cancelled: room for one more.
+	if _, err := e.app.Agents.ReportApproval(ctx, agentID, agents.ApprovalReport{ID: "ap_flood0", ThreadID: "t1", Tool: "get_time", CallID: "c0",
+		Status: "cancelled"}); err != nil {
+		t.Fatal(err)
+	}
+	if ans := report(agents.MaxPendingApprovals + 1); ans.Status != "pending" {
+		t.Fatalf("after one was cancelled: %+v", ans)
 	}
 }
