@@ -286,6 +286,8 @@ export function TestChat({ agent, personal = false }: Props) {
                     )
                 : undefined
             }
+            // While a reply runs, Enter queues the message behind it (a follow-up); Steer joins it.
+            submitWhileBusy={exists}
             onSubmit={(message) => send(message.text)}
           >
             <PromptInputTextarea
@@ -293,7 +295,7 @@ export function TestChat({ agent, personal = false }: Props) {
                 !agent.enabled
                   ? "This agent is turned off"
                   : replying
-                    ? "Steer the reply in progress"
+                    ? "Enter queues a follow-up; Steer joins the reply in progress"
                     : `Message ${agent.name}`
               }
               maxLength={32000}
