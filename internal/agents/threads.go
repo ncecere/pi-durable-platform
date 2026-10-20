@@ -548,6 +548,19 @@ func (s *Service) ThreadSent(ctx context.Context, a authz.Actor, c Claim, text s
 	s.announce(ctx, t)
 }
 
+// DeleteReservedThread deletes a thread the platform reserved and nobody has
+// sent to yet (with its MCP servers), without the runtime, which has no
+// conversation for it. It reports whether there was one; the caller has
+// checked the actor's access to the thread.
+func (s *Service) DeleteReservedThread(ctx context.Context, id uuid.UUID, threadID string) (bool, error) {
+	rows, err := s.q.DeleteReservedThread(ctx, dbgen.DeleteReservedThreadParams{AgentID: id, ThreadID: threadID})
+	if err != nil || len(rows) == 0 {
+		return false, err
+	}
+	s.announce(context.WithoutCancel(ctx), rows[0])
+	return true, nil
+}
+
 // ThreadRemoved forgets a deleted thread.
 func (s *Service) ThreadRemoved(ctx context.Context, id uuid.UUID, threadID string) {
 	ctx = context.WithoutCancel(ctx)
@@ -703,9 +716,23 @@ func (r *ThreadReport) check() bool {
 	return true
 }
 
-func (s *Service) applyReport(ctx context.Context, agentID uuid.UUID, r ThreadReport) error {
-	t, err := s.q.ThreadReported(ctx, dbgen.ThreadReportedParams{AgentID: agentID, ThreadID: r.ThreadID, Title: r.Title,
-		CreatedAt: r.createdAt, Busy: r.Busy, LastReplyAt: r.lastReply, LastError: r.LastError, At: time.UnixMilli(r.At)})
+// applyReport records a thread's status. With adopt (the runtime's list of
+// every thread it has) a thread the platform has no record of is recorded;
+// without (a single report) it is ignored, so a report that arrives after the
+// thread was deleted doesn't bring it back.
+func (s *Service) applyReport(ctx context.Context, agentID uuid.UUID, r ThreadReport, adopt bool) error {
+	var t Thread
+	var err error
+	if adopt {
+		t, err = s.q.ThreadReported(ctx, dbgen.ThreadReportedParams{AgentID: agentID, ThreadID: r.ThreadID, Title: r.Title,
+			CreatedAt: r.createdAt, Busy: r.Busy, LastReplyAt: r.lastReply, LastError: r.LastError, At: time.UnixMilli(r.At)})
+	} else {
+		t, err = s.q.ThreadStatusReported(ctx, dbgen.ThreadStatusReportedParams{AgentID: agentID, ThreadID: r.ThreadID,
+			Busy: r.Busy, LastReplyAt: r.lastReply, LastError: r.LastError, At: time.UnixMilli(r.At)})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -713,12 +740,13 @@ func (s *Service) applyReport(ctx context.Context, agentID uuid.UUID, r ThreadRe
 	return nil
 }
 
-// ReportThread records one thread's status from the agent's runtime.
+// ReportThread records one thread's status from the agent's runtime: only
+// for a thread the platform has a record of (see applyReport).
 func (s *Service) ReportThread(ctx context.Context, agentID uuid.UUID, r ThreadReport) error {
 	if !r.check() {
 		return apperr.Invalid("invalid_thread", "threadId and at are required")
 	}
-	return s.applyReport(ctx, agentID, r)
+	return s.applyReport(ctx, agentID, r, false)
 }
 
 // SyncThreads records every thread the runtime has (when it starts), and
@@ -729,7 +757,7 @@ func (s *Service) SyncThreads(ctx context.Context, agentID uuid.UUID, threads []
 		if !r.check() {
 			continue
 		}
-		if err := s.applyReport(ctx, agentID, r); err != nil {
+		if err := s.applyReport(ctx, agentID, r, true); err != nil {
 			return err
 		}
 		keep = append(keep, r.ThreadID)

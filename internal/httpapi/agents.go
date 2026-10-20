@@ -194,6 +194,18 @@ func (a *api) agentProxy(suffix string) http.HandlerFunc {
 		} else if failed(w, r, a.Agents.ThreadAccess(r.Context(), a.actor(r), id, r.PathValue("threadId"))) {
 			return
 		}
+		if suffix == "" && r.Method == http.MethodDelete {
+			// A reserved thread has no conversation in the runtime yet: the platform deletes it
+			// (and doesn't wake the agent for it).
+			deleted, err := a.Agents.DeleteReservedThread(r.Context(), id, r.PathValue("threadId"))
+			if failed(w, r, err) {
+				return
+			}
+			if deleted {
+				httpx.JSON(w, http.StatusOK, apitypes.Ok{Ok: true})
+				return
+			}
+		}
 		if suffix == "/events" && r.Method == http.MethodGet {
 			// An open stream is cut when its person's access ends (denied, suspended,
 			// removed from the team): access was decided once, above.
