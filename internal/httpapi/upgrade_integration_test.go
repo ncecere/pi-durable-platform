@@ -8,10 +8,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ncecere/pi-durable-platform/internal/agenthost"
 	"github.com/ncecere/pi-durable-platform/internal/agenthost/provision"
+	"github.com/ncecere/pi-durable-platform/internal/agents"
+	"github.com/ncecere/pi-durable-platform/internal/authz"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/testutil"
 )
@@ -118,14 +121,98 @@ func TestUpgradeCheck(t *testing.T) {
 		}
 	}
 	// A newer one moves the record up (and ends the refusal); an older one after it is refused.
-	if err := app.Agents.AdmitRuntime(ctx, ag.Id, "100.0.0"); err != nil {
+	if err := app.Agents.AdmitRuntime(ctx, ag.Id, "1.4.0"); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.Agents.AdmitRuntime(ctx, ag.Id, "100.0.0-rc.1"); err == nil {
+	if err := app.Agents.AdmitRuntime(ctx, ag.Id, "1.4.0-rc.1"); err == nil {
 		t.Fatal("a pre-release of the recorded version is older")
 	}
 	got = apitypes.Agent{}
-	if code := e.member.get(base, &got); code != 200 || *got.StorageVersion != "100.0.0" || got.RuntimeRefused == nil || got.RuntimeRefused.RuntimeVersion != "100.0.0-rc.1" {
+	if code := e.member.get(base, &got); code != 200 || *got.StorageVersion != "1.4.0" || got.RuntimeRefused == nil || got.RuntimeRefused.RuntimeVersion != "1.4.0-rc.1" {
 		t.Fatalf("after a newer and an older runtime %+v %+v", got.StorageVersion, got.RuntimeRefused)
+	}
+}
+
+// The runtime's key is readable by its tools' code, so what it reports is
+// not trusted beyond the platform's own pi-durable: a version beyond one
+// minor ahead of it is not recorded (the start proceeds), so it can't make
+// the platform refuse every genuine runtime. A version recorded within the
+// tolerance (or before this check) is undone by the operator's audited
+// reset.
+func TestUpgradeCheckUntrustedVersions(t *testing.T) {
+	app := newTestAppWith(t, nil, testutil.Logger(), nil, false)
+	e := newTeamEnvOn(t, app)
+	ctx := context.Background()
+	runtime := runtimePiDurable(t)
+	var ag apitypes.Agent
+	code, ec := e.editor.call("POST", toolsTeam+"/agents", map[string]any{"name": "Pinned"}, &ag, nil)
+	mustCode(t, "deploy", code, ec, 201, "")
+	base := "/v1/agents/" + ag.Id.String()
+	spec, err := app.Agents.Spec(ctx, authz.Actor{UserID: e.userID("blair@localhost"), PlatformRole: authz.PlatformNone}, ag.Id)
+	if err != nil || spec.Env["PLATFORM_KEY"] == "" {
+		t.Fatalf("spec: %v", err)
+	}
+	cred := spec.Env["PLATFORM_KEY"]
+	storage := func() *string {
+		var got apitypes.Agent
+		if code := e.member.get(base, &got); code != 200 {
+			t.Fatalf("get the agent: %d", code)
+		}
+		return got.StorageVersion
+	}
+
+	// Tool code reports absurd versions with the runtime's key: the start proceeds, nothing is recorded.
+	for _, v := range []string{"999999.0.0", "2.0.0", "1.5.0", "1.5.0-rc.1", "1.999999.0"} {
+		if code, _, ec := scheduleCall(t, app.GatewayURL, "POST", "/runtime/start", cred, map[string]any{"contractVersion": 2, "piDurableVersion": v}); code != 200 {
+			t.Fatalf("a runtime reporting %s: %d %s", v, code, ec)
+		}
+		if got := storage(); got != nil {
+			t.Fatalf("%s was recorded: %s", v, *got)
+		}
+	}
+	// The genuine runtime still starts, and records its version.
+	code, ec = e.member.call("POST", base+"/threads/u1/messages", map[string]any{"text": "hello"}, nil, nil)
+	mustCode(t, "a message after the absurd reports", code, ec, 202, "")
+	waitReply(t, e.member, base+"/threads/u1", 2)
+	if got := storage(); got == nil || *got != runtime {
+		t.Fatalf("the genuine runtime's version wasn't recorded: %v", got)
+	}
+	if code, _, _ := scheduleCall(t, app.GatewayURL, "POST", "/runtime/start", cred, map[string]any{"piDurableVersion": "999999.0.0"}); code != 200 || *storage() != runtime {
+		t.Fatalf("an absurd version after a recorded one: %d %s", code, *storage())
+	}
+
+	// A version within the tolerance (or one recorded before this check) pins the agent; the operator resets it.
+	if _, err := app.Pool.Exec(ctx, `UPDATE agent_storage_versions SET pi_durable_version = '999999.0.0' WHERE agent_id = $1`, ag.Id); err != nil {
+		t.Fatal(err)
+	}
+	code, ec = e.member.call("POST", base+"/hibernate", nil, nil, nil)
+	mustCode(t, "hibernate", code, ec, 200, "")
+	code, ec = e.member.call("POST", base+"/threads/u1/messages", map[string]any{"text": "pinned"}, nil, nil)
+	mustCode(t, "a message to a pinned agent", code, ec, 409, "runtime_too_old")
+	if _, err := agents.ResetStorageVersion(ctx, app.Pool, ag.Id, "999999.0.0"); err == nil {
+		t.Fatal("the reset records an absurd version")
+	}
+	res, err := agents.ResetStorageVersion(ctx, app.Pool, ag.Id, "")
+	if err != nil || res.From != "999999.0.0" || res.To != "" {
+		t.Fatalf("reset: %+v %v", res, err)
+	}
+	var got apitypes.Agent
+	if code := e.member.get(base, &got); code != 200 || got.StorageVersion != nil || got.RuntimeRefused != nil {
+		t.Fatalf("after the reset %+v %+v", got.StorageVersion, got.RuntimeRefused)
+	}
+	code, ec = e.member.call("POST", base+"/threads/u1/messages", map[string]any{"text": "unpinned"}, nil, nil)
+	mustCode(t, "a message after the reset", code, ec, 202, "")
+	waitReply(t, e.member, base+"/threads/u1", 4)
+	if got := storage(); got == nil || *got != runtime {
+		t.Fatalf("after the reset the runtime records its version: %v", got)
+	}
+	var log apitypes.AuditPage
+	if code := e.owner.get(toolsTeam+"/audit?action="+agents.AuditStorageVersionReset, &log); code != 200 || len(log.Items) != 1 ||
+		log.Items[0].ActorKind != "system" || log.Items[0].Metadata["from"] != "999999.0.0" || log.Items[0].Metadata["to"] != "" ||
+		log.Items[0].TargetId != ag.Id.String() {
+		t.Fatalf("the reset audited: %d %+v", code, log)
+	}
+	if _, err := agents.ResetStorageVersion(ctx, app.Pool, uuid.New(), ""); err == nil {
+		t.Fatal("reset of an unknown agent")
 	}
 }

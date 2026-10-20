@@ -763,7 +763,9 @@ platform admins read them only with a reason, audited as `thread.admin_read`. Se
 thread shares them). The platform records per agent the newest pi-durable version that has written its storage
 (`agent_storage_versions`) and refuses to start the agent on an older runtime, which the runtime asks before it opens
 the storage (`/runtime/start` on the gateway) and the platform checks again at `/status`: documents migrate when read,
-and older code rejects newer data, so rolling a runtime back after it has written is not supported. A starter project
+and older code rejects newer data, so rolling a runtime back after it has written is not supported. The runtime's key is
+readable by its tools' code, so only versions up to one minor version ahead of the pi-durable the platform ships are
+recorded, and `pi-durable-platform reset-storage-version` undoes a wrong record (audited). A starter project
 is in `examples/custom-agent/`.
 
 ## Launchers

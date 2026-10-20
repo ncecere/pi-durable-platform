@@ -95,7 +95,10 @@ still connect to the platform database (see step 2 above). The platform creates 
 servers receive when it first starts; servers verify them with `<appUrl>/.well-known/mcp-identity-jwks.json`, so MCP
 servers that check the token must reach `appUrl`. Rotate the key with
 `kubectl -n pi-durable-platform exec deploy/pi-durable-platform -- /pi-durable-platform rotate-mcp-identity-key`
-(`doctor` warns after 90 days; see [docs/mcp-identity.md](../docs/mcp-identity.md)). Then sign in at your
+(`doctor` warns after 90 days; see [docs/mcp-identity.md](../docs/mcp-identity.md)). An agent refused with
+`runtime_too_old` although its runtime is current had a version recorded that no runtime wrote its data with: reset it
+with `kubectl -n pi-durable-platform exec deploy/pi-durable-platform -- /pi-durable-platform reset-storage-version --agent <id>`
+([docs/custom-agents.md](../docs/custom-agents.md), Upgrades). Then sign in at your
 `appUrl`: the person whose OIDC subject is `BOOTSTRAP_ADMIN_SUBJECT` becomes platform admin on their first sign-in
 (once). Teams, agents, models and MCP servers are managed from the console, not from the deployment.
 

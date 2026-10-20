@@ -253,6 +253,20 @@ resumed runs and its tools would fail on every read. The platform checks:
   `409 runtime_too_old` with the reason, the agent (`runtimeRefused`, `storageVersion`) and its page say why, and the
   first refusal of a version is audited (`agent.runtime_refused`). A runtime that reports no version counts as older.
 - A runtime as new or newer starts, and a newer one moves the record up (`agent.runtime_recorded`).
+- **What a runtime reports is not trusted beyond the platform's own pi-durable.** The runtime's key is readable by the
+  code its tools run, so a tool could report `999999.0.0` and make the platform refuse every genuine runtime. The
+  platform knows the pi-durable it ships (the pin in `runtime/package.json`, `agents.ShippedPiDurableVersion`; a test
+  fails when they differ) and records a reported version only when it has the same major and is at most one minor
+  version ahead (with 1.3.0 shipped: up to 1.4.x), so a custom image that upgrades pi-durable a release early works. A
+  version beyond that is not recorded and changes nothing (the record, a refusal): it is not older than any recorded
+  version, so that runtime starts, and the platform logs a warning with the agent and the reported version. Running a
+  pi-durable that far ahead is unsupported: the upgrade check doesn't protect an agent whose data it wrote.
+- **Resetting the record.** A version within that tolerance that no runtime really wrote (a tool reporting `1.4.9`),
+  or one recorded before this check, still refuses genuine runtimes. An operator removes the record with
+  `pi-durable-platform reset-storage-version --agent <id>` (the next runtime start records its own version), or sets it
+  with `--to <version>`; it ends any refusal and is audited in the agent's team's log
+  (`agent.storage_version_reset`, system actor, with the old and new versions). Don't reset below a version that has
+  really written the agent's data: an older runtime would then fail on it.
 
 **Rolling a runtime back after it has written an agent's data is not supported.** To undo an upgrade, fix forward:
 deploy a runtime with the newer pi-durable again. Before upgrading pi-durable, test the agent on a copy of its data;
@@ -276,7 +290,7 @@ exports too.
   runtime and a platform of different contract versions can't work together; additions both sides may ignore keep it.
   The platform accepts the field (bounded) and stores nothing from it yet.
 - **pi-durable is pinned** (`1.3.0`, exact in `package.json`; `PI_DURABLE_VERSION` at `/status`, checked against the
-  installed package by a test). An upgrade runs pi-durable's storage conformance suite on PostgreSQL, the restart tests
+  installed package by a test; the platform's `agents.ShippedPiDurableVersion`, checked against the pin by a test). An upgrade runs pi-durable's storage conformance suite on PostgreSQL, the restart tests
   and the runtime conformance suite, and the facade absorbs API changes. It is a one-way step for every agent the new
   runtime starts ([Upgrades](#upgrades)).
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -87,13 +88,24 @@ func refusalMessage(stored, runtime string) string {
 // older than the version recorded for the agent is refused: the refusal is
 // recorded (the agent's page shows it) and the error is a
 // *agenthost.RefusedError. Otherwise the version is recorded when it is
-// newer, and a previous refusal ends. Changes are audited (system actor, in
-// the agent's team's log): a new recorded version or an ended refusal as
-// agent.runtime_recorded, the first refusal of a version as
+// newer, and a previous refusal ends. A version beyond what the platform
+// records (recordable: another major, or more than one minor version ahead
+// of ShippedPiDurableVersion) is not older than any recorded one, so the
+// runtime starts, but nothing is recorded or changed and a warning is
+// logged: the runtime's key is readable by its tools' code, and a recorded
+// 999999.0.0 would refuse every genuine runtime. Changes are audited (system
+// actor, in the agent's team's log): a new recorded version or an ended
+// refusal as agent.runtime_recorded, the first refusal of a version as
 // agent.runtime_refused.
 func (s *Service) AdmitRuntime(ctx context.Context, agentID uuid.UUID, version string) error {
 	if !agenthost.ValidPiDurableVersion(version) {
 		version = ""
+	}
+	unrecorded := version != "" && !recordable(version)
+	if unrecorded {
+		// The version matched ValidPiDurableVersion: safe to log.
+		slog.Warn("upgrade check: a runtime reported a pi-durable version beyond what the platform records; not recorded",
+			"agent", agentID, "reported", version, "shipped", ShippedPiDurableVersion)
 	}
 	var refused error
 	err := store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {
@@ -122,7 +134,7 @@ func (s *Service) AdmitRuntime(ctx context.Context, agentID uuid.UUID, version s
 			entry.Metadata = map[string]any{"storageVersion": row.PiDurableVersion, "runtimeVersion": version}
 			return audit.Record(ctx, q, entry)
 		}
-		if version == "" {
+		if version == "" || unrecorded {
 			return nil // nothing recorded, and nothing to record
 		}
 		newer := !found || semver.Compare("v"+version, "v"+row.PiDurableVersion) > 0

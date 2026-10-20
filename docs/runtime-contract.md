@@ -69,7 +69,8 @@ None of these values may be logged.
 Before it opens the agent's storage (in either mode, after activation in standby), a runtime with `PLATFORM_GATEWAY_URL`
 and `PLATFORM_KEY` sends `POST {PLATFORM_GATEWAY_URL}/runtime/start` with `Authorization: Bearer <PLATFORM_KEY>` and
 `{contractVersion, piDurableVersion}`. The platform records, per agent, the newest pi-durable version that has written
-its storage, and answers:
+its storage (only up to one minor version ahead of the pi-durable it ships: a version beyond that is answered `200`
+and not recorded; [custom-agents.md](custom-agents.md#upgrades)), and answers:
 
 | Answer | The runtime |
 |---|---|
