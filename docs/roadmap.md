@@ -294,6 +294,8 @@ pi-durable supports much more than the runtime uses: custom documents (state nex
 
 **Done when:** A person scaffolds an agent with a tool, a document and an approval hook, runs it locally against the console, passes the conformance and restart tests, and an app reads the agent's document, without changing the platform.
 
+**Shipped in [v0.4.0](releases/v0.4.0.md):** the runtime is a library (`@pdp/runtime`: `defineAgent`, extensions, documents, subagents, a test kit at `@pdp/runtime/testing`) with a written runtime contract; tools give apps structured `details`, agents expose documents through `GET /v1/agents/{id}/threads/{thread}/documents/{kind}` and `document.updated`, and an upgrade check refuses runtimes older than an agent's storage.
+
 ### O. Triggers: schedules and webhooks wake agents and start runs (L, [#15](https://github.com/ncecere/pi-durable-platform/issues/15))
 
 **Limitation:** No scheduled wake-ups: a hibernated agent wakes only on a request.
@@ -311,6 +313,8 @@ Agents hibernate, and pi-durable has no timer an extension's task can sleep on (
 
 **Done when:** A team schedule runs daily and a webhook starts a run; each appears in Runs with its cost and fires its callback; a runaway trigger is stopped by the limits; an agent sets its own reminder and is woken for it; no run acts as a person.
 
+**Shipped in [v0.4.0](releases/v0.4.0.md):** schedules (cron, time zone, missed-run policy) and signed webhooks (`X-PDP-Signature`, replay-safe) start runs with a message template; runs have limits (concurrency, run time, budgets, pause and auto-pause) and optional signed completion callbacks; agents whose template version allows it set their own schedules with the `schedule` tool.
+
 ### Z1. Background-aware hibernation: an agent with work running in the background is not hibernated (M, [#34](https://github.com/ncecere/pi-durable-platform/issues/34))
 
 **Limitation:** The idle reaper counts a thread as busy only while it has a live run; background work doesn't count.
@@ -323,6 +327,8 @@ The runtime reports an agent as busy when a thread has a live run, and the reape
 - Metrics and the agent page show why an agent is not hibernating (a run, a stream, background work).
 
 **Done when:** An agent with a background task running is not hibernated until it finishes or reaches its ceiling, one waiting only for a person is hibernated and resumes on the answer, and the console says what is keeping an agent awake.
+
+**Shipped in [v0.4.0](releases/v0.4.0.md):** the runtime reports background work at `/status`, the platform keeps an agent with background work awake up to `AGENTS_BACKGROUND_MAX` and aborts it after, and waiting for a person doesn't keep an agent awake.
 
 ### Z2. First-party agents: a triage agent and a deep researcher, built with the library (L, [#35](https://github.com/ncecere/pi-durable-platform/issues/35))
 
@@ -339,6 +345,8 @@ Two common jobs need more than instructions and tools: keeping track of what has
 
 **Done when:** A team makes a template of each kind in the console and runs one end to end: triage on a webhook with an approval before it comments, and a research run with subagents that ends in a report and a sources list. Neither uses an API that a custom agent could not.
 
+**Shipped in [v0.4.0](releases/v0.4.0.md):** template versions have a kind: triage (works an issue queue through named MCP tools, asks before writing) and a deep researcher (plan, parallel subagents, sources), built with the library's public exports and shipped in the standard runtime image; the console shows their documents.
+
 ### Z6. The person behind an MCP tool call: a signed identity for MCP servers (M, [#57](https://github.com/ncecere/pi-durable-platform/issues/57))
 
 **Limitation:** MCP servers are called with the team's credentials and learn nothing about whose conversation a call is for.
@@ -352,6 +360,8 @@ Servers that act for a person (their Microsoft 365 mail and calendar, their memo
 
 **Done when:** A tool call from a personal workspace reaches an MCP server (directly or through the portal) with a token naming its owner that the server verifies, a shared thread's call names nobody, and the agent can't change either. Unblocks the memory server (#36) and a Microsoft 365 server behind the portal.
 
+**Shipped in [v0.4.0](releases/v0.4.0.md):** MCP servers receive a signed `MCP-Gateway-Identity` token (ES256, per-server audience, five minutes) naming the person an agent acts for, from platform records only; keys at `/.well-known/mcp-identity-jwks.json`, rotated with `rotate-mcp-identity-key`.
+
 ### P. Tool approvals: a person approves sensitive tool calls before they run (L, [#16](https://github.com/ncecere/pi-durable-platform/issues/16))
 
 **Limitation:** No tool approvals: agents call allowed tools without asking anyone.
@@ -363,6 +373,8 @@ Templates can only allow or forbid a tool; there's no 'ask first'.
 - An unattended run that needs approval waits, and the agent can hibernate meanwhile; the request carries the decision, the options and the evidence the agent gave, with a timeout, and the answer is recorded in the audit log. Hooks written with the library (#28) can request approval too.
 
 **Done when:** A call to an approval-required tool waits until someone allowed approves or denies it, and the conversation shows the decision.
+
+**Shipped in [v0.4.0](releases/v0.4.0.md):** a template version lists tools (names or patterns) that wait for a person's approval; the wait survives restarts and hibernation, approvers see redacted arguments, and decisions are made in the console, by API or by app.
 
 ## v0.5: Files, memory and limits
 

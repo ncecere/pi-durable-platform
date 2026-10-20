@@ -7,3 +7,6 @@ bin/
 .data/
 coverage/
 web/dist/
+
+# Local agent session logs
+.pi-sessions/
