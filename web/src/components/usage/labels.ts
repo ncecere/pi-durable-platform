@@ -57,6 +57,8 @@ export const agentName = (r: UsageRow) => (r.agentId ? (r.agentName ?? "Unnamed 
 
 export const teamName = (r: UsageRow) => r.teamName ?? r.teamSlug ?? "Unknown team";
 
+const agentKey = (r: UsageRow) => r.agentId ?? (r.managed ? "managed" : "deleted");
+
 /** A row's stable key in its grouping. */
 export function rowId(groupBy: UsageReport["groupBy"], r: UsageRow): string {
   switch (groupBy) {
@@ -65,7 +67,9 @@ export function rowId(groupBy: UsageReport["groupBy"], r: UsageRow): string {
     case "model":
       return r.modelId ?? "default";
     case "agent":
-      return r.agentId ?? (r.managed ? "managed" : "deleted");
+      return agentKey(r);
+    case "agent,day":
+      return `${agentKey(r)}/${r.day ?? ""}`;
     case "team":
       return r.teamId ?? "";
   }

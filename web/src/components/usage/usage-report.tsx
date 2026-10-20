@@ -2,7 +2,8 @@
  * A usage report (Team › Usage, Admin › Usage): the period and "Group by"
  * controls (both in the URL), the totals, tokens per day as bars when grouped
  * by day, and a table of the rows. The pages pass the report query and the
- * table's first column (the day, model, agent or team).
+ * table's first column (the day, model, agent or team), and a second one for
+ * two-key groupings (the day, by agent and day).
  */
 import type { UseQueryResult } from "@tanstack/react-query";
 import { ArrowDownToLine, ArrowUpFromLine, ChartColumn, DollarSign, Send } from "lucide-react";
@@ -141,13 +142,15 @@ type ReportProps<G extends string> = ControlsProps<G> & {
   report: UseQueryResult<UsageReport>;
   /** The table's first column for the current grouping (the day, model, agent or team). */
   firstColumn: DataTableColumn<UsageRow>;
+  /** After the first column, e.g. the day when grouped by agent and day. */
+  secondColumn?: DataTableColumn<UsageRow>;
   rowLabel: (r: UsageRow) => string;
   /** Above the controls, e.g. "Only <agent>" with a way to clear it. */
   notices?: ReactNode;
 };
 
 /** A usage page: header, controls, totals, the daily bars (by day) and the rows. */
-export function UsageReportPage<G extends string>({ id, title, description, report, firstColumn, rowLabel, notices, ...controls }: ReportProps<G>) {
+export function UsageReportPage<G extends string>({ id, title, description, report, firstColumn, secondColumn, rowLabel, notices, ...controls }: ReportProps<G>) {
   const data = report.data;
   const groupBy = controls.groupBy;
   // A report of another grouping (the previous one, while the new one loads) isn't shown with these columns.
@@ -170,8 +173,8 @@ export function UsageReportPage<G extends string>({ id, title, description, repo
           {groupBy === "day" && current && current.rows.length > 0 && <TokensPerDay report={current} />}
         </Stack>
       }
-      caption={`Usage by ${groupBy}`}
-      columns={[firstColumn, ...numberColumns]}
+      caption={`Usage by ${groupBy === "agent,day" ? "agent and day" : groupBy}`}
+      columns={secondColumn ? [firstColumn, secondColumn, ...numberColumns] : [firstColumn, ...numberColumns]}
       data={current?.rows ?? []}
       getRowId={(r) => rowId(groupBy as UsageReport["groupBy"], r)}
       rowLabel={rowLabel}

@@ -1140,7 +1140,7 @@ export interface paths {
         };
         /**
          * The team's model usage, with a cost estimate (its members and service accounts, platform staff)
-         * @description Requests and tokens per day, model or agent, from the platform's model proxy and from agents (direct-mode providers and the platform's default model). Cost uses the models' current prices. Service-managed agents are named for the team's owners and admins and its service accounts; others see them summed.
+         * @description Requests and tokens per day, model, agent, or agent and day (`agent,day`: one row per agent per day, sorted by agent name, then agent ID, then day; summed service-managed agents and deleted agents come last), from the platform's model proxy and from agents (direct-mode providers and the platform's default model). Cost uses the models' current prices. Service-managed agents are named for the team's owners and admins and its service accounts; others see them summed. `agentId` (repeatable, up to 100) narrows the report to those agents: an ID that is not one of the team's agents the caller may see (another team's, a deleted or unknown agent, or a service-managed agent for a caller who sees them summed) matches nothing, so the report never shows another team's usage nor reveals whether such an agent exists.
          */
         get: operations["getTeamUsage"];
         put?: never;
@@ -2024,7 +2024,7 @@ export interface components {
             providerName?: string | null;
             /**
              * Format: uuid
-             * @description Absent when grouped by agent - a deleted agent, or service-managed agents summed
+             * @description Absent when grouped by agent (or agent and day) - a deleted agent, or service-managed agents summed
              */
             agentId?: string | null;
             agentName?: string | null;
@@ -2061,7 +2061,7 @@ export interface components {
             /** Format: date */
             to: string;
             /** @enum {string} */
-            groupBy: "day" | "model" | "agent" | "team";
+            groupBy: "day" | "model" | "agent" | "team" | "agent,day";
             rows: components["schemas"]["UsageRow"][];
             total: components["schemas"]["UsageRow"];
         };
@@ -5492,9 +5492,9 @@ export interface operations {
                 from?: string;
                 /** @description Last day (UTC, inclusive), default today */
                 to?: string;
-                groupBy?: "day" | "model" | "agent";
-                /** @description Only this agent */
-                agentId?: string;
+                groupBy?: "day" | "model" | "agent" | "agent,day";
+                /** @description Only these agents (repeat the parameter for several, at most 100) */
+                agentId?: string[];
             };
             header?: never;
             path: {

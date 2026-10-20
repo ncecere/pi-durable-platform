@@ -2,6 +2,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Schemas } from "../api/client";
+import { dayLabel } from "../components/usage/labels";
 import { agent, agentId, team } from "./fixtures";
 import { type Call, type Handler, mockApi, renderApp, shellRoutes } from "./harness";
 
@@ -31,6 +32,11 @@ const rowsBy: Record<Report["groupBy"], Row[]> = {
   agent: [
     row({ agentId, agentName: "Helper", requests: 1200, inputTokens: 2_400_000, outputTokens: 47_000, costUsd: 12.4 }),
     row({ managed: true, requests: 34, inputTokens: 100_000, outputTokens: 1_000, costUsd: 0.001, unpricedRequests: 3 }),
+  ],
+  "agent,day": [
+    row({ agentId, agentName: "Helper", day: "2026-10-15", requests: 1000, inputTokens: 2_000_000, outputTokens: 40_000, costUsd: 10 }),
+    row({ agentId, agentName: "Helper", day: "2026-10-16", requests: 200, inputTokens: 400_000, outputTokens: 7_000, costUsd: 2.4 }),
+    row({ managed: true, day: "2026-10-16", requests: 34, inputTokens: 100_000, outputTokens: 1_000, costUsd: 0.001, unpricedRequests: 3 }),
   ],
   team: [row({ teamId: team.id, teamSlug: team.slug, teamName: team.name, requests: 1234, inputTokens: 2_500_000, outputTokens: 48_000, costUsd: 12.4, unpricedRequests: 3 })],
 };
@@ -88,6 +94,24 @@ describe("Team › Usage", () => {
     expect(within(table).getByRole("link", { name: "Helper" })).toHaveAttribute("href", `/teams/${team.slug}/agents/${agentId}`);
     expect(within(table).getByText("Service-managed agents")).toBeInTheDocument();
     expect(within(table).getByText("<$0.01")).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /^Tokens per day/ })).toBeNull();
+  });
+
+  it("shows a row per agent and day when grouped by agent and day", async () => {
+    const u = userEvent.setup();
+    const calls = mockApi(teamRoutes());
+    const { router } = renderApp(`/teams/${team.slug}/usage`);
+    await screen.findByRole("table", { name: "Usage by day" });
+    await u.click(screen.getByRole("button", { name: "Agent by day" }));
+    await waitFor(() => expect(usageCalls(calls).at(-1)!.search.get("groupBy")).toBe("agent,day"));
+    expect(router.state.location.search).toMatchObject({ groupBy: "agent,day" });
+    const table = await screen.findByRole("table", { name: "Usage by agent and day" });
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows).toHaveLength(3);
+    expect(within(rows[0]!).getByRole("link", { name: "Helper" })).toBeInTheDocument();
+    expect(within(rows[0]!).getByText(dayLabel("2026-10-15"))).toBeInTheDocument();
+    expect(within(rows[1]!).getByText(dayLabel("2026-10-16"))).toBeInTheDocument();
+    expect(within(rows[2]!).getByText("Service-managed agents")).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: /^Tokens per day/ })).toBeNull();
   });
 

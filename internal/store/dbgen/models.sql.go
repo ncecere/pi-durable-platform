@@ -855,16 +855,18 @@ LEFT JOIN models m ON m.id = u.model_id
 LEFT JOIN model_providers p ON p.id = m.provider_id
 WHERE u.created_at >= $1 AND u.created_at < $2
   AND ($3::uuid IS NULL OR u.team_id = $3::uuid)
-  AND ($4::uuid IS NULL OR u.agent_id = $4::uuid)
+  AND ($4::uuid[] IS NULL
+       OR (u.agent_id = ANY($4::uuid[]) AND ($5::boolean OR a.external_key IS NULL)))
 GROUP BY 1, u.team_id, t.slug, t.name, u.agent_id, a.name, a.external_key, u.model_id, m.name, p.name, m.input_price, m.output_price
 ORDER BY 1
 `
 
 type UsageFactsParams struct {
-	Since   time.Time
-	Until   time.Time
-	TeamID  uuid.NullUUID
-	AgentID uuid.NullUUID
+	Since       time.Time
+	Until       time.Time
+	TeamID      uuid.NullUUID
+	AgentIds    []uuid.UUID
+	WithManaged bool
 }
 
 type UsageFactsRow struct {
@@ -888,14 +890,16 @@ type UsageFactsRow struct {
 }
 
 // Usage summed per UTC day, team, agent and model in [since, until), for one
-// team (or every team), optionally one agent. Prices are the models' current
-// ones (USD per million tokens).
+// team (or every team), optionally some agents only (agent_ids; with
+// with_managed false, service-managed agents among them match nothing).
+// Prices are the models' current ones (USD per million tokens).
 func (q *Queries) UsageFacts(ctx context.Context, arg UsageFactsParams) ([]UsageFactsRow, error) {
 	rows, err := q.db.Query(ctx, usageFacts,
 		arg.Since,
 		arg.Until,
 		arg.TeamID,
-		arg.AgentID,
+		arg.AgentIds,
+		arg.WithManaged,
 	)
 	if err != nil {
 		return nil, err

@@ -833,16 +833,19 @@ func (e ThreadVisibility) Valid() bool {
 
 // Defines values for UsageReportGroupBy.
 const (
-	UsageReportGroupByAgent UsageReportGroupBy = "agent"
-	UsageReportGroupByDay   UsageReportGroupBy = "day"
-	UsageReportGroupByModel UsageReportGroupBy = "model"
-	UsageReportGroupByTeam  UsageReportGroupBy = "team"
+	UsageReportGroupByAgent    UsageReportGroupBy = "agent"
+	UsageReportGroupByAgentday UsageReportGroupBy = "agent,day"
+	UsageReportGroupByDay      UsageReportGroupBy = "day"
+	UsageReportGroupByModel    UsageReportGroupBy = "model"
+	UsageReportGroupByTeam     UsageReportGroupBy = "team"
 )
 
 // Valid indicates whether the value is a known member of the UsageReportGroupBy enum.
 func (e UsageReportGroupBy) Valid() bool {
 	switch e {
 	case UsageReportGroupByAgent:
+		return true
+	case UsageReportGroupByAgentday:
 		return true
 	case UsageReportGroupByDay:
 		return true
@@ -1019,15 +1022,18 @@ func (e ListTeamAuditParamsActorKind) Valid() bool {
 
 // Defines values for GetTeamUsageParamsGroupBy.
 const (
-	GetTeamUsageParamsGroupByAgent GetTeamUsageParamsGroupBy = "agent"
-	GetTeamUsageParamsGroupByDay   GetTeamUsageParamsGroupBy = "day"
-	GetTeamUsageParamsGroupByModel GetTeamUsageParamsGroupBy = "model"
+	GetTeamUsageParamsGroupByAgent    GetTeamUsageParamsGroupBy = "agent"
+	GetTeamUsageParamsGroupByAgentday GetTeamUsageParamsGroupBy = "agent,day"
+	GetTeamUsageParamsGroupByDay      GetTeamUsageParamsGroupBy = "day"
+	GetTeamUsageParamsGroupByModel    GetTeamUsageParamsGroupBy = "model"
 )
 
 // Valid indicates whether the value is a known member of the GetTeamUsageParamsGroupBy enum.
 func (e GetTeamUsageParamsGroupBy) Valid() bool {
 	switch e {
 	case GetTeamUsageParamsGroupByAgent:
+		return true
+	case GetTeamUsageParamsGroupByAgentday:
 		return true
 	case GetTeamUsageParamsGroupByDay:
 		return true
@@ -2409,7 +2415,7 @@ type UsageReportGroupBy string
 
 // UsageRow defines model for UsageRow.
 type UsageRow struct {
-	// AgentId Absent when grouped by agent - a deleted agent, or service-managed agents summed
+	// AgentId Absent when grouped by agent (or agent and day) - a deleted agent, or service-managed agents summed
 	AgentId          *openapi_types.UUID `json:"agentId,omitempty"`
 	AgentName        *string             `json:"agentName,omitempty"`
 	CacheReadTokens  int64               `json:"cacheReadTokens"`
@@ -2901,8 +2907,8 @@ type GetTeamUsageParams struct {
 	To      *openapi_types.Date        `form:"to,omitempty" json:"to,omitempty"`
 	GroupBy *GetTeamUsageParamsGroupBy `form:"groupBy,omitempty" json:"groupBy,omitempty"`
 
-	// AgentId Only this agent
-	AgentId *openapi_types.UUID `form:"agentId,omitempty" json:"agentId,omitempty"`
+	// AgentId Only these agents (repeat the parameter for several, at most 100)
+	AgentId *[]openapi_types.UUID `form:"agentId,omitempty" json:"agentId,omitempty"`
 }
 
 // GetTeamUsageParamsGroupBy defines parameters for GetTeamUsage.
