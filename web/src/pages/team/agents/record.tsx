@@ -1,16 +1,18 @@
 /*
  * One of the team's agents (/teams/$team/agents/$agentId): Overview (status,
  * runtime and how an app reaches it), Test (a chat with it, for the team's
- * members) and Settings. Service-managed agents show to the team's owners
+ * members), Triggers and Runs (its schedules and webhooks and what they
+ * started: everyone who may use it and platform staff read them, owners and
+ * admins manage them) and Settings. Service-managed agents show to the team's owners
  * and admins without Test: their conversations belong to the app's users.
  * Platform staff who aren't on the team (a personal workspace's or a shared
- * team's agent) see Overview and Settings, read-only, without Test. Platform admins also see Conversations: every
+ * team's agent) see Overview, Triggers, Runs and Settings, read-only, without Test. Platform admins also see Conversations: every
  * thread, private ones too, which they may read with a reason (recorded in
  * the team's audit log). Auditors don't: conversations aren't theirs to list.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { LayoutDashboard, MessageSquare, MessagesSquare, Moon, Settings2 } from "lucide-react";
+import { CalendarClock, History, LayoutDashboard, MessageSquare, MessagesSquare, Moon, Settings2 } from "lucide-react";
 import { agentQuery, useAgentEvents } from "../../../api/agents";
 import { api, errorMessage, unwrap } from "../../../api/client";
 import { isNotFound, NotFoundState } from "../../../components/not-found";
@@ -35,6 +37,8 @@ import {
 import { ModelUnavailableNotice } from "./agent-model";
 import { ConversationsTab } from "./conversations-tab";
 import { OverviewTab } from "./overview-tab";
+import { RunsTab } from "./runs-tab";
+import { TriggersTab } from "./triggers-tab";
 import { SettingsTab } from "./settings-tab";
 import { TestChat } from "./test-chat";
 
@@ -166,6 +170,24 @@ function Record({ agent }: { agent: Agent }) {
                 label: "Test",
                 icon: <MessageSquare aria-hidden />,
                 content: <TestChat agent={agent} personal={ctx.personal} />,
+              },
+            ]
+          : []),
+        // Triggers and their runs: everyone who may use the agent, and platform staff (read-only); owners and admins
+        // manage them. Service-managed agents take none.
+        ...(!agent.serviceManaged && (abilities.canUse || !ctx.role)
+          ? [
+              {
+                value: "triggers" as const,
+                label: "Triggers",
+                icon: <CalendarClock aria-hidden />,
+                content: <TriggersTab agent={agent} canManage={abilities.canUse && ctx.isManager && !ctx.archived} />,
+              },
+              {
+                value: "runs" as const,
+                label: "Runs",
+                icon: <History aria-hidden />,
+                content: <RunsTab agent={agent} />,
               },
             ]
           : []),

@@ -88,6 +88,8 @@ export function manyPeople(messages: ChatMessage[], participants?: number): bool
 /** The sender's name above a user message ("You" for the viewer), or undefined when it isn't shown. */
 export function authorName(author: ChatAuthor | undefined, viewerId: string | undefined, many: boolean): string | undefined {
   if (!author) return undefined;
+  // An unattended run: always named, it is no one in the conversation.
+  if (author.kind === "trigger") return `Trigger: ${author.name}`;
   const mine = author.kind === "user" && author.id === viewerId;
   if (mine) return many ? "You" : undefined;
   return author.name;
