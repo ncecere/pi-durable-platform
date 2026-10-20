@@ -19,6 +19,8 @@ documentation, and the first app's requests (a chat app using OAuth Connect).
 4. **Then files, memory and limits that hold**, once agents run unattended.
 5. **Last, coding agents.** A workspace with files and a shell, kept apart from the agent's credentials.
 
+**Shipped:** [v0.2.0](releases/v0.2.0.md) (2026-10-19) delivered phase v0.2 (items A to G and V).
+
 Already fixed after v0.1.0, in [v0.1.1](releases/v0.1.1.md): a set of small UI bugs, `doctor` checking the
 agents database, and a console path for platform staff to a shared team's agents.
 
@@ -76,6 +78,8 @@ Operators write their own Deployment, RBAC and NetworkPolicies from the docs. Ag
 
 **Done when:** A new cluster runs Pi Durable Platform from the chart with agent isolation enforced, verified by an automated smoke test in CI.
 
+**Shipped in [v0.2.0](releases/v0.2.0.md):** a Helm chart (published signed to `oci://ghcr.io/ncecere/charts/pi-durable-platform`) and a Kustomize base generated from it, with overlays for the Kubernetes and Agent Sandbox launchers, NetworkPolicies (and a Cilium flavour), and a kind smoke test in CI.
+
 ### B. Several platform replicas: share the idle reaper's view through PostgreSQL (M, [#2](https://github.com/ncecere/pi-durable-platform/issues/2))
 
 **Limitation:** One platform replica: the idle reaper only knows the event streams open on its own replica.
@@ -86,9 +90,9 @@ Rate limits, thread events and OAuth state are already shared through PostgreSQL
 - Make wake-up single-flight across replicas (an advisory lock per agent around launch).
 - An integration test with two platform processes against one database; a PodDisruptionBudget and `replicas: 2` in the chart.
 
-Design: [docs/replicas.md](replicas.md). Chosen: the runtime reports its open streams and the reaper (one replica at a time, by advisory lock) believes the runtime, so replicas keep no activity of their own.
-
 **Done when:** Two replicas behind one Service pass the acceptance suite, and an agent with an open stream on either replica is never hibernated.
+
+**Shipped in [v0.2.0](releases/v0.2.0.md):** two replicas are supported. The runtime reports its open streams and the reaper believes it, one replica reaps at a time, and starting an agent is serialised across replicas. Design: [docs/replicas.md](replicas.md).
 
 ### C. Metrics and tracing: a Prometheus endpoint, dashboards and OpenTelemetry traces (M, [#3](https://github.com/ncecere/pi-durable-platform/issues/3))
 
@@ -102,6 +106,8 @@ Operators can't see wake times, running agents, proxy latency, errors or usage w
 
 **Done when:** The chart ships a dashboard showing wake latency, running agents, proxy traffic and errors from the platform's own metrics.
 
+**Shipped in [v0.2.0](releases/v0.2.0.md):** Prometheus `/metrics` on its own listener, optional OTLP/HTTP traces, a Grafana dashboard and example alerts, and chart support for a ServiceMonitor, a scraper NetworkPolicy and a dashboard ConfigMap. The runtime doesn't read `traceparent` yet.
+
 ### D. A `rekey` command that re-seals every secret under the current encryption key (S, [#4](https://github.com/ncecere/pi-durable-platform/issues/4))
 
 **Limitation:** No re-encryption command: keep ENCRYPTION_KEY_PREVIOUS until every sealed value has been saved again.
@@ -112,6 +118,8 @@ Rotating ENCRYPTION_KEY means keeping the previous key indefinitely, because sea
 - `doctor` reports values still sealed under the previous key.
 
 **Done when:** After `rekey`, `doctor` reports nothing under the previous key and the platform starts without ENCRYPTION_KEY_PREVIOUS.
+
+**Shipped in [v0.2.0](releases/v0.2.0.md):** `pi-durable-platform rekey` re-seals every sealed column under the current key, and `doctor` counts values still under the previous one.
 
 ### E. Platform-chosen thread IDs, and thread MCP servers only for threads that exist (S, [#5](https://github.com/ncecere/pi-durable-platform/issues/5))
 
@@ -124,6 +132,8 @@ Anyone who may use an agent can pre-seed MCP servers on a thread ID someone else
 
 **Done when:** A test shows a person can't attach MCP servers to another person's future private thread.
 
+**Shipped in [v0.2.0](releases/v0.2.0.md):** `POST /v1/agents/{id}/threads` returns a platform-chosen ID, MCP servers can be set only on a thread that exists or that the same call creates, and reserved threads are pruned after 30 days.
+
 ### F. Re-check IdP group membership: end sessions, keys and connected apps of people no longer allowed (S, [#6](https://github.com/ncecere/pi-durable-platform/issues/6))
 
 **Limitation:** OIDC_ALLOWED_GROUPS is applied at sign-in only (found while writing the docs).
@@ -134,6 +144,8 @@ Removing someone from the allowed IdP group leaves their sessions, personal API 
 - Suspending a person (by an admin or by this check) revokes their sessions, personal API keys and OAuth grants, audited.
 
 **Done when:** A person removed from the allowed group loses console, API key and connected app access within one check interval, and the audit log says why.
+
+**Shipped in [v0.2.0](releases/v0.2.0.md):** the platform asks the identity provider every 15 minutes whether people are still in an allowed group, and ends their sessions, keys and connected apps when not, with a grace period when the provider can't answer.
 
 ### G. Harden the agents database: per-agent lock namespaces and cleanup of agent roles (M, [#7](https://github.com/ncecere/pi-durable-platform/issues/7))
 
@@ -146,6 +158,8 @@ Any role in the agents database could block another agent's lock key, which is a
 
 **Done when:** A test shows one agent's role can't take another agent's ownership lock, and orphaned roles are reported and removable.
 
+**Shipped in [v0.2.0](releases/v0.2.0.md):** an agent's ownership is a row in its own schema, `prune-roles` and `prune-agent-storage` clean up, and `doctor` reports orphan roles and whether agent roles can reach the platform database.
+
 ### V. Configuration reference: .env.example lists every setting, and config comments are accurate (S, [#23](https://github.com/ncecere/pi-durable-platform/issues/23))
 
 **Limitation:** .env.example doesn't list every setting (AGENTS_NAMESPACE, AGENTS_RUNTIME_CLASS and others are missing).
@@ -156,6 +170,8 @@ Operators learn some settings only from the docs site or the code, and the API_K
 - Add the missing settings with defaults and one-line explanations; fix the APIKeyPepper comment.
 
 **Done when:** CI fails when a setting is read but not in .env.example, and .env.example lists all of them today.
+
+**Shipped in [v0.2.0](releases/v0.2.0.md):** `.env.example` lists every setting, and a test keeps it complete.
 
 ## v0.3: Apps at scale
 
