@@ -13,8 +13,8 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/teams"
 )
 
-// Usage reports: tokens and requests per day, model, agent or team, with a
-// cost estimate from the models' current prices. Rows come from the model
+// Usage reports: tokens and requests per day, model, agent (or agent and
+// day) or team, with a cost estimate from the models' current prices. Rows come from the model
 // proxy (every request of a proxy-mode provider) and from agents (batches,
 // for direct-mode providers and the platform's default model).
 
@@ -24,21 +24,30 @@ const (
 	GroupModel = "model"
 	GroupAgent = "agent"
 	GroupTeam  = "team"
+	// GroupAgentDay is one row per agent and day.
+	GroupAgentDay = "agent,day"
 )
 
 // MaxReportDays bounds a report's range.
 const MaxReportDays = 366
 
+// MaxReportAgents bounds a report's agent filter.
+const MaxReportAgents = 100
+
 var (
 	errBadRange   = apperr.Invalid("invalid_range", "from and to are dates (YYYY-MM-DD), from not after to, at most 366 days apart")
-	errBadGroupBy = apperr.Invalid("invalid_group_by", "groupBy is day, model or agent for a team (day, team or model for the platform)")
+	errBadGroupBy = apperr.Invalid("invalid_group_by", "groupBy is day, model, agent or agent,day for a team (day, team or model for the platform)")
+	// ErrTooManyAgents: the agent filter names more than MaxReportAgents agents.
+	ErrTooManyAgents = apperr.Invalid("too_many_agents", "agentId names at most 100 agents")
 )
 
-// UsageQuery is a report request: the days from From to To (UTC, inclusive).
+// UsageQuery is a report request: the days from From to To (UTC, inclusive),
+// and, when AgentIDs is not empty, those agents only (at most
+// MaxReportAgents; duplicates count once).
 type UsageQuery struct {
 	From, To time.Time
 	GroupBy  string
-	AgentID  *uuid.UUID
+	AgentIDs []uuid.UUID
 }
 
 // UsageRow is one group's totals. Key fields are set by the grouping: Day;
@@ -81,6 +90,9 @@ func (q *UsageQuery) normalize(allowed ...string) error {
 	if q.From.After(q.To) || q.To.Sub(q.From) > (MaxReportDays-1)*24*time.Hour {
 		return errBadRange
 	}
+	if len(q.AgentIDs) > MaxReportAgents {
+		return ErrTooManyAgents
+	}
 	if q.GroupBy == "" {
 		q.GroupBy = GroupDay
 	}
@@ -95,9 +107,11 @@ func (q *UsageQuery) normalize(allowed ...string) error {
 // TeamUsage reports a team's usage (its members and service accounts, and
 // platform staff). Service-managed agents are named only for the team's
 // owners and admins, service accounts and platform staff; others see them
-// summed.
+// summed. An agent filter counts only the team's own usage (an ID of another
+// team's agent matches nothing), and, for callers who see service-managed
+// agents summed, never a service-managed agent.
 func (s *Service) TeamUsage(ctx context.Context, a authz.Actor, teamRef string, q UsageQuery) (UsageReport, error) {
-	if err := q.normalize(GroupDay, GroupModel, GroupAgent); err != nil {
+	if err := q.normalize(GroupDay, GroupModel, GroupAgent, GroupAgentDay); err != nil {
 		return UsageReport{}, err
 	}
 	t, err := teams.Resolve(ctx, s.q, teamRef)
@@ -126,7 +140,7 @@ func (s *Service) PlatformUsage(ctx context.Context, a authz.Actor, q UsageQuery
 	if !a.CanReadPlatform() {
 		return UsageReport{}, apperr.Forbidden("Only platform admins and auditors can see the platform's usage")
 	}
-	q.AgentID = nil
+	q.AgentIDs = nil
 	if err := q.normalize(GroupDay, GroupTeam, GroupModel); err != nil {
 		return UsageReport{}, err
 	}
@@ -134,11 +148,12 @@ func (s *Service) PlatformUsage(ctx context.Context, a authz.Actor, q UsageQuery
 }
 
 func (s *Service) report(ctx context.Context, q UsageQuery, team uuid.NullUUID, seeManaged bool) (UsageReport, error) {
-	agent := uuid.NullUUID{}
-	if q.AgentID != nil {
-		agent = uuid.NullUUID{UUID: *q.AgentID, Valid: true}
+	var agents []uuid.UUID // nil: every agent
+	if len(q.AgentIDs) > 0 {
+		agents = q.AgentIDs
 	}
-	facts, err := s.q.UsageFacts(ctx, dbgen.UsageFactsParams{Since: q.From, Until: q.To.AddDate(0, 0, 1), TeamID: team, AgentID: agent})
+	facts, err := s.q.UsageFacts(ctx, dbgen.UsageFactsParams{Since: q.From, Until: q.To.AddDate(0, 0, 1), TeamID: team,
+		AgentIds: agents, WithManaged: seeManaged})
 	if err != nil {
 		return UsageReport{}, err
 	}
@@ -160,9 +175,12 @@ func (s *Service) report(ctx context.Context, q UsageQuery, team uuid.NullUUID, 
 	for _, k := range order {
 		out.Rows = append(out.Rows, *groups[k])
 	}
-	if q.GroupBy == GroupDay {
+	switch q.GroupBy {
+	case GroupDay:
 		sort.Slice(out.Rows, func(i, j int) bool { return out.Rows[i].Day.Before(*out.Rows[j].Day) })
-	} else {
+	case GroupAgentDay:
+		sort.Slice(out.Rows, func(i, j int) bool { return agentDayLess(out.Rows[i], out.Rows[j]) })
+	default:
 		sort.SliceStable(out.Rows, func(i, j int) bool {
 			if out.Rows[i].CostUSD != out.Rows[j].CostUSD {
 				return out.Rows[i].CostUSD > out.Rows[j].CostUSD
@@ -171,6 +189,44 @@ func (s *Service) report(ctx context.Context, q UsageQuery, team uuid.NullUUID, 
 		})
 	}
 	return out, nil
+}
+
+// agentDayLess orders rows by agent (name, then ID; summed service-managed
+// agents, then deleted agents, last), then by day.
+func agentDayLess(a, b UsageRow) bool {
+	ra, rb := agentRank(a), agentRank(b)
+	if ra != rb {
+		return ra < rb
+	}
+	if ra == 0 {
+		na, nb := deref(a.AgentName), deref(b.AgentName)
+		if na != nb {
+			return na < nb
+		}
+		if *a.AgentID != *b.AgentID {
+			return a.AgentID.String() < b.AgentID.String()
+		}
+	}
+	return a.Day.Before(*b.Day)
+}
+
+// agentRank: 0 a named agent, 1 service-managed agents summed, 2 deleted
+// agents.
+func agentRank(r UsageRow) int {
+	switch {
+	case r.AgentID != nil:
+		return 0
+	case r.Managed:
+		return 1
+	}
+	return 2
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func addFact(dst *UsageRow, f dbgen.UsageFactsRow) {
@@ -200,14 +256,12 @@ func groupKey(groupBy string, f dbgen.UsageFactsRow, seeManaged bool) (string, U
 		id := f.ModelID.UUID
 		return id.String(), UsageRow{ModelID: &id, ModelName: f.ModelName, ProviderName: f.ProviderName}
 	case GroupAgent:
-		if f.AgentManaged && !seeManaged {
-			return "managed", UsageRow{Managed: true}
-		}
-		if !f.AgentID.Valid {
-			return "deleted", UsageRow{}
-		}
-		id := f.AgentID.UUID
-		return id.String(), UsageRow{AgentID: &id, AgentName: f.AgentName, Managed: f.AgentManaged}
+		return agentKey(f, seeManaged)
+	case GroupAgentDay:
+		key, row := agentKey(f, seeManaged)
+		day := f.Day.Time.UTC()
+		row.Day = &day
+		return key + "/" + day.Format(time.DateOnly), row
 	case GroupTeam:
 		id, slug, name := f.TeamID, f.TeamSlug, f.TeamName
 		return id.String(), UsageRow{TeamID: &id, TeamSlug: &slug, TeamName: &name}
@@ -215,6 +269,19 @@ func groupKey(groupBy string, f dbgen.UsageFactsRow, seeManaged bool) (string, U
 		day := f.Day.Time.UTC()
 		return day.Format(time.DateOnly), UsageRow{Day: &day}
 	}
+}
+
+// agentKey is a fact's agent group: the agent, service-managed agents summed
+// (for callers who may not see them), or deleted agents.
+func agentKey(f dbgen.UsageFactsRow, seeManaged bool) (string, UsageRow) {
+	if f.AgentManaged && !seeManaged {
+		return "managed", UsageRow{Managed: true}
+	}
+	if !f.AgentID.Valid {
+		return "deleted", UsageRow{}
+	}
+	id := f.AgentID.UUID
+	return id.String(), UsageRow{AgentID: &id, AgentName: f.AgentName, Managed: f.AgentManaged}
 }
 
 // ReportedUsage is a batch an agent reports for models the proxy does not

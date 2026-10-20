@@ -430,7 +430,8 @@ func toAPIAgentModel(m *uuid.UUID, name, provider, source string, available bool
 	return &apitypes.AgentModel{Id: *m, Name: name, ProviderName: provider, Source: apitypes.AgentModelSource(source), Available: available}
 }
 
-// usageQuery reads ?from=&to= (dates), ?groupBy= and ?agentId=.
+// usageQuery reads ?from=&to= (dates), ?groupBy= and ?agentId= (repeatable:
+// agent IDs, at most llm.MaxReportAgents, duplicates counted once).
 func usageQuery(w http.ResponseWriter, r *http.Request) (llm.UsageQuery, bool) {
 	q := llm.UsageQuery{GroupBy: r.URL.Query().Get("groupBy")}
 	for _, d := range []struct {
@@ -446,13 +447,25 @@ func usageQuery(w http.ResponseWriter, r *http.Request) (llm.UsageQuery, bool) {
 			*d.dst = t
 		}
 	}
-	if v := r.URL.Query().Get("agentId"); v != "" {
+	vals := r.URL.Query()["agentId"]
+	if len(vals) > llm.MaxReportAgents {
+		failed(w, r, llm.ErrTooManyAgents)
+		return q, false
+	}
+	seen := map[uuid.UUID]bool{}
+	for _, v := range vals {
+		if v == "" {
+			continue
+		}
 		id, err := uuid.Parse(v)
 		if err != nil {
 			failed(w, r, apperr.Invalid("invalid_agent_id", "agentId must be an agent's ID"))
 			return q, false
 		}
-		q.AgentID = &id
+		if !seen[id] {
+			seen[id] = true
+			q.AgentIDs = append(q.AgentIDs, id)
+		}
 	}
 	return q, true
 }

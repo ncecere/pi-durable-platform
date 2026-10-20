@@ -125,8 +125,9 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 
 -- name: UsageFacts :many
 -- Usage summed per UTC day, team, agent and model in [since, until), for one
--- team (or every team), optionally one agent. Prices are the models' current
--- ones (USD per million tokens).
+-- team (or every team), optionally some agents only (agent_ids; with
+-- with_managed false, service-managed agents among them match nothing).
+-- Prices are the models' current ones (USD per million tokens).
 SELECT (u.created_at AT TIME ZONE 'UTC')::date AS day,
        u.team_id, t.slug AS team_slug, t.name AS team_name,
        u.agent_id, a.name AS agent_name, (a.external_key IS NOT NULL)::boolean AS agent_managed,
@@ -141,6 +142,7 @@ LEFT JOIN models m ON m.id = u.model_id
 LEFT JOIN model_providers p ON p.id = m.provider_id
 WHERE u.created_at >= sqlc.arg(since) AND u.created_at < sqlc.arg(until)
   AND (sqlc.narg(team_id)::uuid IS NULL OR u.team_id = sqlc.narg(team_id)::uuid)
-  AND (sqlc.narg(agent_id)::uuid IS NULL OR u.agent_id = sqlc.narg(agent_id)::uuid)
+  AND (sqlc.narg(agent_ids)::uuid[] IS NULL
+       OR (u.agent_id = ANY(sqlc.narg(agent_ids)::uuid[]) AND (sqlc.arg(with_managed)::boolean OR a.external_key IS NULL)))
 GROUP BY 1, u.team_id, t.slug, t.name, u.agent_id, a.name, a.external_key, u.model_id, m.name, p.name, m.input_price, m.output_price
 ORDER BY 1;

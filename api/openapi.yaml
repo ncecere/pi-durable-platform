@@ -2380,9 +2380,14 @@ paths:
       operationId: getTeamUsage
       summary: The team's model usage, with a cost estimate (its members and service accounts, platform staff)
       description: >-
-        Requests and tokens per day, model or agent, from the platform's model proxy and from agents (direct-mode
-        providers and the platform's default model). Cost uses the models' current prices. Service-managed agents are
-        named for the team's owners and admins and its service accounts; others see them summed.
+        Requests and tokens per day, model, agent, or agent and day (`agent,day`: one row per agent per day, sorted by
+        agent name, then agent ID, then day; summed service-managed agents and deleted agents come last), from the
+        platform's model proxy and from agents (direct-mode providers and the platform's default model). Cost uses the
+        models' current prices. Service-managed agents are named for the team's owners and admins and its service
+        accounts; others see them summed. `agentId` (repeatable, up to 100) narrows the report to those agents: an ID
+        that is not one of the team's agents the caller may see (another team's, a deleted or unknown agent, or a
+        service-managed agent for a caller who sees them summed) matches nothing, so the report never shows another
+        team's usage nor reveals whether such an agent exists.
       parameters:
       - name: from
         in: query
@@ -2400,14 +2405,19 @@ paths:
         in: query
         schema:
           type: string
-          enum: [day, model, agent]
+          enum: [day, model, agent, 'agent,day']
           default: day
       - name: agentId
         in: query
+        style: form
+        explode: true
         schema:
-          type: string
-          format: uuid
-        description: Only this agent
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            format: uuid
+        description: Only these agents (repeat the parameter for several, at most 100)
       responses:
         '200':
           description: The report
@@ -4644,7 +4654,7 @@ components:
           type: string
           format: uuid
           nullable: true
-          description: Absent when grouped by agent - a deleted agent, or service-managed agents summed
+          description: Absent when grouped by agent (or agent and day) - a deleted agent, or service-managed agents summed
         agentName:
           type: string
           nullable: true
@@ -4696,7 +4706,7 @@ components:
           format: date
         groupBy:
           type: string
-          enum: [day, model, agent, team]
+          enum: [day, model, agent, team, 'agent,day']
         rows:
           type: array
           items:

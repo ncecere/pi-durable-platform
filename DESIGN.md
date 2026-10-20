@@ -219,7 +219,12 @@ platform's default model), the runtime counts each finished response (`runtime/s
 the gateway's `/usage` with its credential; reports for a proxied model are ignored, so nothing counts twice. Reports
 (`GET /v1/teams/{team}/usage`, `GET /v1/admin/usage`) sum requests and tokens per day, model, agent or team, with a
 cost estimate from the models' current prices. Service-managed agents are named only for the team's owners, admins and
-service accounts.
+service accounts. A team's report (a personal workspace's too) also groups by agent and day (`groupBy=agent,day`: one
+row per agent per day, by agent name, then ID, then day) and takes a repeatable `agentId` (at most 100), so an app shows
+several agents' daily usage in one call. The filter counts the team's own usage only: an ID of another team's agent, of
+a deleted or unknown agent, or of a service-managed agent for a caller who sees them summed matches nothing (no error, so
+the report reveals nothing about agents the caller may not see). Usage is recorded per team and agent, not per person:
+there is no report of one person's usage across their teams.
 
 ### Team model providers
 
