@@ -215,6 +215,9 @@ func NewGatewayHandler(d Deps) http.Handler {
 	d.MCP.RegisterGateway(mux, d.Agents.AuthenticateMCP, d.Config.Agents.GatewayURL, llm.Credential, log)
 	registerThreadReports(mux, d.Agents, log)
 	registerApprovalReports(mux, d.Agents, log)
+	if d.Triggers != nil {
+		registerSchedules(mux, d.Agents, d.Triggers, log)
+	}
 	return observeHandler(d.Metrics, metrics.ListenerGateway, mux)
 }
 

@@ -218,6 +218,12 @@ type Triggers struct {
 	MaxConcurrentRuns int
 	// PauseAfterFailures pauses a trigger after this many failed runs in a row.
 	PauseAfterFailures int
+	// AgentMax is how many schedules an agent may make itself (its schedule
+	// tool; within the 50 triggers an agent may have).
+	AgentMax int
+	// AgentMinInterval is the shortest time between two fires of a recurring
+	// schedule an agent makes itself.
+	AgentMinInterval time.Duration
 }
 
 // Enabled reports whether an OIDC provider is configured.
@@ -247,7 +253,8 @@ func Defaults() Config {
 		LoginAttemptsPerMinute: 20,
 		ShutdownDelay:          5 * time.Second,
 		ShutdownTimeout:        60 * time.Second,
-		Triggers:               Triggers{Interval: 10 * time.Second, MaxRunTime: 30 * time.Minute, MaxConcurrentRuns: 5, PauseAfterFailures: 5},
+		Triggers: Triggers{Interval: 10 * time.Second, MaxRunTime: 30 * time.Minute, MaxConcurrentRuns: 5, PauseAfterFailures: 5,
+			AgentMax: 20, AgentMinInterval: 5 * time.Minute},
 		Agents: Agents{
 			Launcher:      LauncherLocal,
 			RuntimeDir:    "runtime",

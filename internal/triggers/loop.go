@@ -93,14 +93,22 @@ func (s *Service) fireDue(ctx context.Context) ([]dbgen.TriggerRun, error) {
 			if err != nil {
 				return err
 			}
-			// An archived team's schedules, and a paused agent's, move on without runs.
-			if row.TeamStatus != teams.StatusActive || l.paused {
-				if err := q.AdvanceSchedule(ctx, advance); err != nil {
-					return err
-				}
-				continue
-			}
 			f := fire{trig: t, teamID: row.TeamID, firedBy: FiredBySchedule}
+			// An archived team's schedules, and a paused agent's, move on without
+			// runs. A one-time reminder has no next time: its run is recorded as
+			// skipped, and it is removed.
+			if row.TeamStatus != teams.StatusActive || l.paused {
+				if !t.Once {
+					if err := q.AdvanceSchedule(ctx, advance); err != nil {
+						return err
+					}
+					continue
+				}
+				f.skip = ReasonAgentPaused
+				if row.TeamStatus != teams.StatusActive {
+					f.skip = ReasonTeamArchived
+				}
+			}
 			if now.Sub(due) > s.missedAfter() {
 				last := sched.lastBefore(due, now)
 				due = last
@@ -111,10 +119,25 @@ func (s *Service) fireDue(ctx context.Context) ([]dbgen.TriggerRun, error) {
 			}
 			at := due
 			f.at, f.fireID = &at, scheduleFireID(t.ID, due)
-			f.message = render(t.MessageTemplate, fireVars{TriggerName: t.Name, TriggerKind: t.Kind, FireID: f.fireID, FireTime: due})
+			f.message = messageFor(t, fireVars{TriggerName: t.Name, TriggerKind: t.Kind, FireID: f.fireID, FireTime: due})
 			run, replayed, err := s.record(ctx, q, f, now)
 			if err != nil {
 				return err
+			}
+			if t.Once {
+				// Fired: a one-time reminder has no next time. It removes itself
+				// when its run ends (finish), or now when nothing runs.
+				if replayed || run.Status != StatusPending {
+					if err := removeFired(ctx, q, t, row.TeamID, run.ID); err != nil {
+						return err
+					}
+					continue
+				}
+				if err := q.AdvanceSchedule(ctx, dbgen.AdvanceScheduleParams{ID: t.ID, FiredAt: &now}); err != nil {
+					return err
+				}
+				out = append(out, run)
+				continue
 			}
 			advance.FiredAt = &now
 			if err := q.AdvanceSchedule(ctx, advance); err != nil {

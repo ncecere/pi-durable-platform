@@ -71,7 +71,14 @@ var (
 	errBadLimits       = apperr.Invalid("invalid_trigger_limits", "maxConcurrentRuns and maxRunSeconds must be within the platform's ceilings")
 	errAddrNotAllowed  = apperr.New(422, "address_not_allowed", "The callback URL's address is not one teams may use")
 	errAddrUnresolved  = apperr.New(422, "address_unresolved", "The callback URL's host could not be resolved")
+	errAgentMadeChange = apperr.Conflict("agent_made_trigger", "The agent made this schedule: it can be paused, resumed, run now or deleted, not changed")
 )
+
+// onlyPause reports whether a change only pauses or resumes.
+func onlyPause(in Input) bool {
+	return in.Name == nil && in.ThreadID == nil && in.MessageTemplate == nil && in.Cron == nil && in.Timezone == nil &&
+		in.MissedPolicy == nil && in.Filter == nil && in.CallbackURL == nil && in.DailyBudgetUSD == nil
+}
 
 // Runner does what a run needs of the agent (agents.Service).
 type Runner interface {
@@ -425,7 +432,7 @@ func (s *Service) Create(ctx context.Context, a authz.Actor, agentID uuid.UUID, 
 		} else if n >= MaxPerAgent {
 			return errTooMany
 		}
-		p := dbgen.InsertTriggerParams{AgentID: ag.ID, Kind: in.Kind, Name: d.name, ThreadID: d.threadID,
+		p := dbgen.InsertTriggerParams{AgentID: ag.ID, Kind: in.Kind, Name: d.name, Source: SourcePerson, ThreadID: d.threadID,
 			MessageTemplate: d.template, Cron: d.cron, Timezone: d.zone, MissedPolicy: d.missed, NextFireAt: d.nextFire,
 			DailyBudgetUsd: d.budget, CallbackUrl: d.callbackURL, CreatedBy: uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil},
 			Now: now}
@@ -502,6 +509,9 @@ func (s *Service) Update(ctx context.Context, a authz.Actor, agentID, id uuid.UU
 		if t.Revision != expectedRevision {
 			return apperr.Stale()
 		}
+		if t.Source == SourceAgent && !onlyPause(in) {
+			return errAgentMadeChange
+		}
 		d := draft{name: t.Name, template: t.MessageTemplate, paused: t.Paused, threadID: t.ThreadID, cron: t.Cron,
 			zone: t.Timezone, missed: t.MissedPolicy, callbackURL: t.CallbackUrl, budget: t.DailyBudgetUsd, nextFire: t.NextFireAt}
 		if t.FilterPath != nil {
@@ -525,6 +535,15 @@ func (s *Service) Update(ctx context.Context, a authz.Actor, agentID, id uuid.UU
 		case !d.paused && t.Paused:
 			// Resumed: a fresh start (no back-off, the failures forgotten).
 			p.PausedReason, p.ConsecutiveFailures, p.BackoffUntil = nil, 0, nil
+			// A one-time reminder keeps its time, or fires at the next pass
+			// once it has passed (its cron would name next year's); one that
+			// fired already (no next time: its run is in progress) stays so.
+			if t.Once {
+				p.NextFireAt = t.NextFireAt
+				if t.NextFireAt != nil && !t.NextFireAt.After(now) {
+					p.NextFireAt = &now
+				}
+			}
 		}
 		if d.callbackURL == nil {
 			p.CallbackSecretEnc, p.CallbackSecretPrefix = nil, nil
@@ -641,8 +660,14 @@ func withMeta(m map[string]any, add map[string]any) map[string]any {
 
 // snapshot is a trigger for the audit log: its settings, never its secrets.
 func snapshot(t dbgen.AgentTrigger) map[string]any {
-	m := map[string]any{"agentId": t.AgentID.String(), "kind": t.Kind, "name": t.Name, "paused": t.Paused,
+	m := map[string]any{"agentId": t.AgentID.String(), "kind": t.Kind, "name": t.Name, "source": t.Source, "paused": t.Paused,
 		"messageTemplateLength": utf8.RuneCountInString(t.MessageTemplate)}
+	if t.Once {
+		m["once"] = true
+	}
+	if t.OriginThreadID != nil {
+		m["originThreadId"] = *t.OriginThreadID
+	}
 	if t.ThreadID != nil {
 		m["threadId"] = *t.ThreadID
 	}

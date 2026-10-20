@@ -215,6 +215,9 @@ type TemplateInput struct {
 	ClientMCP bool
 	// Approvals: tools that ask a person first (nil: none).
 	Approvals *ApprovalPolicyInput
+	// AgentSchedules lets its agents set their own schedules (the runtime's
+	// schedule tool; docs/triggers.md).
+	AgentSchedules bool
 }
 
 // checkTemplateModel checks a template version's model: a team template's
@@ -373,7 +376,7 @@ func (s *Service) CreateTemplate(ctx context.Context, a authz.Actor, teamRef str
 		if _, err := q.InsertTemplateVersion(ctx, dbgen.InsertTemplateVersionParams{TemplateID: tpl.ID, Version: 1,
 			Instructions: strings.TrimSpace(in.Instructions), Notes: in.Notes, CreatedBy: p.CreatedBy, ModelID: nullID(in.ModelID),
 			ClientMcp: in.ClientMCP, ApprovalTools: policy.Tools, ApprovalRole: policy.Role,
-			ApprovalTimeoutSeconds: policy.TimeoutSeconds}); err != nil {
+			ApprovalTimeoutSeconds: policy.TimeoutSeconds, AgentSchedules: in.AgentSchedules}); err != nil {
 			return err
 		}
 		if err := mcp.SaveAttach(ctx, q, tpl.ID, 1, in.MCP); err != nil {
@@ -429,9 +432,10 @@ func (s *Service) UpdateTemplate(ctx context.Context, a authz.Actor, id uuid.UUI
 type VersionInput struct {
 	Instructions, Notes string
 	ModelID             *string
-	// MCP and ClientMCP: nil keeps the current version's.
-	MCP       *[]mcp.Attach
-	ClientMCP *bool
+	// MCP, ClientMCP and AgentSchedules: nil keeps the current version's.
+	MCP            *[]mcp.Attach
+	ClientMCP      *bool
+	AgentSchedules *bool
 	// Approvals: nil keeps the current version's; so does each nil field.
 	Approvals *ApprovalPolicyInput
 }
@@ -467,9 +471,12 @@ func (s *Service) AddVersion(ctx context.Context, a authz.Actor, id uuid.UUID, i
 					return t, err
 				}
 			}
-			clientMCP := cur.ClientMcp
+			clientMCP, schedules := cur.ClientMcp, cur.AgentSchedules
 			if in.ClientMCP != nil {
 				clientMCP = *in.ClientMCP
+			}
+			if in.AgentSchedules != nil {
+				schedules = *in.AgentSchedules
 			}
 			policy, err := in.Approvals.apply(PolicyOf(cur))
 			if err != nil {
@@ -502,7 +509,8 @@ func (s *Service) AddVersion(ctx context.Context, a authz.Actor, id uuid.UUID, i
 			if _, err = q.InsertTemplateVersion(ctx, dbgen.InsertTemplateVersionParams{TemplateID: id, Version: bumped.CurrentVersion,
 				Instructions: strings.TrimSpace(in.Instructions), Notes: in.Notes, ModelID: modelID, ClientMcp: clientMCP,
 				ApprovalTools: policy.Tools, ApprovalRole: policy.Role, ApprovalTimeoutSeconds: policy.TimeoutSeconds,
-				CreatedBy: uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil && a.Service == nil}}); err != nil {
+				AgentSchedules: schedules,
+				CreatedBy:      uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil && a.Service == nil}}); err != nil {
 				return t, err
 			}
 			return bumped, mcp.SaveAttach(ctx, q, id, bumped.CurrentVersion, attach)

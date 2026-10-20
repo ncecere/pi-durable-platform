@@ -233,5 +233,15 @@ func toAPIAuditActor(e dbgen.ListAuditRow) apitypes.AuditActor {
 			actor.OauthClient = &name
 		}
 	}
+	if e.ActorKind == "agent" { // an agent changing its own schedules
+		if name, ok := meta["agentActorName"].(string); ok && name != "" {
+			actor.DisplayName = &name
+		}
+		if raw, ok := meta["agentActorId"].(string); ok {
+			if id, err := uuid.Parse(raw); err == nil {
+				actor.AgentId = &id
+			}
+		}
+	}
 	return actor
 }
