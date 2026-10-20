@@ -30,20 +30,25 @@ const thread = (extra: Partial<Thread> = {}): Thread => ({
   ...extra,
 });
 
-/** EventSource stand-in: each stream gets the view its thread ID maps to. */
+/** EventSource stand-in: each thread stream gets a snapshot of the view its thread ID maps to. */
 const views = new Map<string, View>();
 class FakeEventSource {
   onerror: (() => void) | null = null;
-  private listeners: ((e: { data: string }) => void)[] = [];
+  private listeners: { type: string; fn: (e: { data: string }) => void }[] = [];
   constructor(readonly url: string) {
     setTimeout(() => {
       const id = /threads\/([^/]+)\/events/.exec(url)?.[1] ?? "";
       const view = views.get(decodeURIComponent(id));
-      if (view) for (const fn of this.listeners) fn({ data: JSON.stringify(view) });
+      if (!view) return;
+      const delta = url.includes("format=delta");
+      for (const { type, fn } of this.listeners) {
+        if (delta && type === "snapshot") fn({ data: JSON.stringify({ type: "snapshot", seq: 1, v: 1, view }) });
+        if (!delta && type === "view") fn({ data: JSON.stringify(view) });
+      }
     }, 0);
   }
-  addEventListener(_type: string, fn: (e: { data: string }) => void) {
-    this.listeners.push(fn);
+  addEventListener(type: string, fn: (e: { data: string }) => void) {
+    this.listeners.push({ type, fn });
   }
   close() {}
 }
@@ -227,6 +232,69 @@ describe("test chat: threads and messages", () => {
     expect((await screen.findAllByText(toast))[0]).toBeInTheDocument();
     expect(await screen.findByText("New test conversation")).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Who can see this conversation" })).toBeInTheDocument();
+  });
+});
+
+describe("test chat: paging, search and steering", () => {
+  it("pages the thread list and searches titles", async () => {
+    const u = userEvent.setup();
+    const first = Array.from({ length: 3 }, (_, i) => thread({ threadId: `p${i}`, title: `Chat ${i}` }));
+    const calls = mockApi(
+      chatRoutes(() => [], {
+        [`GET /v1/agents/${agentId}/threads`]: (_b, call) => {
+          if (call.search.get("q") === "deploy") return [thread({ threadId: "d1", title: "Deploy plan" })];
+          if (call.search.get("cursor") === "next") return [thread({ threadId: "p9", title: "Old chat" })];
+          return new Reply(200, { data: first, nextCursor: "next" });
+        },
+      }),
+    );
+    renderApp(`/teams/${team.slug}/agents/${agentId}?tab=test`);
+    const nav = await screen.findByRole("navigation", { name: "Chats" });
+    await within(nav).findByRole("button", { name: /^Chat 2/ });
+    expect(made(calls, "GET", /\/threads$/)[0]!.search.get("limit")).toBe("50");
+    await u.click(within(nav).getByRole("button", { name: "Load more chats" }));
+    expect(await within(nav).findByRole("button", { name: /^Old chat/ })).toBeInTheDocument();
+    expect(within(nav).queryByRole("button", { name: "Load more chats" })).toBeNull();
+
+    await u.type(within(nav).getByRole("searchbox", { name: "Search chats" }), "deploy");
+    expect(await within(nav).findByRole("button", { name: /^Deploy plan/ })).toBeInTheDocument();
+    expect(within(nav).queryByRole("button", { name: /^Chat 2/ })).toBeNull();
+  });
+
+  it("loads earlier messages of a long conversation", async () => {
+    const u = userEvent.setup();
+    views.set("t1", { busy: false, tools: [], earlierCursor: "cur1", messages: [{ id: "m3", role: "user", text: "Latest question", author: me, at: T }] });
+    const calls = mockApi(
+      chatRoutes(() => [thread()], {
+        [`GET /v1/agents/${agentId}/threads/t1`]: (_b, call): View => {
+          expect(call.search.get("before")).toBe("cur1");
+          return { busy: false, tools: [], messages: [{ id: "m1", role: "user", text: "First question", author: me, at: T }] };
+        },
+      }),
+    );
+    renderApp(`/teams/${team.slug}/agents/${agentId}?tab=test`);
+    await screen.findByText("Latest question");
+    expect(screen.queryByText("First question")).toBeNull();
+    await u.click(screen.getByRole("button", { name: "Load earlier messages" }));
+    expect(await screen.findByText("First question")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load earlier messages" })).toBeNull();
+    expect(made(calls, "GET", /\/threads\/t1$/)).toHaveLength(1);
+  });
+
+  it("steers a reply in progress", async () => {
+    const u = userEvent.setup();
+    views.set("t1", { busy: true, tools: [], partial: { text: "Working on it", thinking: "" }, messages: [{ id: "m1", role: "user", text: "Plan the release", author: me, at: T }] });
+    const calls = mockApi(chatRoutes(() => [thread({ busy: true })], { [`POST /v1/agents/${agentId}/threads/t1/messages`]: () => new Reply(202, { data: { submissionId: 2 } }) }));
+    renderApp(`/teams/${team.slug}/agents/${agentId}?tab=test`);
+    const box = await screen.findByRole("textbox", { name: "Message" });
+    await screen.findByText("Working on it");
+    const steer = screen.getByRole("button", { name: "Steer" });
+    expect(steer).toBeDisabled();
+    await u.type(box, "Only the backend, please");
+    await u.click(steer);
+    await waitFor(() => expect(messagePosts(calls)).toHaveLength(1));
+    expect(messagePosts(calls)[0]!.body).toMatchObject({ text: "Only the backend, please", whenBusy: "steer" });
+    await waitFor(() => expect(box).toHaveValue(""));
   });
 });
 
