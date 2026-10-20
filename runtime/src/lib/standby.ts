@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type RequestListener, type Server, type ServerResponse } from "node:http";
-import { type AgentConfig, AgentOwnedElsewhereError, DEFAULT_INSTRUCTIONS, type RunningAgent } from "./agent.ts";
+import { type AgentConfig, AgentOwnedElsewhereError, type RunningAgent } from "./agent.ts";
+import { DEFAULT_INSTRUCTIONS } from "./assistant.ts";
 
 /**
  * Standby: a pre-started runtime (for example in an Agent Sandbox warm pool) that isn't any agent yet. The platform

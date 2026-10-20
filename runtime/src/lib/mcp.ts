@@ -114,8 +114,12 @@ export class AgentMcp {
 		if (deferred) this.extensions.push(this.searchExtension());
 	}
 
+	/** tool_search, installed the first time a set of tools needs it (a thread's servers may be the first). */
 	private searchExtension(): Extension {
-		this.toolSearch ??= createToolSearchExtension();
+		if (this.toolSearch === undefined) {
+			this.toolSearch = createToolSearchExtension();
+			this.install(this.toolSearch);
+		}
 		return this.toolSearch;
 	}
 
@@ -143,14 +147,22 @@ export class AgentMcp {
 		for (const [thread, servers] of byThread) await this.installThread(thread, servers).catch((e) => console.error(`[runtime] MCP servers of thread ${thread}:`, (e as Error).message));
 	}
 
-	/** The extensions a thread selects: the template's, plus the servers the app gave it now. */
-	async forThread(threadId: string, base: Extension[]): Promise<Extension[]> {
-		const out = [...base, ...this.extensions];
-		if (!this.clientServers) return out;
-		const ext = await this.installThread(threadId, await this.fetchServers(threadId));
+	/** The MCP extensions a thread selects: the template's, plus the servers the app gave it now (fetched). */
+	async forThread(threadId: string): Promise<Extension[]> {
+		if (!this.clientServers) return [...this.extensions];
+		return this.withThread(await this.installThread(threadId, await this.fetchServers(threadId)));
+	}
+
+	/** The MCP extensions a thread selects as far as this process knows, without asking the platform. */
+	installed(threadId: string): Extension[] {
+		return this.withThread(this.threadExts.get(threadId)?.extension);
+	}
+
+	private withThread(ext: Extension | undefined): Extension[] {
+		const out = [...this.extensions];
 		if (ext) {
 			out.push(ext);
-			if (!out.includes(this.searchExtension()) && (ext.tools?.length ?? 0) > DEFER_ABOVE) out.push(this.searchExtension());
+			if ((ext.tools?.length ?? 0) > DEFER_ABOVE && !out.includes(this.searchExtension())) out.push(this.searchExtension());
 		}
 		return out;
 	}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AgentMcp, toolName } from "../src/mcp.ts";
+import { AgentMcp, toolName } from "../src/lib/mcp.ts";
 
 describe("agent MCP", () => {
 	it("names tools as providers accept them", () => {
@@ -32,7 +32,7 @@ describe("agent MCP", () => {
 		}) as unknown as typeof fetch;
 		const mcp = new AgentMcp({ MCP_THREADS_URL: "http://gw/thread-mcp", MCP_KEY: "pdpm.a.t" }, () => {}, fetchImpl);
 		expect(mcp.clientServers).toBe(true);
-		const exts = await mcp.forThread("t1", []);
+		const exts = await mcp.forThread("t1");
 		expect(exts).toEqual([]);
 		expect(seen).toEqual(["http://gw/thread-mcp?thread=t1 Bearer pdpm.a.t"]);
 	});

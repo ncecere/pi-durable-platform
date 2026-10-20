@@ -4,6 +4,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type Harness, LiveDoc, type Conversation } from "@earendil-works/pi-durable";
 import type { ThreadStore } from "./threads.ts";
 import { DELTA_VERSION, DeltaStream } from "./delta.ts";
+import { CONTRACT_VERSION, PI_DURABLE_VERSION } from "./version.ts";
 import { type Author, buildMessages, buildView, type ChatMessage, type ChatView, liveParts, type MessagePage, pageView, parsePage, USER_ENTRY, type UserEntryData } from "./view.ts";
 
 const ctx = BACKGROUND_CONTEXT;
@@ -77,7 +78,14 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		if (method === "GET" && url.pathname === "/status") {
 			const busy = await busyThreads();
 			if (busy > 0) touch();
-			return json(response, 200, { ...options.info, busyThreads: busy, openStreams, lastActivityAt: lastActivity });
+			return json(response, 200, {
+				...options.info,
+				busyThreads: busy,
+				openStreams,
+				lastActivityAt: lastActivity,
+				contractVersion: CONTRACT_VERSION,
+				piDurableVersion: PI_DURABLE_VERSION,
+			});
 		}
 		if (method === "GET" && url.pathname === "/threads") return json(response, 200, await threads.list());
 

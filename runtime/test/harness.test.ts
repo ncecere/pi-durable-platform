@@ -3,7 +3,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
 import { createRegistry, Harness } from "@earendil-works/pi-durable";
 import { afterEach, describe, expect, it } from "vitest";
-import { openPostgresAgentStorage } from "../src/storage/postgres.ts";
+import { openPostgresAgentStorage } from "../src/lib/storage/postgres.ts";
 import { ADMIN_URL, dropSchema, uniqueSchema } from "./support.ts";
 
 const ctx = BACKGROUND_CONTEXT;

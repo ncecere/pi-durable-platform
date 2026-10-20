@@ -3,6 +3,10 @@
   "version": "0.3.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/lib/index.ts",
+    "./testing": "./src/lib/testing/index.ts"
+  },
   "packageManager": "pnpm@11.18.0",
   "engines": {
     "node": ">=22.19"

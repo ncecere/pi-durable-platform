@@ -1,7 +1,7 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { registerStorageConformance } from "@earendil-works/pi-durable/testing";
 import { describe, expect, it } from "vitest";
-import { openPostgresAgentStorage } from "../src/storage/postgres.ts";
+import { openPostgresAgentStorage } from "../src/lib/storage/postgres.ts";
 import { ADMIN_URL, dropSchema, uniqueSchema } from "./support.ts";
 
 // pi-durable's own storage contract, run against PostgreSQL. Each case gets a fresh agent schema.

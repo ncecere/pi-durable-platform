@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { modelVisible } from "../src/mcp.ts";
+import { modelVisible } from "../src/lib/mcp.ts";
 
 // The same cases as internal/mcp's TestListToolsLeavesOutAppOnlyTools: both hosts apply one rule.
 describe("modelVisible (MCP Apps tool visibility)", () => {

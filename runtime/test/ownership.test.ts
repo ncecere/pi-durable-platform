@@ -1,7 +1,7 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import pg from "pg";
 import { afterEach, describe, expect, it } from "vitest";
-import { AgentOwnedElsewhereError, OWNERSHIP_TABLE, type OpenPostgresAgentStorageOptions, openPostgresAgentStorage } from "../src/storage/postgres.ts";
+import { AgentOwnedElsewhereError, OWNERSHIP_TABLE, type OpenPostgresAgentStorageOptions, openPostgresAgentStorage } from "../src/lib/storage/postgres.ts";
 import { ADMIN_URL, dropSchema, provisionAgents, uniqueSchema, withAdmin, withRole, within } from "./support.ts";
 
 const ctx = BACKGROUND_CONTEXT;
