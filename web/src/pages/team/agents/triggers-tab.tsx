@@ -1,10 +1,12 @@
 /*
  * Triggers: the agent's schedules and webhooks, which start runs without a person, and the limits they run under.
  * Everyone who may use the agent sees them; its team's owners and admins add, pause, run now, replace secrets and
- * delete them, and pause all of the agent's triggers at once.
+ * delete them, and pause all of the agent's triggers at once. Schedules the agent made itself (its schedule tool) are
+ * marked as the agent's, with the conversation it set them in; people pause, run or delete them, never change them.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, Pause, Play, Plus, Trash2, Webhook } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { Bot, CalendarClock, Pause, Play, Plus, Trash2, Webhook } from "lucide-react";
 import { useState } from "react";
 import { errorMessage } from "../../../api/client";
 import {
@@ -32,10 +34,34 @@ import { Switch } from "@/components/ui/switch/switch";
 import { toast } from "@/components/ui/toast/toast";
 import shared from "../../shared.module.css";
 import type { Agent } from "./labels";
+import { runSearch } from "./runs-tab";
 import { AddTriggerDialog, TriggerSecrets } from "./trigger-dialog";
 
-/** "Every weekday at 8:00, Europe/Paris" is left to cron; the expression and zone, as written. */
-const what = (t: Trigger) => (t.schedule ? `${t.schedule.cron} (${t.schedule.timezone})` : (t.webhookUrl ?? ""));
+/** "Every weekday at 8:00, Europe/Paris" is left to cron; the expression and zone, as written. A one-time reminder: once. */
+const what = (t: Trigger) =>
+  t.once ? `Once (${t.schedule?.timezone ?? "UTC"})` : t.schedule ? `${t.schedule.cron} (${t.schedule.timezone})` : (t.webhookUrl ?? "");
+
+/** Where an agent-made schedule came from: the agent, in a conversation (a link to it). */
+function MadeByAgent({ t, agent }: { t: Trigger; agent: Agent }) {
+  return (
+    <span className={shared.secondary}>
+      <Badge size="sm" title="The agent set this itself, with its schedule tool">
+        <Bot aria-hidden size={12} /> Made by the agent
+      </Badge>{" "}
+      {t.originThreadId ? (
+        <>
+          in{" "}
+          <Link to="/teams/$team/agents/$agentId" params={{ team: agent.teamSlug, agentId: agent.id }} search={runSearch(t.originThreadId)}>
+            a conversation
+          </Link>
+          {t.threadId ? ", fires there" : ", fires in a new conversation"}
+        </>
+      ) : (
+        "fires in a new conversation"
+      )}
+    </span>
+  );
+}
 
 function TriggerState({ t }: { t: Trigger }) {
   if (t.paused)
@@ -123,7 +149,17 @@ export function TriggersTab({ agent, canManage }: { agent: Agent; canManage: boo
               {t.kind === "schedule" ? <CalendarClock aria-hidden size={14} /> : <Webhook aria-hidden size={14} />} {t.name}
             </span>
           }
-          secondary={what(t)}
+          secondary={
+            t.source === "agent" ? (
+              <>
+                {what(t)}
+                <br />
+                <MadeByAgent t={t} agent={agent} />
+              </>
+            ) : (
+              what(t)
+            )
+          }
         />
       ),
     },
@@ -174,7 +210,7 @@ export function TriggersTab({ agent, canManage }: { agent: Agent; canManage: boo
       </Card>
       <Card
         title="Triggers"
-        description="Schedules and webhooks that start a run without a person. A run acts as its trigger, with the team's models and tools, never as someone."
+        description="Schedules and webhooks that start a run without a person, including reminders the agent set itself. A run acts as its trigger, with the team's models and tools, never as someone."
         actions={
           canManage ? (
             <Button size="sm" onClick={() => setAdding(true)}>

@@ -5,6 +5,7 @@ import { api, errorMessage, unwrap } from "../../api/client";
 import { templateVersionsQuery } from "../../api/templates";
 import { FormDialog } from "../../components/form-dialog";
 import { attachOf, McpPicker, mcpProblem, sameMcp } from "../../components/mcp-picker";
+import { AgentSchedulesField } from "../../components/templates/agent-schedules-field";
 import { ModelSelect } from "../../components/model-select";
 import type { McpAttach } from "../../api/mcp";
 import { Field } from "@/components/ui/field/field";
@@ -30,6 +31,7 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
   const [pickedClientMcp, setPickedClientMcp] = useState<boolean | undefined>(undefined);
   // undefined: the current version's tool approvals.
   const [pickedApprovals, setPickedApprovals] = useState<ApprovalPolicy | undefined>(undefined);
+  const [pickedSchedules, setPickedSchedules] = useState<boolean | undefined>(undefined);
   const [submitted, setSubmitted] = useState(false);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
@@ -41,6 +43,7 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
   const clientMcp = pickedClientMcp ?? current?.clientMcp ?? false;
   const currentApprovals = current?.approvals ?? defaultApprovals;
   const approvals = pickedApprovals ?? currentApprovals;
+  const agentSchedules = pickedSchedules ?? current?.agentSchedules ?? false;
   const submit = async () => {
     setSubmitted(true);
     if (!value.trim() || mcpProblem(mcp) || approvalsProblem(approvals)) return;
@@ -57,6 +60,7 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
             mcp: sameMcp(mcp, currentMcp) ? undefined : mcp,
             clientMcp: clientMcp === (current?.clientMcp ?? false) ? undefined : clientMcp,
             approvals: sameApprovals(approvals, currentApprovals) ? undefined : approvals,
+            agentSchedules: agentSchedules === (current?.agentSchedules ?? false) ? undefined : agentSchedules,
           },
         }),
       );
@@ -106,6 +110,7 @@ export function NewVersionDialog({ template, onClose }: { template: AgentTemplat
         showErrors={submitted}
       />
       <ApprovalFields value={approvals} onChange={setPickedApprovals} showErrors={submitted} />
+      <AgentSchedulesField checked={agentSchedules} onCheckedChange={setPickedSchedules} />
       <Field label="What changed" labelHint="Optional">
         <Input value={notes} maxLength={2000} onValueChange={setNotes} />
       </Field>

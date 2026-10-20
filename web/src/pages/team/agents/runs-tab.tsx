@@ -34,8 +34,8 @@ const statusFilter: { value: string; label: string }[] = [
   ...(Object.keys(runStatus) as TriggerRunStatus[]).map((v) => ({ value: v, label: runStatus[v].label })),
 ];
 
-/** The Test tab with the run's conversation open (?thread= passes through the route's search). */
-const runSearch = (thread: string) => {
+/** The Test tab with a conversation open (a run's, an agent-made schedule's) (?thread= passes through the route's search). */
+export const runSearch = (thread: string) => {
   const search = { tab: "test" as const, thread };
   return search;
 };

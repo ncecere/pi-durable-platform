@@ -173,9 +173,10 @@ export function personFilter(value: string | undefined): { actorUserId?: string;
   return value === systemPerson ? { actorKind: "system" } : { actorUserId: value };
 }
 
-/** Who did it: a person's name, or "System". */
+/** Who did it: a person's name, "System", or an agent (changing its own schedules: "Agent Planner"). */
 export function actorName(actor: AuditEntry["actor"], _entry?: Pick<AuditEntry, "metadata" | "teamName">) {
   if (actor.kind === "system") return "System";
+  if (actor.kind === "agent") return actor.displayName ? `Agent ${actor.displayName}` : "An agent";
   return actor.displayName || actor.email || (actor.userId ? "Unknown user" : "Unknown");
 }
 

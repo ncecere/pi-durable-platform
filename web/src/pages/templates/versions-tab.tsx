@@ -90,6 +90,13 @@ export function VersionsTab({
                     </Badge>{" "}
                   </>
                 ) : null}
+                {v.agentSchedules ? (
+                  <>
+                    <Badge size="sm" title="Its agents can set their own reminders and recurring work (the schedule tool)">
+                      Agents may schedule
+                    </Badge>{" "}
+                  </>
+                ) : null}
                 <span className={s.secondary}>
                   {v.notes || "No notes"} · <Time value={v.createdAt} />
                   {v.createdByName ? ` · ${v.createdByName}` : ""}
