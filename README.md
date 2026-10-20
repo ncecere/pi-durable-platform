@@ -145,7 +145,14 @@ To act as a person instead (their personal workspace and their teams' agents), h
 Connect**: the platform is an OAuth 2.1 authorization server (`/.well-known/oauth-authorization-server`, PKCE, a Client
 ID Metadata Document or Dynamic Client Registration), and the app's `pdpat_…` access token acts as the person, without
 their platform role, on the agent routes and a few read routes such as `GET /v1/me` and `/v1/teams`. See DESIGN.md,
-"OAuth Connect".
+"OAuth Connect". Such an app can keep one agent per purpose in the person's personal workspace with the same
+`PUT …/agents/by-key/{key}` (the agent is the person's, not service-managed), and send an `Idempotency-Key` header
+when it creates agents with `POST /v1/teams/{team}/agents`, so a retry returns the first agent instead of making
+another.
+
+Team owners and admins can move an agent, with its conversations, to another team or their personal workspace
+(`POST /v1/agents/{id}/move`, with a dry run at `GET …/move?team=`; the agent's Settings in the console). See
+DESIGN.md, "Creating and moving agents".
 
 ## Commands
 

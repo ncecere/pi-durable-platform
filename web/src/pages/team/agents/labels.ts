@@ -16,7 +16,7 @@ export type AgentAbilities = {
 
 export function agentAbilities(ctx: TeamCtx, agent: Agent): AgentAbilities {
   const member = ctx.role !== undefined;
-  const managed = agent.externalKey != null;
+  const managed = agent.serviceManaged;
   return {
     canUse: member && !managed,
     canEdit: member && !managed && ctx.canEdit,

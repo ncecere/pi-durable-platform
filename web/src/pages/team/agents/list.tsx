@@ -73,11 +73,11 @@ export function agentColumns(
     {
       id: "managed",
       header: "Managed by",
-      accessor: (a) => (a.externalKey ? "Service" : "Team"),
+      accessor: (a) => (a.serviceManaged ? "Service" : "Team"),
       sortable: true,
       cell: (a) => (
-        <Badge tone={a.externalKey ? "info" : "neutral"}>
-          {a.externalKey ? "Service" : "Team"}
+        <Badge tone={a.serviceManaged ? "info" : "neutral"}>
+          {a.serviceManaged ? "Service" : "Team"}
         </Badge>
       ),
     },
@@ -164,7 +164,7 @@ export function TeamAgentsPage() {
           { label: "Open", render: link(a) },
           {
             label: "Test",
-            hidden: a.externalKey != null,
+            hidden: a.serviceManaged,
             render: (
               <Link
                 to="/teams/$team/agents/$agentId"

@@ -1,6 +1,7 @@
 -- name: InsertAgent :one
-INSERT INTO agents (id, team_id, template_id, template_version, name, description, db_password_enc, runtime_token_enc, created_by, external_key, model_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+INSERT INTO agents (id, team_id, template_id, template_version, name, description, db_password_enc, runtime_token_enc, created_by, external_key, model_id,
+                    service_managed)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING *;
 
 -- name: GetAgentByExternalKey :one
@@ -14,7 +15,8 @@ SELECT * FROM agents WHERE id = $1 FOR UPDATE;
 
 -- name: ListAgentsForUser :many
 -- The agents of the teams the person belongs to (service-managed ones only
--- for teams where they are an owner or admin, and only when asked).
+-- for teams where they are an owner or admin, and only when asked; agents
+-- with a key in a personal workspace are its owner's like any other).
 SELECT sqlc.embed(a), t.slug AS team_slug, t.name AS team_name, tpl.slug AS template_slug, tpl.name AS template_name,
        tpl.current_version AS template_current_version
 FROM agents a
@@ -22,16 +24,16 @@ JOIN agent_templates tpl ON tpl.id = a.template_id
 JOIN teams t ON t.id = a.team_id
 JOIN team_members m ON m.team_id = a.team_id AND m.user_id = sqlc.arg(user_id)
 WHERE t.status = 'active'
-  AND (a.external_key IS NULL OR (sqlc.arg(include_managed)::boolean AND m.role IN ('owner', 'admin')))
+  AND (NOT a.service_managed OR (sqlc.arg(include_managed)::boolean AND m.role IN ('owner', 'admin')))
 ORDER BY t.slug, lower(a.name), a.id;
 
 -- name: AgentIDs :many
 SELECT id FROM agents;
 
 -- name: ListTeamAgents :many
--- A team's agents; service-managed ones (with an external key) only when asked.
+-- A team's agents; service-managed ones only when asked.
 SELECT * FROM agents
-WHERE team_id = $1 AND (sqlc.arg(include_managed)::boolean OR external_key IS NULL)
+WHERE team_id = $1 AND (sqlc.arg(include_managed)::boolean OR NOT service_managed)
 ORDER BY lower(name), id;
 
 -- name: CountTeamAgents :one

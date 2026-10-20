@@ -3293,7 +3293,7 @@ paths:
       - agents
       operationId: listTeamAgents
       summary: The team's agents (members and the team's service accounts; platform staff read any team's)
-      description: Service-managed agents (with an external key) are included with includeManaged=true, for the team's owners, admins and service accounts, and platform staff. Platform admins and auditors see any team's agents (settings and status, not conversations).
+      description: Service-managed agents (serviceManaged) are included with includeManaged=true, for the team's owners, admins and service accounts, and platform staff. Platform admins and auditors see any team's agents (settings and status, not conversations).
       parameters:
       - name: includeManaged
         in: query
@@ -3322,7 +3322,14 @@ paths:
       - agents
       operationId: createTeamAgent
       summary: Create a team agent from a template (team editors and above)
-      description: 409 name_taken (names are unique within the team, ignoring case); 409 team_archived; 404 template_not_found. At most 50 per team.
+      description: >-
+        409 name_taken (names are unique within the team, ignoring case); 409 team_archived; 404 template_not_found.
+        At most 50 per team. With an Idempotency-Key, a retry returns the agent the first request created (201, with
+        Idempotent-Replayed: true) instead of creating another; the same key with a different request is 422
+        idempotency_key_reused. Keys are remembered for 24 hours per caller: a person (browser session or personal
+        API key), an app the person connected (each connection separately), or a service account.
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
         required: true
         content:
@@ -3331,10 +3338,12 @@ paths:
               $ref: '#/components/schemas/AgentCreate'
       responses:
         '201':
-          description: Created
+          description: Created (or, with Idempotent-Replayed, created by an earlier request with the same Idempotency-Key)
           headers:
             ETag:
               $ref: '#/components/headers/ETag'
+            Idempotent-Replayed:
+              $ref: '#/components/headers/IdempotentReplayed'
           content:
             application/json:
               schema:
@@ -3352,13 +3361,15 @@ paths:
           $ref: '#/components/responses/ErrorReply'
         '409':
           $ref: '#/components/responses/ErrorReply'
+        '422':
+          $ref: '#/components/responses/ErrorReply'
   /v1/teams/{team}/agents/by-key/{externalKey}:
     parameters:
     - $ref: '#/components/parameters/TeamParam'
     - name: externalKey
       in: path
       required: true
-      description: The service's own key for the agent, for example its user's ID
+      description: The caller's own key for the agent, for example a user's ID or a purpose
       schema:
         type: string
         pattern: '^[A-Za-z0-9._:@-]{1,200}$'
@@ -3366,12 +3377,16 @@ paths:
       tags:
       - agents
       operationId: ensureTeamAgentByKey
-      summary: The team's service-managed agent with this key, created the first time (editor service accounts)
+      summary: The agent with this key, created the first time (editor service accounts in their team; a person in their own personal workspace)
       description: >-
-        Idempotent; 201 when it was created. For services that give each of their users an agent, such as a chat
-        app. Service-managed agents are used only by the team's service accounts: the team's people don't see their
-        conversations, though its owners and admins can delete them. The body names a new agent and is ignored for
-        an existing one.
+        Idempotent; 201 when it was created. The body names a new agent and is ignored for an existing one. In a
+        shared team, for services that give each of their users an agent, such as a chat app: only editor service
+        accounts call it, and the agent is service-managed (serviceManaged), used only by the team's service
+        accounts; the team's people don't see its conversations, though its owners and admins can delete it. In a
+        personal workspace, its owner calls it (a browser session, a personal API key, or an app the owner
+        connected), so an app can keep one agent per purpose for a person: the agent is the workspace's like any
+        other, not service-managed. Anyone else is refused (403 forbidden in a shared team, 404 team_not_found in
+        another person's workspace).
       requestBody:
         required: false
         content:
@@ -3525,6 +3540,103 @@ paths:
                   data:
                     $ref: '#/components/schemas/Ok'
         '404':
+          $ref: '#/components/responses/ErrorReply'
+  /v1/agents/{agentId}/move:
+    parameters:
+    - $ref: '#/components/parameters/AgentIdParam'
+    get:
+      tags:
+      - agents
+      operationId: planAgentMove
+      summary: What moving the agent to another team would change (a dry run; who may move it)
+      description: >-
+        Authorized like the move itself. 200 with allowed false and the blockers when the move would be refused for
+        what it needs in the target team (its template, its model, a free name, room under the team's limits).
+      parameters:
+      - name: team
+        in: query
+        required: true
+        description: The target team's slug or ID
+        schema:
+          type: string
+      - name: modelId
+        in: query
+        required: false
+        description: A model to switch to as part of the move (one the target team may use)
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: The plan
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgentMovePlan'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - agents
+      operationId: moveAgent
+      summary: Move the agent, with its conversations, to another team or workspace (owners and admins of both; platform admins between shared teams)
+      description: >-
+        A person (browser session, personal API key or an app they connected; never a service account) who is an
+        owner or admin of both teams, or a platform admin between shared teams (not into a team they are a member
+        of unless they may move it out of its team). A personal workspace on either side: its owner only. The agent
+        keeps its schema, template version and conversations; its record now belongs to the target team, whose
+        rules apply from then on. Its template and model must be available to the target team (409
+        move_template_unavailable, move_model_unavailable; modelId switches the model), its name free there (409
+        name_taken), and the team below its limits (409 too_many_agents, limit_reached). Service-managed agents
+        don't move (409 agent_service_managed). Its external key, the MCP servers apps set on its threads, and the
+        old team's MCP servers, service accounts and models stop applying; usage stays with the team it happened in.
+        The runtime is stopped and starts with the new team's configuration on the next request. Audited in both
+        teams' logs (agent.move).
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentMove'
+      responses:
+        '200':
+          description: Moved
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
           $ref: '#/components/responses/ErrorReply'
   /v1/agents/{agentId}/threads:
     parameters:
@@ -4196,6 +4308,11 @@ components:
       description: Quoted revision, for If-Match on the next update
       schema:
         type: string
+    IdempotentReplayed:
+      description: '"true" when the answer is an earlier request''s with the same Idempotency-Key'
+      schema:
+        type: string
+        enum: ['true']
   parameters:
     McpServerIdParam:
       name: serverId
@@ -4311,6 +4428,17 @@ components:
       description: nextCursor from the previous page
       schema:
         type: string
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: >-
+        A key the client chooses for one request (a UUID, for example), so a retry doesn't repeat it
+        (draft-ietf-httpapi-idempotency-key-header). 1-255 printable ASCII characters, optionally quoted as a
+        structured-field string. Invalid: 400 invalid_idempotency_key.
+      schema:
+        type: string
+        maxLength: 257
     IfMatchHeader:
       name: If-Match
       in: header
@@ -5336,7 +5464,7 @@ components:
           description: Shown to the team when rejected
     Agent:
       type: object
-      required: [id, name, description, teamId, teamSlug, teamName, templateId, templateSlug, templateName, templateVersion, templateCurrentVersion, enabled, running, revision, createdAt, updatedAt]
+      required: [id, name, description, teamId, teamSlug, teamName, templateId, templateSlug, templateName, templateVersion, templateCurrentVersion, serviceManaged, enabled, running, revision, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -5370,7 +5498,12 @@ components:
         externalKey:
           type: string
           nullable: true
-          description: Set for service-managed agents (created by a service account with its own key)
+          description: The key it was ensured with (PUT .../agents/by-key/{key}), if any
+        serviceManaged:
+          type: boolean
+          description: >-
+            An app's agent for one of its users (made by a service account with an external key, in a shared team):
+            only the team's service accounts use it. An agent with a key in a personal workspace is not.
         enabled:
           type: boolean
         running:
@@ -5435,6 +5568,106 @@ components:
           type: string
           format: uuid
           description: For a new agent, a model published to the team (default the template's)
+    AgentMove:
+      type: object
+      required: [team]
+      properties:
+        team:
+          type: string
+          description: The target team's slug or ID
+        modelId:
+          type: string
+          format: uuid
+          description: A model to switch to as part of the move (one the target team may use); default the agent's
+    AgentMoveTeam:
+      type: object
+      required: [id, slug, name, kind]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [team, personal]
+    AgentMoveBlocker:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: The error code the move would be refused with
+          example: move_template_unavailable
+        message:
+          type: string
+    AgentMovePlan:
+      type: object
+      required: [agentId, from, to, allowed, blockers, sharedThreads, privateThreads, privateThreadsUnreachable, targetMembers,
+        targetServiceAccounts, peopleLosingAccess, serviceAccountsLosingAccess, threadMcpServers, mcpServersDropped]
+      properties:
+        agentId:
+          type: string
+          format: uuid
+        from:
+          $ref: '#/components/schemas/AgentMoveTeam'
+        to:
+          $ref: '#/components/schemas/AgentMoveTeam'
+        allowed:
+          type: boolean
+          description: Whether the move would be done now (no blockers)
+        blockers:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentMoveBlocker'
+        sharedThreads:
+          type: integer
+          format: int64
+          description: Shared threads, which everyone who may use the agent in the target team will see
+        privateThreads:
+          type: integer
+          format: int64
+          description: Private threads; they stay their creator's
+        privateThreadsUnreachable:
+          type: integer
+          format: int64
+          description: Private threads whose creator can't use the agent in the target team (a service account, or a person who isn't a member)
+        targetMembers:
+          type: integer
+          format: int64
+          description: People in the target team (who may use the agent after the move)
+        targetServiceAccounts:
+          type: integer
+          format: int64
+          description: The target team's service accounts (who may use the agent after the move)
+        peopleLosingAccess:
+          type: integer
+          format: int64
+          description: People of the current team who aren't in the target team
+        serviceAccountsLosingAccess:
+          type: integer
+          format: int64
+          description: The current team's service accounts, whose keys no longer reach the agent
+        externalKey:
+          type: string
+          nullable: true
+          description: The agent's key, dropped by the move (PUT .../agents/by-key/{key} no longer finds it)
+        threadMcpServers:
+          type: integer
+          format: int64
+          description: MCP servers apps set on its threads, removed by the move
+        mcpServersDropped:
+          type: array
+          description: Names of its template version's MCP servers that the target team may not use (they stop applying)
+          items:
+            type: string
+        model:
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/AgentModel'
+          description: The model it would run on in the target team (absent - the platform's default model)
     AgentUpdate:
       type: object
       properties:

@@ -16,6 +16,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/agents"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
+	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 )
 
 // Agents (api/openapi.yaml, tag agents). internal/agents authorizes every
@@ -36,6 +37,9 @@ func (a *api) agentRoutes() []route {
 		{"PATCH", one, k(a.updateAgent)},
 		{"DELETE", one, k(a.deleteAgent)},
 		{"POST", one + "/hibernate", k(a.hibernateAgent)},
+		// Moving an agent is a person's decision (never a service account's).
+		{"GET", one + "/move", a.person(a.planAgentMove)},
+		{"POST", one + "/move", a.person(a.moveAgent)},
 		{"GET", "/v1/agents/events", k(a.streamAgentEvents)},
 		{"GET", one + "/threads", k(a.listAgentThreads)},
 		{"POST", one + "/threads", k(a.createAgentThread)},
@@ -58,7 +62,7 @@ func toAPIAgent(v agents.View) apitypes.Agent {
 		TeamId: ag.TeamID, TeamSlug: v.TeamSlug, TeamName: v.TeamName, TemplateId: ag.TemplateID, TemplateSlug: v.TemplateSlug,
 		TemplateName: v.TemplateName, TemplateVersion: ag.TemplateVersion, TemplateCurrentVersion: v.TemplateCurrentVersion,
 		Enabled: ag.Enabled, Running: v.Running, LastUsedAt: ag.LastUsedAt, Revision: ag.Revision,
-		CreatedAt: ag.CreatedAt, UpdatedAt: ag.UpdatedAt, ExternalKey: ag.ExternalKey,
+		CreatedAt: ag.CreatedAt, UpdatedAt: ag.UpdatedAt, ExternalKey: ag.ExternalKey, ServiceManaged: ag.ServiceManaged,
 		Model: agentModel(v.Model),
 	}
 }
@@ -83,7 +87,20 @@ func (a *api) listAgents(w http.ResponseWriter, r *http.Request) {
 	writeList(w, r, rows, err, toAPIAgent)
 }
 
+// createTeamAgent reads an optional Idempotency-Key: a retry with the same
+// key and request gets the first answer (Idempotent-Replayed: true).
 func (a *api) createTeamAgent(w http.ResponseWriter, r *http.Request) {
+	var key string
+	if vs := r.Header.Values("Idempotency-Key"); len(vs) > 0 {
+		raw := vs[0]
+		if len(vs) > 1 {
+			raw = "" // a repeated header is invalid
+		}
+		var err error
+		if key, err = agents.ParseIdempotencyKey(raw); failed(w, r, err) {
+			return
+		}
+	}
 	var in apitypes.AgentCreate
 	if !httpx.Decode(w, r, &in) {
 		return
@@ -91,7 +108,10 @@ func (a *api) createTeamAgent(w http.ResponseWriter, r *http.Request) {
 	ci := agents.CreateInput{Name: in.Name, TemplateID: in.TemplateId, ModelID: in.ModelId}
 	setIf(&ci.Description, in.Description)
 	setIf(&ci.Template, in.Template)
-	v, err := a.Agents.CreateTeamAgent(r.Context(), a.actor(r), r.PathValue("team"), ci)
+	v, replayed, err := a.Agents.CreateTeamAgentOnce(r.Context(), a.actor(r), r.PathValue("team"), ci, key)
+	if replayed {
+		w.Header().Set("Idempotent-Replayed", "true")
+	}
 	a.writeAgent(w, r, http.StatusCreated, v, err)
 }
 
@@ -102,8 +122,9 @@ func (a *api) listTeamAgents(w http.ResponseWriter, r *http.Request) {
 	writeList(w, r, rows, err, toAPIAgent)
 }
 
-// ensureTeamAgentByKey returns the team's service-managed agent with the
-// key, creating it the first time (201).
+// ensureTeamAgentByKey returns the team's agent with the key, creating it
+// the first time (201): service-managed in a shared team, the owner's in a
+// personal workspace.
 func (a *api) ensureTeamAgentByKey(w http.ResponseWriter, r *http.Request) {
 	var in apitypes.AgentEnsure
 	if r.ContentLength != 0 && !httpx.Decode(w, r, &in) {
@@ -157,6 +178,67 @@ func (a *api) hibernateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeOK(w, r, a.Agents.Hibernate(r.Context(), a.actor(r), id))
+}
+
+// planAgentMove reads ?team= (required) and ?modelId=.
+func (a *api) planAgentMove(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "agentId")
+	if !ok {
+		return
+	}
+	team := r.URL.Query().Get("team")
+	if team == "" {
+		httpx.Error(w, http.StatusBadRequest, "invalid_team", "team names the target team (its slug or ID)")
+		return
+	}
+	var modelID *uuid.UUID
+	if v := r.URL.Query().Get("modelId"); v != "" {
+		mid, err := uuid.Parse(v)
+		if err != nil {
+			httpx.Error(w, http.StatusBadRequest, "invalid_model_id", "modelId is a model's ID")
+			return
+		}
+		modelID = &mid
+	}
+	p, err := a.Agents.PlanMove(r.Context(), a.actor(r), id, team, modelID)
+	if failed(w, r, err) {
+		return
+	}
+	httpx.JSON(w, http.StatusOK, toAPIMovePlan(p))
+}
+
+func (a *api) moveAgent(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "agentId")
+	if !ok {
+		return
+	}
+	in, rev, ok := decodeRevised[apitypes.AgentMove](w, r)
+	if !ok {
+		return
+	}
+	if in.Team == "" {
+		httpx.Error(w, http.StatusBadRequest, "invalid_team", "team names the target team (its slug or ID)")
+		return
+	}
+	v, err := a.Agents.Move(r.Context(), a.actor(r), id, in.Team, in.ModelId, rev)
+	a.writeAgent(w, r, http.StatusOK, v, err)
+}
+
+func toAPIMoveTeam(t dbgen.Team) apitypes.AgentMoveTeam {
+	return apitypes.AgentMoveTeam{Id: t.ID, Slug: t.Slug, Name: t.Name, Kind: apitypes.AgentMoveTeamKind(t.Kind)}
+}
+
+func toAPIMovePlan(p agents.MovePlan) apitypes.AgentMovePlan {
+	out := apitypes.AgentMovePlan{AgentId: p.AgentID, From: toAPIMoveTeam(p.From), To: toAPIMoveTeam(p.To), Allowed: p.Allowed(),
+		Blockers: make([]apitypes.AgentMoveBlocker, len(p.Blockers)), SharedThreads: p.Threads.Shared, PrivateThreads: p.Threads.Private,
+		PrivateThreadsUnreachable: p.Threads.PrivateUnreachable, TargetMembers: p.Access.TargetMembers,
+		TargetServiceAccounts: p.Access.TargetServiceAccounts, PeopleLosingAccess: p.Access.PeopleLosing,
+		ServiceAccountsLosingAccess: p.Access.ServiceAccountsLosing, ExternalKey: p.ExternalKey, ThreadMcpServers: p.ThreadMCPServers,
+		McpServersDropped: p.MCPServersDropped, Model: agentModel(p.Model)}
+	for i, b := range p.Blockers {
+		out.Blockers[i] = apitypes.AgentMoveBlocker{Code: b.Code, Message: b.Message}
+	}
+	return out
 }
 
 var threadIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)

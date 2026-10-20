@@ -29,6 +29,7 @@ type Agent struct {
 	ExternalKey     *string
 	TemplateVersion int32
 	ModelID         uuid.NullUUID
+	ServiceManaged  bool
 }
 
 type AgentTemplate struct {
@@ -111,6 +112,16 @@ type AuditLog struct {
 	RequestID             string
 	ClientIP              string
 	ActorServiceAccountID uuid.NullUUID
+}
+
+type IdempotencyKey struct {
+	Caller      string
+	Operation   string
+	Key         string
+	Fingerprint []byte
+	AgentID     uuid.NullUUID
+	Status      int32
+	CreatedAt   time.Time
 }
 
 type LoginState struct {

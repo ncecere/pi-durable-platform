@@ -101,7 +101,7 @@ function Record({ agent }: { agent: Agent }) {
         },
         {
           label: "Managed by",
-          value: agent.externalKey ? "A service" : ctx.team.name,
+          value: agent.serviceManaged ? "A service" : ctx.team.name,
         },
         {
           label: "Last used",
@@ -136,7 +136,7 @@ function Record({ agent }: { agent: Agent }) {
                 : "Not its conversations."}
             </Alert>
           ) : null}
-          {agent.externalKey ? (
+          {agent.serviceManaged ? (
             <Alert tone="info" title="Service-managed">
               {whatIsServiceManaged}
             </Alert>

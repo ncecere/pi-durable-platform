@@ -60,9 +60,10 @@ const agentBase = {
   templateId: "t1",
   templateVersion: 1,
   templateCurrentVersion: 2,
+  serviceManaged: false,
 };
 const triage = { ...agentBase, id: "a1", name: "Triage", running: true };
-const perUser = { ...agentBase, id: "a2", name: "Assistant for user 42", running: false, externalKey: "user-42" };
+const perUser = { ...agentBase, id: "a2", name: "Assistant for user 42", running: false, externalKey: "user-42", serviceManaged: true };
 
 describe("agents", () => {
   it("lists the agents of the person's teams, linking to each team's agent page", async () => {

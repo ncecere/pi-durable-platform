@@ -6,7 +6,7 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { applyChatDelta, type ChatDeltaEvent, deltaEventTypes } from "./chat-delta";
-import { ApiError, api, type Schemas, unwrap } from "./client";
+import { ApiError, api, ifMatch, type Schemas, unwrap } from "./client";
 
 export type Agent = Schemas["Agent"];
 export type ChatView = Schemas["ChatView"];
@@ -38,6 +38,26 @@ export const agentQuery = (agentId: string) =>
     queryKey: [...agentsKey, agentId],
     queryFn: async () => unwrap(await api.GET("/v1/agents/{agentId}", { params: { path: { agentId } } })),
   });
+
+export type AgentMovePlan = Schemas["AgentMovePlan"];
+
+/** What moving the agent to the team would change, and what stops it (a dry run; authorized like the move). */
+export const movePlanQuery = (agentId: string, team: string) =>
+  queryOptions({
+    queryKey: [...agentsKey, agentId, "move", team],
+    queryFn: async () => unwrap(await api.GET("/v1/agents/{agentId}/move", { params: { path: { agentId }, query: { team } } })),
+    staleTime: 0,
+  });
+
+/** Moves the agent, with its conversations, to the team (If-Match on its revision). */
+export async function moveAgent(agent: Agent, team: string): Promise<Agent> {
+  return unwrap(
+    await api.POST("/v1/agents/{agentId}/move", {
+      params: { path: { agentId: agent.id }, header: ifMatch(agent.revision) },
+      body: { team },
+    }),
+  );
+}
 
 export const templatesQuery = () =>
   queryOptions({ queryKey: ["agent-templates"], queryFn: async () => unwrap(await api.GET("/v1/agent-templates")), staleTime: 5 * 60_000 });

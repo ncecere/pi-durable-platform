@@ -843,7 +843,7 @@ func (q *Queries) UpdateModelSettings(ctx context.Context, arg UpdateModelSettin
 const usageFacts = `-- name: UsageFacts :many
 SELECT (u.created_at AT TIME ZONE 'UTC')::date AS day,
        u.team_id, t.slug AS team_slug, t.name AS team_name,
-       u.agent_id, a.name AS agent_name, (a.external_key IS NOT NULL)::boolean AS agent_managed,
+       u.agent_id, a.name AS agent_name, COALESCE(a.service_managed, false)::boolean AS agent_managed,
        u.model_id, m.name AS model_name, p.name AS provider_name, m.input_price, m.output_price,
        sum(u.requests)::bigint AS requests, sum(u.input_tokens)::bigint AS input_tokens,
        sum(u.output_tokens)::bigint AS output_tokens, sum(u.cache_read_tokens)::bigint AS cache_read_tokens,
@@ -856,8 +856,8 @@ LEFT JOIN model_providers p ON p.id = m.provider_id
 WHERE u.created_at >= $1 AND u.created_at < $2
   AND ($3::uuid IS NULL OR u.team_id = $3::uuid)
   AND ($4::uuid[] IS NULL
-       OR (u.agent_id = ANY($4::uuid[]) AND ($5::boolean OR a.external_key IS NULL)))
-GROUP BY 1, u.team_id, t.slug, t.name, u.agent_id, a.name, a.external_key, u.model_id, m.name, p.name, m.input_price, m.output_price
+       OR (u.agent_id = ANY($4::uuid[]) AND ($5::boolean OR NOT a.service_managed)))
+GROUP BY 1, u.team_id, t.slug, t.name, u.agent_id, a.name, a.service_managed, u.model_id, m.name, p.name, m.input_price, m.output_price
 ORDER BY 1
 `
 

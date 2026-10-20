@@ -45,7 +45,7 @@ func newUsageEnv(t *testing.T) *usageEnv {
 		agent(e.editor, toolsTeam, "Gamma"), agent(e.editor, toolsTeam, "Delta")
 	e.omega = agent(e.outsider, "/v1/teams/other", "Omega")
 	// Service-managed: created for an app user by a service account.
-	exec(t, app, `UPDATE agents SET external_key = 'app-user-1' WHERE id = $1`, e.managed)
+	exec(t, app, `UPDATE agents SET external_key = 'app-user-1', service_managed = true WHERE id = $1`, e.managed)
 	var mine []apitypes.Team
 	if code := e.member.get("/v1/teams", &mine); code != 200 {
 		t.Fatalf("blair's teams: %d", code)

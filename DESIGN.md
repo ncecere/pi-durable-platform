@@ -32,7 +32,7 @@ Later: teams build and upload their own agents (self-service). That requires str
 | 9 | Files and artifacts go to **object storage** with per-agent prefixes; working filesystems are ephemeral unless a template needs one. *(proposed, not built)* | Object storage isolates by prefix; NFS is unsuitable for workspaces. |
 | 10 | Model credentials are injected into runtimes by the platform (or kept by its model gateway, in proxy mode); browsers never see them. | |
 | 11 | **Agents belong to teams** (a personal workspace is a team of kind `personal`). The console is for service owners and platform admins; end users use the teams' apps. | Ownership, data and cost follow the team. |
-| 12 | **Service-managed agents** (created by a service account with its own key) hold the app's users' conversations: only the team's service accounts use them; owners and admins see and delete them, never read them. | End users' chats aren't readable by every team member. The only other access is a platform admin's reasoned, audited read (Threads). |
+| 12 | **Service-managed agents** (created by a service account with its own key, in a shared team) hold the app's users' conversations: only the team's service accounts use them; owners and admins see and delete them, never read them, and they don't move to another team. An agent a person gives a key in their own personal workspace is theirs, not service-managed (v0.3). | End users' chats aren't readable by every team member. The only other access is a platform admin's reasoned, audited read (Threads). |
 | 13 | **Templates are the governance unit**: platform-curated catalog templates and team templates, versioned, agents pinned to a version, team templates published to the catalog with platform-admin approval. Org-wide agents are per-person instances of a template, not one shared agent. | One agent shares one store: shared agents would mix teams' data. |
 | 14 | **Platform replicas keep nothing another replica could contradict**: shared state is in PostgreSQL, an agent's activity is the runtime's own report (`/status`: work, open streams, last activity), starting an agent is serialised by a database lock, and one replica at a time reaps. See [Several replicas](#several-replicas) and [docs/replicas.md](docs/replicas.md). | Any number of replicas behind one Service, with no leader, sticky sessions or shared disk; a replica that has not seen an agent cannot hibernate it. |
 
@@ -176,8 +176,10 @@ admin gets no admin powers), on the routes that take bearer credentials: the age
 thread MCP servers), template listings, a team's models, usage, limits and MCP servers, plus `GET /v1/me`,
 `GET /v1/teams` and `GET /v1/teams/{team}`. Those last three refuse service account keys (403 `person_required`):
 they are about a person. Everything else (administration, members, invites, keys, service accounts, connected apps,
-consent) takes browser sessions only. Agents with an external key (`PUT …/agents/by-key/…`) stay service-account
-only: an app acting as a person creates ordinary agents (for example in the person's personal workspace). Every
+consent) takes browser sessions only. Agents with an external key (`PUT …/agents/by-key/…`) are service-account
+only in shared teams; an app acting as a person may ensure them in that person's own personal workspace (one agent
+per purpose; see Creating and moving agents), and creates ordinary agents elsewhere, with an `Idempotency-Key` so a
+retry doesn't make two. Every
 request re-checks the token, its connection and the person (suspended, or denied by the group re-check: refused) and is rate-limited as the person.
 Tokens and codes are stored as HMAC-SHA256 digests (label `oauth:`) under `API_KEY_PEPPER`, and
 `API_KEY_PEPPER_PREVIOUS` is accepted during a rotation; they are never logged.
@@ -443,6 +445,32 @@ on `GET /v1/agents/events`.
   /v1/teams/{team}/agents`, `GET /v1/agents/{id}`: settings and status), shared teams' as well as personal
   workspaces', so Admin › Teams › a team lists them and links to each agent's page. Read-only: they don't talk to,
   change or hibernate an agent of a team they aren't on (platform admins may delete one).
+
+## Creating and moving agents
+
+The reasoning is in [docs/agent-keys-and-moves.md](docs/agent-keys-and-moves.md) (v0.3, #11 and #13).
+
+- **Idempotency-Key.** `POST /v1/teams/{team}/agents` takes an `Idempotency-Key` (1-255 printable ASCII, bare or
+  quoted), remembered for 24 hours per caller: a person (sessions and personal API keys share it), each app a person
+  connected (per grant), each service account. The same key and request returns the first answer (201,
+  `Idempotent-Replayed: true`; 404 if the agent was deleted since); the same key with another request (body or team)
+  is 422 `idempotency_key_reused`. The key is claimed under a primary key in the creating transaction, so concurrent
+  retries wait for the first and replay it; failures aren't remembered. The cleanup loop deletes keys older than a day.
+- **Keys in a personal workspace.** `PUT …/agents/by-key/{key}` is editor service accounts' in shared teams (the
+  agent is service-managed, `agents.service_managed`), and the owner's in their personal workspace by any of their
+  credentials, apps included (the agent is the workspace's, not service-managed). Anyone else: 403 in a shared team,
+  404 in someone else's workspace.
+- **Moving.** `POST /v1/agents/{id}/move {team, modelId?}` (If-Match) and its dry run `GET …/move?team=` (the same
+  authorization; counts of shared and private threads and who gains and loses access, the key dropped, servers that
+  stop applying, and blockers with their error codes). People who are owners or admins of both teams; a personal
+  workspace's owner only, on either side; platform admins between shared teams, but into a team they are on only
+  when they may move it out of its own. The agent keeps its storage, version and threads; shared threads become the
+  new team's, private ones stay their creator's. The template and model must be available to the target (409
+  `move_template_unavailable`, `move_model_unavailable`; `modelId` switches the model), the name free (409
+  `name_taken`), the limits not reached; service-managed agents stay (409 `agent_service_managed`). The old team's
+  service accounts, the agent's external key, the MCP servers apps set on its threads and the old team's own servers
+  stop applying; usage stays with the team it happened in. Audited as `agent.move` in both teams' logs. The console
+  offers it in an agent's Settings › Danger zone.
 
 ## Agent storage and ownership
 

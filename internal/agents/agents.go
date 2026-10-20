@@ -206,7 +206,7 @@ func subject(ctx context.Context, q *dbgen.Queries, a authz.Actor, ag dbgen.Agen
 		return authz.AgentSubject{}, err
 	}
 	// Platform staff see any team's agents (read-only); a member's role decides for them on their own teams.
-	return authz.AgentSubject{Role: role, IsService: a.Service != nil, ServiceManaged: ag.ExternalKey != nil,
+	return authz.AgentSubject{Role: role, IsService: a.Service != nil, ServiceManaged: ag.ServiceManaged,
 		Audit: role == "" && a.CanReadPlatform()}, nil
 }
 
@@ -264,13 +264,23 @@ type CreateInput struct {
 // CreateTeamAgent makes an agent for a team (editors and above, people or
 // editor service accounts).
 func (s *Service) CreateTeamAgent(ctx context.Context, a authz.Actor, teamRef string, in CreateInput) (View, error) {
-	v, _, err := s.createInTeam(ctx, a, teamRef, in, nil)
+	v, _, err := s.createInTeam(ctx, a, teamRef, in, nil, "")
 	return v, err
 }
 
-// EnsureByKey returns the team's service-managed agent with this external
-// key, creating it the first time (editor service accounts only). in names a
-// new agent; an existing one is returned as it is. created reports which.
+// CreateTeamAgentOnce is CreateTeamAgent with an idempotency key (see
+// idempotency.go; "": none). replayed reports that an earlier request with
+// the key created the agent returned.
+func (s *Service) CreateTeamAgentOnce(ctx context.Context, a authz.Actor, teamRef string, in CreateInput, idempotencyKey string) (View, bool, error) {
+	v, created, err := s.createInTeam(ctx, a, teamRef, in, nil, idempotencyKey)
+	return v, err == nil && !created, err
+}
+
+// EnsureByKey returns the team's agent with this external key, creating it
+// the first time: in a shared team a service-managed agent (editor service
+// accounts only), in a personal workspace the owner's agent (its owner
+// only; authz.CheckKeyedAgentCreate). in names a new agent; an existing one
+// is returned as it is. created reports which.
 func (s *Service) EnsureByKey(ctx context.Context, a authz.Actor, teamRef, key string, in CreateInput) (View, bool, error) {
 	if !externalKeyRE.MatchString(key) {
 		return View{}, false, errBadKey
@@ -281,10 +291,10 @@ func (s *Service) EnsureByKey(ctx context.Context, a authz.Actor, teamRef, key s
 			in.Name = in.Name[:100]
 		}
 	}
-	return s.createInTeam(ctx, a, teamRef, in, &key)
+	return s.createInTeam(ctx, a, teamRef, in, &key, "")
 }
 
-func (s *Service) createInTeam(ctx context.Context, a authz.Actor, teamRef string, in CreateInput, key *string) (View, bool, error) {
+func (s *Service) createInTeam(ctx context.Context, a authz.Actor, teamRef string, in CreateInput, key *string, idempotencyKey string) (View, bool, error) {
 	in.Name = strings.TrimSpace(in.Name)
 	if n := utf8.RuneCountInString(in.Name); n < 1 || n > 100 || strings.ContainsAny(in.Name, "\r\n\x00") {
 		return View{}, false, errBadName
@@ -306,12 +316,23 @@ func (s *Service) createInTeam(ctx context.Context, a authz.Actor, teamRef strin
 		if role == "" {
 			return errTeamNotFound
 		}
+		personal := t.Kind == teams.KindPersonal
 		if key != nil {
-			if err := authz.CheckServiceManagedCreate(a.Service != nil, role); err != nil {
+			if err := authz.CheckKeyedAgentCreate(a.Service != nil, role, personal); err != nil {
 				return err
 			}
 		} else if err := authz.CheckTeamAgentCreate(role); err != nil {
 			return err
+		}
+		if idempotencyKey != "" {
+			// Claimed before the team's lock: a retry waits here for the first request.
+			prev, err := s.idempotentClaim(ctx, q, a, idempotencyKey, createFingerprint(t.ID, in))
+			if err != nil || prev != nil {
+				if prev != nil {
+					out = *prev
+				}
+				return err
+			}
 		}
 		if _, err := q.LockTeam(ctx, t.ID); err != nil {
 			return err
@@ -365,10 +386,15 @@ func (s *Service) createInTeam(ctx context.Context, a authz.Actor, teamRef strin
 		}
 		ag, err := s.insert(ctx, q, a, dbgen.InsertAgentParams{
 			TeamID: t.ID, TemplateID: tpl.ID, TemplateVersion: tpl.CurrentVersion, Name: in.Name, Description: desc, ExternalKey: key,
-			ModelID: modelID,
+			ModelID: modelID, ServiceManaged: key != nil && !personal,
 		})
 		if err != nil {
 			return err
+		}
+		if idempotencyKey != "" {
+			if err := completeIdempotent(ctx, q, a, idempotencyKey, ag.ID); err != nil {
+				return err
+			}
 		}
 		created = true
 		out, err = s.view(ctx, q, ag)
@@ -454,6 +480,9 @@ func snapshot(ag dbgen.Agent) map[string]any {
 	}
 	if ag.ExternalKey != nil {
 		m["externalKey"] = *ag.ExternalKey
+	}
+	if ag.ServiceManaged {
+		m["serviceManaged"] = true
 	}
 	return m
 }

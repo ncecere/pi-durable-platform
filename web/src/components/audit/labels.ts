@@ -53,6 +53,7 @@ export const actionLabels: Record<string, string> = {
   "agent.create": "Deployed agent",
   "agent.update": "Changed agent",
   "agent.delete": "Deleted agent",
+  "agent.move": "Moved agent to another team",
   "agent_template.create": "Created template",
   "agent_template.update": "Changed template",
   "agent_template.version": "Added template version",
