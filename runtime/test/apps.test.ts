@@ -13,7 +13,7 @@ import {
 	defineExtension,
 	defineTool,
 	MAX_DETAILS_BYTES,
-	PI_DURABLE_VERSION,
+	CONTRACT_VERSION, PI_DURABLE_VERSION,
 	refusedHandler,
 	RuntimeRefusedError,
 	Type,
@@ -214,7 +214,7 @@ describe("the upgrade check", () => {
 	it("reports the runtime's versions before the storage is opened, and starts when the platform agrees", async () => {
 		const gw = await gateway(() => ({ status: 200, body: { data: { ok: true } } }));
 		const agent = await start(boardAgent(), { env: { PLATFORM_GATEWAY_URL: gw.url, PLATFORM_KEY: "agent-1.key" } });
-		expect(gw.calls[0]).toEqual({ path: "/runtime/start", body: { contractVersion: 1, piDurableVersion: PI_DURABLE_VERSION }, authorization: "Bearer agent-1.key" });
+		expect(gw.calls[0]).toEqual({ path: "/runtime/start", body: { contractVersion: CONTRACT_VERSION, piDurableVersion: PI_DURABLE_VERSION }, authorization: "Bearer agent-1.key" });
 		await agent.send("t", "hi");
 		await agent.settled("t");
 	});
@@ -258,7 +258,7 @@ describe("the upgrade check", () => {
 		expect((await fetch(`${base}/healthz`)).status).toBe(200);
 		expect((await fetch(`${base}/status`)).status).toBe(401);
 		const status = (await (await fetch(`${base}/status`, { headers: auth })).json()) as { data: Record<string, unknown> };
-		expect(status.data).toMatchObject({ agentId: "a1", busyThreads: 0, openStreams: 0, contractVersion: 1, piDurableVersion: PI_DURABLE_VERSION, refused: { code: "runtime_too_old", message: "too old" } });
+		expect(status.data).toMatchObject({ agentId: "a1", busyThreads: 0, openStreams: 0, contractVersion: CONTRACT_VERSION, piDurableVersion: PI_DURABLE_VERSION, refused: { code: "runtime_too_old", message: "too old" } });
 		const send = await fetch(`${base}/threads/t/messages`, { method: "POST", headers: auth, body: "{}" });
 		expect(send.status).toBe(409);
 		expect(((await send.json()) as { error: { code: string; message: string } }).error).toEqual({ code: "runtime_too_old", message: "too old" });
