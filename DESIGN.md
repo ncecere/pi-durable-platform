@@ -546,7 +546,9 @@ The reasoning is in [docs/agent-keys-and-moves.md](docs/agent-keys-and-moves.md)
 - **Keys in a personal workspace.** `PUT …/agents/by-key/{key}` is editor service accounts' in shared teams (the
   agent is service-managed, `agents.service_managed`), and the owner's in their personal workspace by any of their
   credentials, apps included (the agent is the workspace's, not service-managed). Anyone else: 403 in a shared team,
-  404 in someone else's workspace.
+  404 in someone else's workspace. The database keeps the rule itself (a trigger, migration 00020): a keyed agent in a
+  team that isn't a personal workspace is service-managed whoever writes the row, so one a v0.2 replica creates during
+  a rolling upgrade (its insert doesn't name the column) is too.
 - **Moving.** `POST /v1/agents/{id}/move {team, modelId?}` (If-Match) and its dry run `GET …/move?team=` (the same
   authorization; counts of shared and private threads and who gains and loses access, the key dropped, servers that
   stop applying, and blockers with their error codes). People who are owners or admins of both teams; a personal
@@ -847,7 +849,10 @@ with the inventory of what each replica keeps). In short:
   predates `openStreams` is judged by its own replica's streams until it restarts.
 - **Waking is serialised by a lock per agent.** A running agent costs one `Launcher.Lookup`; starting one takes an
   advisory lock (`pdp.agent-wake:<id>`) and calls `Ensure`, which re-checks under the lock, so two replicas waking an
-  agent start one runtime.
+  agent start one runtime. The runtime starts with the agent's spec read from the database under the lock, not the
+  one the request built when it was authorized, and a stop on request (a move, a change, a hibernate) takes the same
+  lock: a request in flight never restarts an agent with the configuration a change stopped (a moved agent with the
+  old team's model key and MCP servers).
 - Launchers: `kubernetes` and `agent-sandbox` share their state through the Kubernetes API. `local` is one process.
 - Not shared, and fine: caches with a TTL (OIDC discovery, OAuth client metadata documents and logos, team connections).
   A consent page's logo is a second request that may reach a replica that has not cached the app's document, and then

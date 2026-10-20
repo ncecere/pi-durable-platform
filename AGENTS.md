@@ -35,7 +35,9 @@ Postgres required), `make generate`, `make check-generated`, `make actionlint`, 
   ```
 
   Without `PDP_TEST_REQUIRE_DB=1` they skip silently when Postgres is unreachable: a green run without it proves
-  little. `PDP_TEST_LOG=1` shows the server's logs.
+  little. `PDP_TEST_LOG=1` shows the server's logs. `PDP_TEST_POOL_MAX_CONNS=4` gives each test app a pool as small as a small CI
+  runner's (pgx defaults to max(4, CPUs)): a test that passes here and hangs in CI may be holding connections from the
+  app's pool while the app's requests wait (give the test's own connections a pool of their own).
 - Runtime (`runtime/`): `pnpm install`, `pnpm exec tsc --noEmit`, `pnpm test`. The tests use the compose Postgres
   (`PDP_TEST_DATABASE_URL`, default database `pdp`) and create and drop their own schemas and roles. Run them after
   any change to `runtime/src`, and keep the storage conformance suite passing before touching the pi-durable pin.

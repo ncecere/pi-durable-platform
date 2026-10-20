@@ -37,6 +37,10 @@ type Locker interface {
 	TryLock(ctx context.Context, key string) (release func(), ok bool, err error)
 }
 
+// ErrDisabled: the agent was turned off after the request that wakes it was
+// authorized; it isn't started.
+var ErrDisabled = errors.New("the agent is turned off")
+
 const (
 	// wakeLockPrefix + the agent's ID names the lock that serialises starting
 	// that agent across replicas.
@@ -68,8 +72,10 @@ type Manager struct {
 	// Metrics counts wakes, hibernations and the agents running (nil: none).
 	Metrics *metrics.Metrics
 
-	// Resolve returns an agent's current spec (used by the reaper to find a
-	// runtime's token after a platform restart). Optional.
+	// Resolve returns an agent's current spec, from the database: what a start
+	// runs (under the agent's start lock), and how the reaper finds a
+	// runtime's token after a platform restart. Optional (tests): without it a
+	// start runs the caller's spec.
 	Resolve func(ctx context.Context, agentID string) (launcher.Spec, error)
 
 	mu        sync.Mutex
@@ -151,38 +157,75 @@ func wakeResult(err error) string {
 
 // wake is Wake without the instrumentation.
 //
-// A running agent costs one Lookup. Starting one happens under a database
-// lock per agent, so two replicas waking it at the same moment start one
-// runtime: the second waits, then finds it running. The launcher's Ensure is
+// A running agent costs one Lookup. Starting one happens under the agent's
+// start lock (startLock: this process's gate, then a database lock shared by
+// replicas), so two replicas waking it at the same moment start one runtime:
+// the second waits, then finds it running. The launcher's Ensure is
 // idempotent and runs under the lock, which is the re-check.
+//
+// The runtime starts with the agent's spec as Resolve finds it under the
+// lock, not with the caller's: the caller built its spec when it authorized
+// the request, and the agent may have changed since (a move to another team,
+// whose stop takes the same lock: Hibernate). A start therefore never brings
+// back the configuration a change stopped.
 func (m *Manager) wake(ctx context.Context, spec launcher.Spec) (launcher.Endpoint, error) {
-	if m.locker == nil {
-		return m.launcher.Ensure(ctx, spec)
-	}
 	if ep, ok := m.lookup(ctx, spec); ok {
 		return ep, nil
 	}
-	// Requests of this replica for the same agent queue here, so that only
-	// one of them waits on the database lock.
-	gate := m.gate(spec.AgentID)
-	defer m.ungate(spec.AgentID, gate)
+	var ep launcher.Endpoint
+	started := func() (ok bool) { // a request ahead of us started it
+		ep, ok = m.lookup(ctx, spec)
+		return ok
+	}
+	release, err := m.startLock(ctx, spec.AgentID, started)
+	if err != nil || release == nil {
+		return ep, err
+	}
+	defer release()
+	if m.Resolve != nil {
+		if spec, err = m.Resolve(ctx, spec.AgentID); err != nil {
+			return launcher.Endpoint{}, fmt.Errorf("the agent's current spec: %w", err)
+		}
+	}
+	if spec.Disabled {
+		return launcher.Endpoint{}, ErrDisabled
+	}
+	return m.launcher.Ensure(ctx, spec)
+}
+
+// startLock takes the agent's start lock and returns its release. Requests of
+// this process for the same agent queue on its gate, so that only one of them
+// waits on the database lock (taken when there is a locker: several
+// replicas). done (optional) is asked once this request's turn has come: when
+// it says the work is done (a request ahead of this one started the agent),
+// nothing is held and release is nil.
+func (m *Manager) startLock(ctx context.Context, agentID string, done func() bool) (release func(), err error) {
+	gate := m.gate(agentID)
 	select {
 	case gate.ch <- struct{}{}:
-		defer func() { <-gate.ch }()
 	case <-ctx.Done():
-		return launcher.Endpoint{}, ctx.Err()
+		m.ungate(agentID, gate)
+		return nil, ctx.Err()
 	}
-	if ep, ok := m.lookup(ctx, spec); ok { // a request ahead of us started it
-		return ep, nil
+	unGate := func() {
+		<-gate.ch
+		m.ungate(agentID, gate)
+	}
+	if done != nil && done() {
+		unGate()
+		return nil, nil
+	}
+	if m.locker == nil {
+		return unGate, nil
 	}
 	lctx, cancel := context.WithTimeout(ctx, startLockWait)
 	defer cancel()
-	release, err := m.locker.Lock(lctx, wakeLockPrefix+spec.AgentID)
+	unlock, err := m.locker.Lock(lctx, wakeLockPrefix+agentID)
 	if err != nil {
-		return launcher.Endpoint{}, fmt.Errorf("wait to start the agent: %w", err)
+		unGate()
+		return nil, fmt.Errorf("wait for the agent's start lock: %w", err)
 	}
-	defer release()
-	return m.launcher.Ensure(ctx, spec)
+	return func() { unlock(); unGate() }, nil
 }
 
 // lookup is the launcher's cheap check; an error counts as "not running" and
@@ -219,9 +262,16 @@ func (m *Manager) ungate(agentID string, g *startGate) {
 }
 
 // Hibernate stops the agent's runtime now (on request: an explicit hibernate,
-// or a change to the agent that restarts it).
+// or a change to the agent that restarts it). It takes the agent's start lock,
+// so a start under way (which may have resolved the agent before the change)
+// finishes first and is stopped too, and a start after it resolves the agent
+// as changed.
 func (m *Manager) Hibernate(ctx context.Context, agentID string) error {
-	err := m.launcher.Stop(ctx, agentID)
+	release, err := m.startLock(ctx, agentID, nil)
+	if err == nil {
+		err = m.launcher.Stop(ctx, agentID)
+		release()
+	}
 	m.Metrics.Hibernation("request", err)
 	return err
 }
@@ -254,6 +304,10 @@ func (m *Manager) touch(agentID string) {
 // forwarded.
 func (m *Manager) Proxy(w http.ResponseWriter, r *http.Request, spec launcher.Spec, path string) {
 	ep, err := m.Wake(r.Context(), spec)
+	if errors.Is(err, ErrDisabled) {
+		writeError(w, http.StatusConflict, "agent_disabled", "This agent is turned off")
+		return
+	}
 	if err != nil {
 		m.log.Warn("agent wake failed", "agent", spec.AgentID, "err", err)
 		writeError(w, http.StatusServiceUnavailable, "agent_unavailable", "The agent could not be started. Try again shortly.")

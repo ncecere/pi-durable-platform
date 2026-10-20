@@ -4699,7 +4699,7 @@ components:
       name: q
       in: query
       required: false
-      description: Case-insensitive substring match
+      description: Case-insensitive substring match. Valid UTF-8 without NUL characters (else 400 invalid_query).
       schema:
         type: string
         maxLength: 200

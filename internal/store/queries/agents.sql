@@ -13,6 +13,12 @@ SELECT * FROM agents WHERE id = $1;
 -- name: LockAgent :one
 SELECT * FROM agents WHERE id = $1 FOR UPDATE;
 
+-- name: ShareLockAgentTeam :one
+-- The agent's team, its row locked FOR KEY SHARE until the transaction ends:
+-- a move (LockAgent, FOR UPDATE) waits for the transaction, and the
+-- transaction for a move under way, after which it reads the new team.
+SELECT team_id FROM agents WHERE id = $1 FOR KEY SHARE;
+
 -- name: ListAgentsForUser :many
 -- The agents of the teams the person belongs to (service-managed ones only
 -- for teams where they are an owner or admin, and only when asked; agents

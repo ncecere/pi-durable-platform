@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ncecere/pi-durable-platform/internal/authz"
+	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
 	"github.com/ncecere/pi-durable-platform/internal/testutil"
@@ -27,8 +28,11 @@ type moveEnv struct {
 	userWS                   string
 }
 
-func newMoveEnv(t *testing.T) *moveEnv {
-	app := newTestAppWith(t, nil, testutil.Logger(), nil, true)
+func newMoveEnv(t *testing.T) *moveEnv { return newMoveEnvWith(t, nil) }
+
+// newMoveEnvWith is newMoveEnv with a configuration change.
+func newMoveEnvWith(t *testing.T, mutate func(*config.Config)) *moveEnv {
+	app := newTestAppWith(t, mutate, testutil.Logger(), nil, true)
 	e := &moveEnv{t: t, app: app, admin: app.signIn("admin"), auditor: app.signIn("auditor"), user: app.signIn("user"),
 		alex: app.signIn("alex"), blair: app.signIn("blair"), casey: app.signIn("casey")}
 	createTeam(t, e.admin, "tools", "user@localhost")

@@ -162,12 +162,20 @@ func (s *Service) CheckThreadServers(clientMCP bool, servers []ClientServer) err
 // SetThreadServers replaces a thread's client servers (an empty list removes
 // them). clientMCP is whether the agent's template version allows them; call
 // it after authorizing the caller for the agent and after the thread's record
-// exists (agent_threads: the servers go with it when it is deleted).
-func (s *Service) SetThreadServers(ctx context.Context, agentID uuid.UUID, threadID string, clientMCP bool, servers []ClientServer) error {
+// exists (agent_threads: the servers go with it when it is deleted). recheck
+// (optional) runs first in the writing transaction: the caller's re-check of
+// what it authorized, under a lock that holds until the write commits.
+func (s *Service) SetThreadServers(ctx context.Context, agentID uuid.UUID, threadID string, clientMCP bool, servers []ClientServer,
+	recheck func(context.Context, *dbgen.Queries) error) error {
 	if err := s.CheckThreadServers(clientMCP, servers); err != nil {
 		return err
 	}
 	return store.InTx(ctx, s.pool, func(q *dbgen.Queries, _ pgx.Tx) error {
+		if recheck != nil {
+			if err := recheck(ctx, q); err != nil {
+				return err
+			}
+		}
 		keep := []string{}
 		for _, cs := range servers {
 			slug := SlugFrom(cs.Name)

@@ -332,6 +332,20 @@ func (q *Queries) LockAgent(ctx context.Context, id uuid.UUID) (Agent, error) {
 	return i, err
 }
 
+const shareLockAgentTeam = `-- name: ShareLockAgentTeam :one
+SELECT team_id FROM agents WHERE id = $1 FOR KEY SHARE
+`
+
+// The agent's team, its row locked FOR KEY SHARE until the transaction ends:
+// a move (LockAgent, FOR UPDATE) waits for the transaction, and the
+// transaction for a move under way, after which it reads the new team.
+func (q *Queries) ShareLockAgentTeam(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, shareLockAgentTeam, id)
+	var team_id uuid.UUID
+	err := row.Scan(&team_id)
+	return team_id, err
+}
+
 const touchAgent = `-- name: TouchAgent :exec
 UPDATE agents SET last_used_at = now()
 WHERE id = $1 AND (last_used_at IS NULL OR last_used_at < now() - interval '1 minute')

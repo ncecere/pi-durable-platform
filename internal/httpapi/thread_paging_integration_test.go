@@ -137,6 +137,9 @@ func TestAgentThreadPaging(t *testing.T) {
 		"cursor=%21%21":                 "invalid_cursor",
 		"cursor=" + forged:              "invalid_cursor",
 		"q=" + strings.Repeat("a", 201): "invalid_search",
+		"q=a%00b":                       "invalid_query", // Postgres refuses NUL in text
+		"q=%FF%FE":                      "invalid_query", // not UTF-8
+		"q=caf%C3":                      "invalid_query", // a truncated sequence
 	} {
 		code, ec := e.member.call("GET", base+"/threads?"+query, nil, nil, nil)
 		mustCode(t, query, code, ec, 400, want)

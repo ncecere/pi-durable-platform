@@ -70,16 +70,17 @@ func TestWakeAndHibernationMetrics(t *testing.T) {
 	if _, err := mgr.Wake(ctx, launcher.Spec{AgentID: "a1"}); err != nil {
 		t.Fatal(err)
 	}
+	// Starts (a2 isn't running) that fail.
 	l.err = errors.New("boom with a secret url http://user:pw@host/")
-	if _, err := mgr.Wake(ctx, launcher.Spec{AgentID: "a1"}); err == nil {
+	if _, err := mgr.Wake(ctx, launcher.Spec{AgentID: "a2"}); err == nil {
 		t.Fatal("no error")
 	}
 	l.err = context.DeadlineExceeded
-	_, _ = mgr.Wake(ctx, launcher.Spec{AgentID: "a1"})
+	_, _ = mgr.Wake(ctx, launcher.Spec{AgentID: "a2"})
 	cctx, cancel := context.WithCancel(ctx)
 	cancel()
 	l.err = context.Canceled
-	_, _ = mgr.Wake(cctx, launcher.Spec{AgentID: "a1"})
+	_, _ = mgr.Wake(cctx, launcher.Spec{AgentID: "a2"})
 
 	_ = mgr.Hibernate(ctx, "a1")
 	l.stopErr = errors.New("nope")

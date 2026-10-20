@@ -121,6 +121,10 @@ are out of reach until the creator joins (counted). Platform admins can still re
 | Usage already recorded | Stays with the old team (`model_usage.team_id`) | It was the old team's cost; new usage is the new team's. |
 
 The runtime is hibernated after the move, so it starts with the new team's models and servers on the next request.
+The stop takes the agent's start lock after the commit, and every start reads the agent's spec under that lock, so a
+request authorized before the move can't restart it with the old team's configuration. A write of a thread's MCP servers
+locks the agent's row and re-checks its team in its transaction: it finishes before the move (which then removes its
+servers) or waits for it and is refused (404).
 
 **Audit.** `agent.move` (target `agent`) in both teams' logs, so the owners of each see it, with the agent before and
 after (including the team), the teams' slugs, the thread counts, the dropped key and the number of thread MCP servers

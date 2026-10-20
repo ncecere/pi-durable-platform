@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -178,7 +179,14 @@ func (s *Service) Move(ctx context.Context, a authz.Actor, id uuid.UUID, targetR
 	})
 	if err == nil {
 		// It starts with the target team's model and servers on the next request.
-		_ = s.host.Hibernate(ctx, id.String())
+		// Hibernate waits for a start under way (which may have read the agent
+		// before the commit) and stops it too; a later start reads the agent as
+		// moved (agenthost.Manager.Hibernate). Not cut short by the caller
+		// leaving: the runtime must not go on with the old team's configuration.
+		if herr := s.host.Hibernate(context.WithoutCancel(ctx), id.String()); herr != nil {
+			slog.Warn("stop a moved agent's runtime: it keeps the old team's configuration until it goes idle",
+				"agent", id, "err", herr)
+		}
 		out.Running = false
 	}
 	return out, err

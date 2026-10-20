@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -86,11 +87,16 @@ func pageLimit(w http.ResponseWriter, r *http.Request) (int32, bool) {
 	return int32(n), true
 }
 
-// search reads ?q=, trimmed; empty means no filter.
+// search reads ?q=, trimmed; empty means no filter. It must be valid UTF-8
+// without NUL characters (PostgreSQL refuses either in text).
 func search(w http.ResponseWriter, r *http.Request) (*string, bool) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
 		return nil, true
+	}
+	if !utf8.ValidString(q) || strings.ContainsRune(q, 0) {
+		httpx.Error(w, http.StatusBadRequest, "invalid_query", "Search text must be valid UTF-8 without NUL characters")
+		return nil, false
 	}
 	if len(q) > 200 {
 		httpx.Error(w, http.StatusBadRequest, "invalid_search", "Search text is too long")
