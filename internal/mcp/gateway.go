@@ -210,9 +210,9 @@ type target struct {
 	metric string
 	// thread is the thread an app's server belongs to ("" for others).
 	thread string
-	// identity: send the identity token (a catalog server in proxy mode
-	// with Send identity on), for audience (its URL when ""), with the
-	// person's email when email.
+	// identity: send the identity token (a platform or team server in
+	// proxy mode with Send identity on; never an app's), for audience (its
+	// URL when ""), with the person's email when email.
 	identity bool
 	audience string
 	email    bool
@@ -366,6 +366,7 @@ func (s *Service) relay(w http.ResponseWriter, r *http.Request, ag Agent, kind s
 			// Never the token or key material: the error says which step failed.
 			log.Error("mcp proxy: identity token", "agent", ag.ID, "server", t.serverName, "err", err)
 			gatewayError(w, http.StatusServiceUnavailable, "identity_unavailable", "The platform couldn't sign the identity token for this MCP server")
+			s.logCalls(ag, t, calls, false, time.Now(), log)
 			return
 		}
 		up.Header.Set(mcpidentity.Header, token)
