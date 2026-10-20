@@ -455,7 +455,7 @@ export interface paths {
         put?: never;
         /**
          * Read an exposed document of any conversation, with a reason (platform admins)
-         * @description A document is part of the conversation: platform admins read it only this way, like the conversation itself (adminReadAgentThread). Each read is recorded as thread.admin_read in the agent's team's audit log, with the reason and the document's kind, before the document is returned.
+         * @description A document is part of the conversation: platform admins read it only this way, like the conversation itself (adminReadAgentThread). Each read is recorded as thread.admin_read in the agent's team's audit log, with the reason, the document's kind and the outcome (read, not_found, failed), before it is answered, whether it found a document or not. A thread the agent doesn't have and a kind it doesn't expose are the same 404 document_not_found.
          */
         post: operations["adminReadAgentThreadDocument"];
         delete?: never;

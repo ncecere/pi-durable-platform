@@ -230,7 +230,9 @@ reasoned, audited read):
   The thread's view lists its exposed documents with their revisions (`documents: {kind: {revision}}`, in whole views
   too), and the delta stream sends `document.updated` (`kind`, `revision`) when one changes; the event never carries
   the document. Platform admins read one with a reason (`POST /v1/admin/agents/{agent}/threads/{thread}/documents/{kind}/read`),
-  recorded as `thread.admin_read` with the document's kind.
+  recorded as `thread.admin_read` with the document's kind and the outcome (`read`, `not_found`, `failed`): every
+  attempt is recorded, and a missing thread or kind is the same `404 document_not_found`, so staff learn nothing about
+  which exist.
 
 **Session documents are not exposed.** A session document is one per agent, shared by every thread: reading it through
 a thread would show other threads' state, private ones included, to anyone who can read that thread, and reading it

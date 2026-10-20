@@ -148,10 +148,20 @@ func TestThreadDocuments(t *testing.T) {
 		log.Items[0].TargetId != ag.Id.String()+"/p1" {
 		t.Fatalf("team audit %d %+v", code, log)
 	}
-	code, ec = e.admin.call("POST", "/v1/admin/agents/"+ag.Id.String()+"/threads/p1/documents/probe.hidden/read", map[string]any{"reason": "Checking another document"}, nil, nil)
-	mustCode(t, "an admin reads an unexposed document", code, ec, 404, "document_not_found")
-	if n := e.scalar(`SELECT count(*)::text FROM audit_log WHERE action = 'thread.admin_read'`); n != "1" {
+	// Reads that find nothing are recorded too, and a missing thread and a missing kind answer alike.
+	for _, path := range []string{"p1/documents/probe.hidden", "nope/documents/probe.board", "nope/documents/probe.hidden"} {
+		code, ec = e.admin.call("POST", "/v1/admin/agents/"+ag.Id.String()+"/threads/"+path+"/read", map[string]any{"reason": "Checking another document"}, nil, nil)
+		mustCode(t, "an admin reads "+path, code, ec, 404, "document_not_found")
+	}
+	if n := e.scalar(`SELECT count(*)::text FROM audit_log WHERE action = 'thread.admin_read'`); n != "4" {
 		t.Fatalf("admin reads recorded: %s", n)
+	}
+	if n := e.scalar(`SELECT count(*)::text FROM audit_log WHERE action = 'thread.admin_read' AND metadata->>'outcome' = 'not_found'
+		AND metadata->>'reason' = 'Checking another document'`); n != "3" {
+		t.Fatalf("reads that found nothing recorded: %s", n)
+	}
+	if n := e.scalar(`SELECT count(*)::text FROM audit_log WHERE action = 'thread.admin_read' AND metadata->>'outcome' = 'read'`); n != "1" {
+		t.Fatalf("the read recorded: %s", n)
 	}
 
 	// A shared thread: a change to the board is announced in both stream formats.
