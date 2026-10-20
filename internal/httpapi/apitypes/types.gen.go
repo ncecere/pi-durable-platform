@@ -254,6 +254,7 @@ func (e ChatAuthorKind) Valid() bool {
 
 // Defines values for ChatDeltaEventType.
 const (
+	DocumentUpdated ChatDeltaEventType = "document.updated"
 	MessageAdded    ChatDeltaEventType = "message.added"
 	MessageUpdated  ChatDeltaEventType = "message.updated"
 	PartialAppended ChatDeltaEventType = "partial.appended"
@@ -271,6 +272,8 @@ const (
 // Valid indicates whether the value is a known member of the ChatDeltaEventType enum.
 func (e ChatDeltaEventType) Valid() bool {
 	switch e {
+	case DocumentUpdated:
+		return true
 	case MessageAdded:
 		return true
 	case MessageUpdated:
@@ -1458,8 +1461,14 @@ type Agent struct {
 	// Running Whether its runtime is up now (it hibernates when idle and wakes on the next request)
 	Running bool `json:"running"`
 
+	// RuntimeRefused The platform refused to start the agent on its runtime, which is older than the one that last wrote its data (absent: no refusal since the last start). Requests that wake it answer 409 runtime_too_old.
+	RuntimeRefused *AgentRuntimeRefusal `json:"runtimeRefused,omitempty"`
+
 	// ServiceManaged An app's agent for one of its users (made by a service account with an external key, in a shared team): only the team's service accounts use it. An agent with a key in a personal workspace is not.
-	ServiceManaged bool               `json:"serviceManaged"`
+	ServiceManaged bool `json:"serviceManaged"`
+
+	// StorageVersion The newest pi-durable version that has written the agent's storage, as its runtimes reported it (absent: none recorded yet). The platform refuses to start the agent on a runtime with an older one.
+	StorageVersion *string            `json:"storageVersion,omitempty"`
 	TeamId         openapi_types.UUID `json:"teamId"`
 	TeamName       string             `json:"teamName"`
 	TeamSlug       string             `json:"teamSlug"`
@@ -1619,6 +1628,19 @@ type AgentMoveTeam struct {
 
 // AgentMoveTeamKind defines model for AgentMoveTeam.Kind.
 type AgentMoveTeamKind string
+
+// AgentRuntimeRefusal Why the agent's runtime was refused (the upgrade check, docs/custom-agents.md)
+type AgentRuntimeRefusal struct {
+	// At When the latest start was refused
+	At      time.Time `json:"at"`
+	Message string    `json:"message"`
+
+	// RuntimeVersion The refused runtime's pi-durable version (empty - it reported none)
+	RuntimeVersion string `json:"runtimeVersion"`
+
+	// StorageVersion The pi-durable version that has written the agent's storage
+	StorageVersion string `json:"storageVersion"`
+}
 
 // AgentTemplate defines model for AgentTemplate.
 type AgentTemplate struct {
@@ -2076,8 +2098,17 @@ type ChatDeltaEvent struct {
 	Busy   *bool   `json:"busy,omitempty"`
 	CallId *string `json:"callId,omitempty"`
 
+	// Details tool.updated and tool.finished - the tool's new details (null - none)
+	Details interface{} `json:"details,omitempty"`
+
+	// DetailsOmitted tool.updated and tool.finished - whether the details are now too large to send
+	DetailsOmitted *bool `json:"detailsOmitted,omitempty"`
+
 	// ElapsedMs How long the tool call had run when the event was sent
-	ElapsedMs      *int64       `json:"elapsedMs,omitempty"`
+	ElapsedMs *int64 `json:"elapsedMs,omitempty"`
+
+	// Kind document.updated - the document's kind
+	Kind           *string      `json:"kind,omitempty"`
 	Message        *ChatMessage `json:"message,omitempty"`
 	Output         *string      `json:"output,omitempty"`
 	OutputAppended *string      `json:"outputAppended,omitempty"`
@@ -2085,7 +2116,10 @@ type ChatDeltaEvent struct {
 		Text     string `json:"text"`
 		Thinking string `json:"thinking"`
 	} `json:"partial,omitempty"`
-	Seq int64 `json:"seq"`
+
+	// Revision document.updated - its new revision
+	Revision *string `json:"revision,omitempty"`
+	Seq      int64   `json:"seq"`
 
 	// StartedAt When the tool call started (Unix milliseconds)
 	StartedAt *int64  `json:"startedAt,omitempty"`
@@ -2108,6 +2142,12 @@ type ChatDeltaEvent struct {
 // ChatDeltaEventType defines model for ChatDeltaEvent.Type.
 type ChatDeltaEventType string
 
+// ChatDocumentRef defines model for ChatDocumentRef.
+type ChatDocumentRef struct {
+	// Revision Changes when the document does (a hash of its content)
+	Revision string `json:"revision"`
+}
+
 // ChatMessage defines model for ChatMessage.
 type ChatMessage struct {
 	// At When the message was sent or the reply started (Unix milliseconds)
@@ -2115,6 +2155,12 @@ type ChatMessage struct {
 
 	// Author Who sent a user message, as the platform recorded it (a trigger - an unattended run; id is the trigger's)
 	Author *ChatAuthor `json:"author,omitempty"`
+
+	// Details A tool result's details: structured data the tool returned for UIs (any JSON, at most 16 KiB; larger ones are left out and detailsOmitted is true). Not shown to the model.
+	Details interface{} `json:"details,omitempty"`
+
+	// DetailsOmitted The tool's details were larger than 16 KiB and left out
+	DetailsOmitted *bool `json:"detailsOmitted,omitempty"`
 
 	// Error An assistant reply that failed or was interrupted
 	Error   *string    `json:"error,omitempty"`
@@ -2161,10 +2207,16 @@ type ChatToolCall struct {
 
 // ChatToolSlot defines model for ChatToolSlot.
 type ChatToolSlot struct {
-	CallId string  `json:"callId"`
-	Name   string  `json:"name"`
-	Output *string `json:"output,omitempty"`
-	Status string  `json:"status"`
+	CallId string `json:"callId"`
+
+	// Details What the running tool has published for UIs so far (JSON, at most 16 KiB)
+	Details interface{} `json:"details,omitempty"`
+
+	// DetailsOmitted The details were larger than 16 KiB and left out
+	DetailsOmitted *bool   `json:"detailsOmitted,omitempty"`
+	Name           string  `json:"name"`
+	Output         *string `json:"output,omitempty"`
+	Status         string  `json:"status"`
 }
 
 // ChatUsage Tokens of one model response
@@ -2179,6 +2231,9 @@ type ChatUsage struct {
 // ChatView defines model for ChatView.
 type ChatView struct {
 	Busy bool `json:"busy"`
+
+	// Documents The documents the agent exposes that the conversation has, by kind, with their revisions (absent when it has none). Read one with getAgentThreadDocument.
+	Documents *map[string]ChatDocumentRef `json:"documents,omitempty"`
 
 	// EarlierCursor Paged reads only; pass it as `before` for the earlier messages (absent when there are none)
 	EarlierCursor *string       `json:"earlierCursor,omitempty"`
@@ -3051,6 +3106,20 @@ type TeamView struct {
 	Team Team      `json:"team"`
 }
 
+// ThreadDocument An exposed document of a conversation
+type ThreadDocument struct {
+	Kind string `json:"kind"`
+
+	// Revision As in the thread's view; changes when the document does
+	Revision string `json:"revision"`
+
+	// Value The document (JSON, at most the size its author exposes, 1 MiB at most)
+	Value map[string]interface{} `json:"value"`
+
+	// Version The version of the document's shape (its definition's; values are migrated to it when read)
+	Version int `json:"version"`
+}
+
 // ThreadMcpServer defines model for ThreadMcpServer.
 type ThreadMcpServer struct {
 	ExpiresAt time.Time `json:"expiresAt"`
@@ -3475,6 +3544,9 @@ type AuditToParam = time.Time
 
 // CursorParam defines model for CursorParam.
 type CursorParam = string
+
+// DocumentKindParam defines model for DocumentKindParam.
+type DocumentKindParam = string
 
 // GrantIdParam defines model for GrantIdParam.
 type GrantIdParam = openapi_types.UUID
@@ -3990,6 +4062,9 @@ type GetTeamUsageParamsGroupBy string
 
 // DevLoginJSONRequestBody defines body for DevLogin for application/json ContentType.
 type DevLoginJSONRequestBody = DevLoginRequest
+
+// AdminReadAgentThreadDocumentJSONRequestBody defines body for AdminReadAgentThreadDocument for application/json ContentType.
+type AdminReadAgentThreadDocumentJSONRequestBody = AdminThreadRead
 
 // AdminReadAgentThreadJSONRequestBody defines body for AdminReadAgentThread for application/json ContentType.
 type AdminReadAgentThreadJSONRequestBody = AdminThreadRead

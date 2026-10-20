@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { api, errorMessage, ifMatch, unwrap } from "../../../api/client";
 import { terms } from "../../../lib/terms";
+import { Alert } from "@/components/ui/alert/alert";
 import { Button } from "@/components/ui/button/button";
 import { Card } from "@/components/ui/card/card";
 import { CodeBlock } from "@/components/ui/code-block/code-block";
@@ -31,6 +32,14 @@ export function OverviewTab({ agent, abilities }: Props) {
   const status = agentStatus(agent);
   return (
     <Stack gap={4}>
+      {agent.runtimeRefused ? (
+        <Alert tone="danger" title="The agent can't start on its runtime">
+          <p>{agent.runtimeRefused.message}</p>
+          <p className={s.secondary}>
+            Last refused <Time value={agent.runtimeRefused.at} format="relative" />.
+          </p>
+        </Alert>
+      ) : null}
       <Card
         title="Runtime"
         description="The agent runs in its own runtime while it's used and hibernates when idle; the next request wakes it."
@@ -71,8 +80,17 @@ export function OverviewTab({ agent, abilities }: Props) {
             { label: "Tools", value: <AgentToolsValue agent={agent} /> },
             {
               label: "Storage",
-              value:
-                "Its own schema and database role in the agents database. Conversations survive restarts and hibernation.",
+              value: (
+                <span>
+                  Its own schema and database role in the agents database. Conversations survive restarts and
+                  hibernation.
+                  {agent.storageVersion ? (
+                    <span className={s.secondary}>
+                      Written by pi-durable {agent.storageVersion}: it needs a runtime with that version or newer.
+                    </span>
+                  ) : null}
+                </span>
+              ),
             },
             ...(agent.externalKey
               ? [

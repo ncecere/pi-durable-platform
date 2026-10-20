@@ -1,11 +1,29 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type RequestListener, type Server, type ServerResponse } from "node:http";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { type Harness, LiveDoc, type Conversation } from "@earendil-works/pi-durable";
+import { type Conversation, type ConversationDocToken, type ConversationId, type DocumentWatch, type Harness, type JsonObject, LiveDoc } from "@earendil-works/pi-durable";
 import type { ThreadStore } from "./threads.ts";
 import { DELTA_VERSION, DeltaStream } from "./delta.ts";
+import { EXPOSED_KIND } from "./define.ts";
 import { CONTRACT_VERSION, PI_DURABLE_VERSION } from "./version.ts";
-import { AUTHOR_KINDS, type Author, buildMessages, buildView, type ChatMessage, type ChatView, liveParts, type MessagePage, pageView, parsePage, USER_ENTRY, type UserEntryData } from "./view.ts";
+import {
+	AUTHOR_KINDS,
+	type Author,
+	buildMessages,
+	buildView,
+	type ChatDocumentRef,
+	type ChatMessage,
+	type ChatView,
+	liveParts,
+	type MessagePage,
+	pageView,
+	parsePage,
+	USER_ENTRY,
+	type UserEntryData,
+} from "./view.ts";
+
+/** The documents an agent exposes to apps, by kind, with their bounds (define.ts, exposedDocuments). */
+export type ExposedDocuments = ReadonlyMap<string, { document: ConversationDocToken<JsonObject>; maxBytes: number }>;
 
 const ctx = BACKGROUND_CONTEXT;
 const MAX_BODY = 256 * 1024;
@@ -21,6 +39,8 @@ export type RuntimeOptions = {
 	beforeMessage?: (threadId: string, conversation: Conversation) => Promise<void>;
 	/** A message was submitted to the thread (its reply's end is reported to the platform). */
 	afterMessage?: (threadId: string, submissionId: number) => void;
+	/** The conversation documents apps may read (none by default). */
+	documents?: ExposedDocuments;
 };
 
 /**
@@ -35,6 +55,7 @@ export function createRuntimeServer(options: RuntimeOptions): {
 	touch: () => void;
 } {
 	const { harness, threads } = options;
+	const exposed: ExposedDocuments = options.documents ?? new Map();
 	const expected = Buffer.from(`Bearer ${options.token}`);
 	let lastActivity = Date.now();
 	const touch = () => {
@@ -64,7 +85,22 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		const watch = await conversation.watch(ctx);
 		const value = watch.value;
 		await watch.stop();
-		return buildView(value.entries, value.docs["pi.live"] as never);
+		return buildView(value.entries, value.docs["pi.live"] as never, await documentRefs(harness, conversation.id, exposed));
+	};
+
+	/** An exposed document of a thread: GET /threads/{thread}/documents/{kind}. */
+	const readDocument = async (threadId: string, kind: string, response: ServerResponse) => {
+		const conversation = await threads.get(threadId);
+		if (conversation === undefined) return fail(response, 404, "thread_not_found", "Thread not found");
+		const entry = EXPOSED_KIND.test(kind) ? exposed.get(kind) : undefined;
+		// A kind the agent doesn't expose reads as one the thread doesn't have: apps learn nothing about the others.
+		const value = entry === undefined ? undefined : await harness.snapshot(entry.document, conversation.id, ctx);
+		if (entry === undefined || value === undefined || value === null) return fail(response, 404, "document_not_found", "The thread has no such document");
+		const text = JSON.stringify(value);
+		if (Buffer.byteLength(text, "utf8") > entry.maxBytes) {
+			return fail(response, 422, "document_too_large", `The document is larger than the agent exposes (${entry.maxBytes} bytes)`);
+		}
+		return json(response, 200, { kind, version: entry.document.definition.version, revision: revisionOf(text), value });
 	};
 
 	const route = async (request: IncomingMessage, response: ServerResponse) => {
@@ -145,6 +181,10 @@ export function createRuntimeServer(options: RuntimeOptions): {
 			await conversation.abort(ctx);
 			return json(response, 202, { ok: true });
 		}
+		if (method === "GET" && action === "documents" && parts[3] !== undefined && parts.length === 4) {
+			touch();
+			return readDocument(threadId, parts[3], response);
+		}
 		if (method === "GET" && action === "events") {
 			const options = streamOptions(url.searchParams, request.headers["last-event-id"]);
 			if ("error" in options) return fail(response, 400, options.error.code, options.error.message);
@@ -162,6 +202,10 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		const conversation = await threads.get(threadId);
 		if (conversation === undefined) return fail(response, 404, "thread_not_found", "Thread not found");
 		const watch = await conversation.watch(ctx);
+		// The exposed documents are watched too: a change to one is a `document.updated` (deltas), or a view with its
+		// new revision.
+		const docs = new DocumentWatches(harness, conversation.id, exposed);
+		await docs.refresh();
 		response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
 		touch();
 		// The transcript is rebuilt only when the entries changed: a frame that only moves the reply in progress or a
@@ -175,7 +219,8 @@ export function createRuntimeServer(options: RuntimeOptions): {
 				messages = buildMessages(value.entries);
 			}
 			const live = value.docs["pi.live"] as never as Parameters<typeof liveParts>[0];
-			return { view: { busy: live?.run !== undefined, messages, ...liveParts(live) }, changed };
+			const documents = docs.refs();
+			return { view: { busy: live?.run !== undefined, messages, ...liveParts(live), ...(documents === undefined ? {} : { documents }) }, changed };
 		};
 		const deltas = options.format === "delta" ? new DeltaStream(options.limit, options.lastSeq) : undefined;
 		const page: MessagePage | undefined = options.limit === undefined ? undefined : { limit: options.limit };
@@ -192,19 +237,25 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		send(watch.value);
 		if (options.once) {
 			await watch.stop();
+			await docs.stop();
 			response.end();
 			return;
 		}
-		let pending: typeof watch.value | undefined;
+		let latest = watch.value;
 		let timer: NodeJS.Timeout | undefined;
-		watch.start(async (value) => {
+		const schedule = () => {
 			touch();
-			pending = value;
 			timer ??= setTimeout(() => {
 				timer = undefined;
-				if (pending !== undefined) send(pending);
-				pending = undefined;
+				send(latest);
 			}, 100);
+		};
+		docs.onChange = schedule;
+		watch.start(async (value) => {
+			latest = value;
+			// A document a thread didn't have yet (one declared after the thread began) is watched once it exists.
+			await docs.refresh().catch(() => {});
+			schedule();
 		});
 		const keepAlive = setInterval(() => response.write(": keep-alive\n\n"), 15_000);
 		openStreams++;
@@ -213,6 +264,7 @@ export function createRuntimeServer(options: RuntimeOptions): {
 			clearInterval(keepAlive);
 			if (timer !== undefined) clearTimeout(timer);
 			void watch.stop();
+			void docs.stop();
 			if (ended) return;
 			ended = true;
 			openStreams--;
@@ -238,6 +290,83 @@ export function createRuntimeServer(options: RuntimeOptions): {
 }
 
 type StreamOptions = { once: boolean; format: "view" | "delta"; limit?: number; lastSeq: number };
+
+/** A document's revision: a hash of its JSON (equal content, equal revision, on any runtime). */
+export function revisionOf(json: string): string {
+	return createHash("sha256").update(json).digest("base64url").slice(0, 22);
+}
+
+/** The exposed documents a conversation has, with their revisions; undefined when it has none. */
+async function documentRefs(harness: Harness, conversationId: ConversationId, exposed: ExposedDocuments): Promise<Record<string, ChatDocumentRef> | undefined> {
+	let out: Record<string, ChatDocumentRef> | undefined;
+	for (const [kind, { document }] of exposed) {
+		const value = await harness.snapshot(document, conversationId, ctx);
+		if (value === undefined || value === null) continue;
+		(out ??= {})[kind] = { revision: revisionOf(JSON.stringify(value)) };
+	}
+	return out;
+}
+
+/** One event stream's watches of a conversation's exposed documents. */
+class DocumentWatches {
+	private readonly watches = new Map<string, DocumentWatch<JsonObject>>();
+	/** Each document's latest value and its revision (computed once per value). */
+	private readonly latest = new Map<string, { value: unknown; revision: string }>();
+	private stopped = false;
+	/** Called when a watched document changes. */
+	onChange: () => void = () => {};
+
+	constructor(
+		private readonly harness: Harness,
+		private readonly conversationId: ConversationId,
+		private readonly exposed: ExposedDocuments,
+	) {}
+
+	/** Starts watching the exposed documents that exist and aren't watched yet. */
+	async refresh(): Promise<void> {
+		for (const [kind, { document }] of this.exposed) {
+			if (this.stopped || this.watches.has(kind)) continue;
+			const watch = await this.harness.watchDoc(document, this.conversationId, ctx);
+			if (watch === undefined) continue;
+			if (this.stopped) {
+				void watch.stop();
+				return;
+			}
+			this.watches.set(kind, watch);
+			this.note(kind, watch.value);
+			watch.start(async (value) => {
+				this.note(kind, value);
+				this.onChange();
+			});
+			void watch.closed.then(() => {
+				// Retired: forget it; a new incarnation is watched at the next refresh.
+				if (this.watches.get(kind) === watch) {
+					this.watches.delete(kind);
+					this.latest.delete(kind);
+				}
+			});
+		}
+	}
+
+	private note(kind: string, value: unknown): void {
+		if (this.latest.get(kind)?.value === value) return;
+		if (value === null || value === undefined) this.latest.delete(kind);
+		else this.latest.set(kind, { value, revision: revisionOf(JSON.stringify(value)) });
+	}
+
+	refs(): Record<string, ChatDocumentRef> | undefined {
+		let out: Record<string, ChatDocumentRef> | undefined;
+		for (const [kind, { revision }] of this.latest) (out ??= {})[kind] = { revision };
+		return out;
+	}
+
+	async stop(): Promise<void> {
+		this.stopped = true;
+		const watches = [...this.watches.values()];
+		this.watches.clear();
+		await Promise.all(watches.map((watch) => watch.stop().catch(() => {})));
+	}
+}
 
 /**
  * An event stream's options: `once`, `format` (view, the default, or delta), `v` (the delta format's version: 1),

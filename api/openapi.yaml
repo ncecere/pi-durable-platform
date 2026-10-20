@@ -774,6 +774,50 @@ paths:
           $ref: '#/components/responses/ErrorReply'
         '404':
           $ref: '#/components/responses/ErrorReply'
+  /v1/admin/agents/{agentId}/threads/{threadId}/documents/{kind}/read:
+    parameters:
+    - $ref: '#/components/parameters/AgentIdParam'
+    - $ref: '#/components/parameters/ThreadIdParam'
+    - $ref: '#/components/parameters/DocumentKindParam'
+    post:
+      tags:
+      - admin
+      operationId: adminReadAgentThreadDocument
+      summary: Read an exposed document of any conversation, with a reason (platform admins)
+      description: >-
+        A document is part of the conversation: platform admins read it only this way, like the conversation itself
+        (adminReadAgentThread). Each read is recorded as thread.admin_read in the agent's team's audit log, with the
+        reason and the document's kind, before the document is returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminThreadRead'
+      responses:
+        '200':
+          description: The document
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ThreadDocument'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '422':
+          $ref: '#/components/responses/ErrorReply'
+        '502':
+          $ref: '#/components/responses/ErrorReply'
   /v1/admin/agents/{agentId}/threads/{threadId}/read:
     parameters:
     - $ref: '#/components/parameters/AgentIdParam'
@@ -3865,6 +3909,48 @@ paths:
           $ref: '#/components/responses/ErrorReply'
         '503':
           $ref: '#/components/responses/ErrorReply'
+  /v1/agents/{agentId}/threads/{threadId}/documents/{kind}:
+    parameters:
+    - $ref: '#/components/parameters/AgentIdParam'
+    - $ref: '#/components/parameters/ThreadIdParam'
+    - $ref: '#/components/parameters/DocumentKindParam'
+    get:
+      tags:
+      - agents
+      operationId: getAgentThreadDocument
+      summary: A document the agent exposes to apps, as the conversation has it now
+      description: >-
+        Custom agents keep state next to the transcript in documents (docs/custom-agents.md); a conversation document
+        the agent's author marked as exposed can be read here, with exactly the access reading the thread needs
+        (another's private thread is not found; platform staff use adminReadAgentThreadDocument). Wakes the agent like
+        any read. The thread's view lists the exposed documents it has (`documents`, kind to revision), and its event
+        streams say when one changes (`document.updated` in the delta format, a new revision in whole views). A kind
+        the agent doesn't expose, or the thread doesn't have, is 404 document_not_found; one larger than its author's
+        bound is 422 document_too_large (never cut).
+      responses:
+        '200':
+          description: The document
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ThreadDocument'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '422':
+          $ref: '#/components/responses/ErrorReply'
+        '502':
+          $ref: '#/components/responses/ErrorReply'
+        '503':
+          $ref: '#/components/responses/ErrorReply'
   /v1/agents/{agentId}/threads/{threadId}/messages:
     parameters:
     - $ref: '#/components/parameters/AgentIdParam'
@@ -3951,8 +4037,9 @@ paths:
         whose `seq` (also the event's `id`) counts up by one. Types: `message.added`, `message.updated` (replace the
         message with that id), `partial.set`, `partial.appended` (text and thinking to append to the reply in
         progress), `partial.cleared`, `tool.started`, `tool.updated` and `tool.finished` (status, `outputAppended` or
-        `output`; null: none), `tool.removed`, `tools.set`, and `run` (`busy`). Tool events carry `startedAt` and
-        `elapsedMs` (live metadata, not part of the view). Applying the events in order to the snapshot gives the
+        `output`; null: none, and `details`, `detailsOmitted`), `tool.removed`, `tools.set`, `run` (`busy`), and
+        `document.updated` (`kind`, `revision`: an exposed document changed; read it with getAgentThreadDocument).
+        Tool events carry `startedAt` and `elapsedMs` (live metadata, not part of the view). Applying the events in order to the snapshot gives the
         view a new snapshot would; whatever can't be sent as a change (the conversation was compacted or reset) comes
         as a new snapshot. Every connection starts with a snapshot; with `Last-Event-ID` (EventSource sends it when it
         reconnects) its numbering goes on after that ID. A steering message is a `message.added` (a user message)
@@ -5065,6 +5152,14 @@ components:
       schema:
         type: string
         pattern: '^[A-Za-z0-9_-]{1,64}$'
+    DocumentKindParam:
+      name: kind
+      in: path
+      required: true
+      description: An exposed document's kind (as the agent's author defined it, e.g. acme.board)
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
     AuditActionParam:
       name: action
       in: query
@@ -6628,6 +6723,19 @@ components:
           allOf:
           - $ref: '#/components/schemas/AgentModel'
           description: The model it runs on (absent - the platform's default model)
+        storageVersion:
+          type: string
+          nullable: true
+          description: >-
+            The newest pi-durable version that has written the agent's storage, as its runtimes reported it (absent:
+            none recorded yet). The platform refuses to start the agent on a runtime with an older one.
+        runtimeRefused:
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/AgentRuntimeRefusal'
+          description: >-
+            The platform refused to start the agent on its runtime, which is older than the one that last wrote its
+            data (absent: no refusal since the last start). Requests that wake it answer 409 runtime_too_old.
         lastUsedAt:
           type: string
           format: date-time
@@ -6641,6 +6749,23 @@ components:
         updatedAt:
           type: string
           format: date-time
+    AgentRuntimeRefusal:
+      type: object
+      required: [runtimeVersion, storageVersion, at, message]
+      description: Why the agent's runtime was refused (the upgrade check, docs/custom-agents.md)
+      properties:
+        runtimeVersion:
+          type: string
+          description: The refused runtime's pi-durable version (empty - it reported none)
+        storageVersion:
+          type: string
+          description: The pi-durable version that has written the agent's storage
+        at:
+          type: string
+          format: date-time
+          description: When the latest start was refused
+        message:
+          type: string
     AgentCreate:
       type: object
       required: [name]
@@ -7095,6 +7220,13 @@ components:
           description: Tool name (tool results)
         isError:
           type: boolean
+        details:
+          description: >-
+            A tool result's details: structured data the tool returned for UIs (any JSON, at most 16 KiB; larger ones
+            are left out and detailsOmitted is true). Not shown to the model.
+        detailsOmitted:
+          type: boolean
+          description: The tool's details were larger than 16 KiB and left out
         author:
           $ref: '#/components/schemas/ChatAuthor'
         at:
@@ -7120,6 +7252,35 @@ components:
           type: string
         output:
           type: string
+        details:
+          description: What the running tool has published for UIs so far (JSON, at most 16 KiB)
+        detailsOmitted:
+          type: boolean
+          description: The details were larger than 16 KiB and left out
+    ChatDocumentRef:
+      type: object
+      required: [revision]
+      properties:
+        revision:
+          type: string
+          description: Changes when the document does (a hash of its content)
+    ThreadDocument:
+      type: object
+      required: [kind, version, revision, value]
+      description: An exposed document of a conversation
+      properties:
+        kind:
+          type: string
+        version:
+          type: integer
+          description: The version of the document's shape (its definition's; values are migrated to it when read)
+        revision:
+          type: string
+          description: As in the thread's view; changes when the document does
+        value:
+          type: object
+          additionalProperties: true
+          description: The document (JSON, at most the size its author exposes, 1 MiB at most)
     ChatView:
       type: object
       required: [busy, messages, tools]
@@ -7146,6 +7307,13 @@ components:
         earlierCursor:
           type: string
           description: Paged reads only; pass it as `before` for the earlier messages (absent when there are none)
+        documents:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ChatDocumentRef'
+          description: >-
+            The documents the agent exposes that the conversation has, by kind, with their revisions (absent when it
+            has none). Read one with getAgentThreadDocument.
     ChatDeltaEvent:
       type: object
       required: [type, seq]
@@ -7156,7 +7324,7 @@ components:
         type:
           type: string
           enum: [snapshot, message.added, message.updated, partial.set, partial.appended, partial.cleared, tool.started,
-            tool.updated, tool.finished, tool.removed, tools.set, run]
+            tool.updated, tool.finished, tool.removed, tools.set, run, document.updated]
         seq:
           type: integer
           format: int64
@@ -7204,8 +7372,19 @@ components:
           type: integer
           format: int64
           description: How long the tool call had run when the event was sent
+        details:
+          description: tool.updated and tool.finished - the tool's new details (null - none)
+        detailsOmitted:
+          type: boolean
+          description: tool.updated and tool.finished - whether the details are now too large to send
         busy:
           type: boolean
+        kind:
+          type: string
+          description: document.updated - the document's kind
+        revision:
+          type: string
+          description: document.updated - its new revision
     AuditActor:
       type: object
       description: Who made the change, resolved when the log is read

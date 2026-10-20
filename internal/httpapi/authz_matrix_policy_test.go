@@ -71,7 +71,11 @@ type policy struct {
 	// anyStatus: the status is not checked (sign-in plumbing), only that the
 	// call didn't fail on the server.
 	anyStatus bool
-	build     func(c *mctx) request
+	// reachedCode: an error code that proves an allowed call was authorized
+	// and reached what it reads (the agent's runtime answering that the
+	// document isn't there); a denied call must never get it.
+	reachedCode string
+	build       func(c *mctx) request
 }
 
 // request is one call.
@@ -258,6 +262,12 @@ var matrixPolicies = map[string]policy{
 	}},
 	"stopAgentThread":   {scope: scopeTeam, own: members, build: func(c *mctx) request { return post(c.thread("/stop", false), nil) }},
 	"streamAgentThread": {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.thread("/events?once=true", false)) }},
+	// A thread's exposed document: exactly the access reading the thread
+	// needs. The matrix's agent (the assistant) exposes none, so an allowed
+	// read reaches its runtime and is told document_not_found.
+	"getAgentThreadDocument": {scope: scopeTeam, own: members, reachedCode: "document_not_found", build: func(c *mctx) request {
+		return get(c.thread("/documents/acme.board", false))
+	}},
 	// Platform admins (not auditors) list every thread of any agent, and read
 	// any conversation with a reason (audited in the agent's team's log).
 	"adminListAgentThreads": {scope: scopeTeam, foreign: padmin, build: func(c *mctx) request {
@@ -265,6 +275,9 @@ var matrixPolicies = map[string]policy{
 	}},
 	"adminReadAgentThread": {scope: scopeTeam, foreign: padmin, build: func(c *mctx) request {
 		return post(c.adminThread("/read"), map[string]any{"reason": "Checking a reported problem"})
+	}},
+	"adminReadAgentThreadDocument": {scope: scopeTeam, foreign: padmin, reachedCode: "document_not_found", build: func(c *mctx) request {
+		return post(c.adminThread("/documents/acme.board/read"), map[string]any{"reason": "Checking a reported problem"})
 	}},
 
 	// Triggers: everyone who may use the agent reads its triggers, limits and

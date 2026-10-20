@@ -90,6 +90,7 @@ export function registerRuntimeConformance(runner: ConformanceRunner, name: stri
 				["POST", "/threads/x/messages"],
 				["POST", "/threads/x/stop"],
 				["GET", "/threads/x/events"],
+				["GET", "/threads/x/documents/acme.notes"],
 				["DELETE", "/threads/x"],
 			] as const) {
 				for (const authorization of [undefined, "Bearer wrong-token", `Bearer ${rt.token}x`]) {
@@ -175,7 +176,17 @@ export function registerRuntimeConformance(runner: ConformanceRunner, name: stri
 			expectError(await call("POST", `/threads/${id}/stop`), 404, "thread_not_found");
 			expectError(await call("GET", `/threads/${id}/events?once=true`), 404, "thread_not_found");
 			expectError(await call("DELETE", `/threads/${id}`), 404, "thread_not_found");
+			expectError(await call("GET", `/threads/${id}/documents/acme.notes`), 404, "thread_not_found");
 			expectError(await call("GET", "/nothing-here"), 404, "not_found");
+		});
+
+		it("answers 404 document_not_found for a document a thread doesn't expose", async () => {
+			const id = thread();
+			await call("POST", `/threads/${id}/messages`, { text: "documents?" });
+			await settled(id, 2);
+			expectError(await call("GET", `/threads/${id}/documents/conformance.never-exposed`), 404, "document_not_found");
+			expectError(await call("GET", `/threads/${id}/documents/pi.live`), 404, "document_not_found");
+			expectError(await call("GET", `/threads/${id}/documents/pdp.threads`), 404, "document_not_found");
 		});
 
 		it("pages a transcript", async () => {

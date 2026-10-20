@@ -44,6 +44,13 @@ type Locker interface {
 // authorized; it isn't started.
 var ErrDisabled = errors.New("the agent is turned off")
 
+// RefusedError: the platform refuses to run the agent on the runtime it
+// started (the upgrade check: the runtime is older than the one that last
+// wrote the agent's data). Message says why, for people.
+type RefusedError struct{ Message string }
+
+func (e *RefusedError) Error() string { return e.Message }
+
 const (
 	// wakeLockPrefix + the agent's ID names the lock that serialises starting
 	// that agent across replicas.
@@ -74,6 +81,14 @@ type Manager struct {
 
 	// Metrics counts wakes, hibernations and the agents running (nil: none).
 	Metrics *metrics.Metrics
+
+	// Admit is the upgrade check after a start (optional): given the
+	// pi-durable version the new runtime reports at /status ("" when it
+	// reports none), it records it or refuses it with a *RefusedError. A
+	// refused runtime is stopped and the wake fails with the refusal. The
+	// runtime asks the platform the same before it opens the agent's storage;
+	// this covers a runtime that didn't.
+	Admit func(ctx context.Context, agentID, piDurableVersion string) error
 
 	// Resolve returns an agent's current spec, from the database: what a start
 	// runs (under the agent's start lock), and how the reaper finds a
@@ -193,7 +208,39 @@ func (m *Manager) wake(ctx context.Context, spec launcher.Spec) (launcher.Endpoi
 	if spec.Disabled {
 		return launcher.Endpoint{}, ErrDisabled
 	}
-	return m.launcher.Ensure(ctx, spec)
+	ep, err = m.launcher.Ensure(ctx, spec)
+	if err != nil || m.Admit == nil {
+		return ep, err
+	}
+	if err := m.admit(ctx, spec.AgentID, ep); err != nil {
+		return launcher.Endpoint{}, err
+	}
+	return ep, nil
+}
+
+// admit runs the upgrade check on a runtime that was just started (under the
+// agent's start lock): it reads the runtime's versions at /status and asks
+// Admit. A refused runtime is stopped. A runtime whose /status can't be read
+// is let through (the next request finds out whether it works).
+func (m *Manager) admit(ctx context.Context, agentID string, ep launcher.Endpoint) error {
+	st, err := m.status(ctx, ep)
+	if err != nil {
+		m.log.Warn("upgrade check: the runtime's status", "agent", agentID, "err", err)
+		return nil
+	}
+	err = m.Admit(ctx, agentID, st.PiDurableVersion)
+	var refused *RefusedError
+	if !errors.As(err, &refused) {
+		if err != nil {
+			m.log.Warn("upgrade check", "agent", agentID, "err", err)
+		}
+		return nil
+	}
+	m.log.Warn("refused to start the agent on an older runtime", "agent", agentID, "runtime_pi_durable", st.PiDurableVersion)
+	if stopErr := m.launcher.Stop(context.WithoutCancel(ctx), agentID); stopErr != nil {
+		m.log.Warn("stop a refused runtime", "agent", agentID, "err", stopErr)
+	}
+	return refused
 }
 
 // startLock takes the agent's start lock and returns its release. Requests of
@@ -309,6 +356,11 @@ func (m *Manager) Proxy(w http.ResponseWriter, r *http.Request, spec launcher.Sp
 	ep, err := m.Wake(r.Context(), spec)
 	if errors.Is(err, ErrDisabled) {
 		writeError(w, http.StatusConflict, "agent_disabled", "This agent is turned off")
+		return
+	}
+	var refused *RefusedError
+	if errors.As(err, &refused) {
+		writeError(w, http.StatusConflict, "runtime_too_old", refused.Message)
 		return
 	}
 	if err != nil {
@@ -440,7 +492,8 @@ func isEventStream(path string) bool {
 // OpenStreams is nil for a runtime that predates it (an agent started before
 // the platform was upgraded): the reaper then goes by this replica's streams
 // alone. ContractVersion and PiDurableVersion are nil and empty for a runtime
-// before contract version 1. Nothing is stored or decided on them yet.
+// before contract version 1. PiDurableVersion is the upgrade check's input
+// after a start (Admit).
 type runtimeStatus struct {
 	BusyThreads      int
 	OpenStreams      *int
@@ -454,6 +507,11 @@ type runtimeStatus struct {
 const maxContractVersion = 1000
 
 var piDurableVersionPattern = regexp.MustCompile(`^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}(-[0-9A-Za-z.-]{1,32})?$`)
+
+// ValidPiDurableVersion reports whether a pi-durable version a runtime
+// reported is one the platform accepts: a semantic version with an optional
+// short pre-release.
+func ValidPiDurableVersion(v string) bool { return piDurableVersionPattern.MatchString(v) }
 
 // UnmarshalJSON reads the activity fields strictly (a malformed one is an
 // error, as before) and the version fields leniently: the runtime is not

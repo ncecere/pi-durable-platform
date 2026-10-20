@@ -197,6 +197,7 @@ nothing under it (DESIGN.md, "Secrets and key rotation").
 | `internal/netguard`, `internal/teamnet` | The address guard for URLs teams and apps choose |
 | `internal/agenthost` | Agent storage provisioning, launchers (local processes, Kubernetes pods, Agent Sandbox), wake/proxy/hibernate |
 | `runtime/` | The Pi Durable agent runtime and its PostgreSQL storage, also a library for custom agents ([docs/custom-agents.md](docs/custom-agents.md), [docs/runtime-contract.md](docs/runtime-contract.md); `pnpm test` needs the compose Postgres) |
+| `examples/custom-agent/` | A starter agent built with the library: a tool, a document exposed to apps, a guard, its tests and a Dockerfile |
 | `web/src/router.tsx`, `web/src/components/layout/nav.tsx` | The web routes and navigation |
 
 Success responses are `{"data": …}`; errors are `{"error": {"code", "message"}}`. Browser writes need the session's

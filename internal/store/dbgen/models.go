@@ -39,6 +39,14 @@ type AgentRunSender struct {
 	SentAt   time.Time
 }
 
+type AgentStorageVersion struct {
+	AgentID          uuid.UUID
+	PiDurableVersion string
+	RecordedAt       time.Time
+	RefusedVersion   *string
+	RefusedAt        *time.Time
+}
+
 type AgentTemplate struct {
 	ID             uuid.UUID
 	Slug           string

@@ -9,6 +9,7 @@ import {
 	createConversationDocuments,
 	createSessionDocuments,
 	defineAgent,
+	exposedDocuments,
 	resolveExtensions,
 	resolveSettings,
 } from "./define.ts";
@@ -18,6 +19,7 @@ import { createRuntimeServer } from "./server.ts";
 import { AgentOwnedElsewhereError, openPostgresAgentStorage } from "./storage/postgres.ts";
 import { gatewayPost, ThreadStatusReporter } from "./thread-status.ts";
 import { ThreadStore } from "./threads.ts";
+import { checkUpgrade, RuntimeRefusedError } from "./upgrade.ts";
 
 /** Everything one agent needs: from environment variables, or from the platform's activation request. */
 export type AgentConfig = {
@@ -47,7 +49,13 @@ export type StartOptions = {
 	onFatal?: (error: unknown) => void;
 };
 
-export type RunningAgent = {
+/** What a process serves for an agent: its HTTP handler, and a graceful stop. */
+export type AgentProcess = {
+	handler: RequestListener;
+	close(): Promise<void>;
+};
+
+export type RunningAgent = AgentProcess & {
 	handler: RequestListener;
 	/** The open harness, for tests and tools that need to look at storage. */
 	harness: Harness;
@@ -58,12 +66,13 @@ export type RunningAgent = {
 
 const ctx = BACKGROUND_CONTEXT;
 
-export { AgentOwnedElsewhereError };
+export { AgentOwnedElsewhereError, RuntimeRefusedError };
 
 /**
  * Open the agent's storage (taking its ownership, see storage/postgres.ts), install the definition's extensions and
  * the MCP servers' tools, resume unfinished work and return its HTTP handler. Throws AgentOwnedElsewhereError when
- * another process owns the agent. Once running, it calls `onFatal` (by default: exits the process) when storage
+ * another process owns the agent, and RuntimeRefusedError, before the storage is opened, when the platform refuses
+ * this runtime (the upgrade check, upgrade.ts: a newer pi-durable has written the agent's storage). Once running, it calls `onFatal` (by default: exits the process) when storage
  * fails, so the supervisor starts a fresh one that resumes from storage.
  *
  * The library owns the extension selection: every thread selects the definition's extensions, then the MCP
@@ -87,6 +96,10 @@ export async function startAgent(config: AgentConfig, definition: AgentDefinitio
 	const extensions = resolveExtensions(definition, context);
 	const settings = resolveSettings(definition, context);
 	const documents = definition.documents ?? [];
+	const exposed = exposedDocuments(definition);
+
+	// The upgrade check, before anything reads the storage (upgrade.ts).
+	await checkUpgrade(config.modelEnv, log);
 
 	const created = options.models ? { ...options.models, source: "given", usage: undefined } : createAgentModels(config.modelEnv);
 	const { models, model, usage } = created;
@@ -176,6 +189,7 @@ export async function startAgent(config: AgentConfig, definition: AgentDefinitio
 			await align(conversation, [...extensions, ...servers]);
 		},
 		afterMessage: status ? (threadId, submissionId) => status.watch(threadId, submissionId) : undefined,
+		documents: exposed,
 	});
 	// A reply that just ended is recent work: the reaper waits a full idle period after it.
 	if (status) status.onReplyEnd = touch;

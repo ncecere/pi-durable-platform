@@ -44,6 +44,14 @@ jobs:
           pnpm install --frozen-lockfile
           npx tsc --noEmit
           PDP_TEST_DATABASE_URL=postgres://pdp:pdp-local-only@localhost:5432/pdp npx vitest run
+      # The starter project (examples/custom-agent): built on the runtime above
+      # (linked), tested with the test kit (no database, no model).
+      - name: Example agent
+        working-directory: examples/custom-agent
+        run: |
+          pnpm install --frozen-lockfile
+          npx tsc --noEmit
+          npx vitest run
       - name: Web
         working-directory: web
         run: |

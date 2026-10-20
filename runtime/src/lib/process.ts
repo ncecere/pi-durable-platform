@@ -1,8 +1,23 @@
 import { createServer, type Server } from "node:http";
-import { type AgentConfig, AgentOwnedElsewhereError, type RunningAgent, startAgent } from "./agent.ts";
+import { type AgentConfig, AgentOwnedElsewhereError, type AgentProcess, startAgent } from "./agent.ts";
 import { assistantAgent, DEFAULT_INSTRUCTIONS } from "./assistant.ts";
 import type { AgentDefinition } from "./define.ts";
 import { createStandbyServer } from "./standby.ts";
+import { refusedHandler, RuntimeRefusedError } from "./upgrade.ts";
+
+/**
+ * Starts the agent, or, when the platform refuses this runtime (the upgrade check), serves the refusal without ever
+ * opening the agent's storage: the platform sees why and stops it.
+ */
+async function startOrRefuse(config: AgentConfig, definition: AgentDefinition): Promise<AgentProcess> {
+	try {
+		return await startAgent(config, definition);
+	} catch (error) {
+		if (!(error instanceof RuntimeRefusedError)) throw error;
+		console.error(`[agent ${config.agentId}] the platform refuses this runtime: ${error.message}`);
+		return { handler: refusedHandler({ agentId: config.agentId, name: config.name, token: config.token }, error), close: async () => {} };
+	}
+}
 
 /**
  * Runs one agent process with a definition, started one of two ways (docs/runtime-contract.md lists every variable):
@@ -18,6 +33,8 @@ import { createStandbyServer } from "./standby.ts";
  * PORT and HOST say where to listen (HOST defaults to loopback). The process exits 1 when storage fails, so its
  * supervisor starts a fresh one that resumes from storage; 2 when it is misconfigured; 3 when another process owns
  * the agent. SIGINT and SIGTERM stop it gracefully (work in flight stays pending and resumes on the next start).
+ * When the platform refuses this runtime for the agent (it is older than the one that last wrote the agent's data),
+ * it never opens the storage and answers every request with the refusal (upgrade.ts).
  */
 export async function runAgentProcess(definition: AgentDefinition = assistantAgent, env: NodeJS.ProcessEnv = process.env): Promise<Server> {
 	const get = (name: string, fallback?: string): string => {
@@ -31,7 +48,7 @@ export async function runAgentProcess(definition: AgentDefinition = assistantAge
 
 	const port = Number(get("PORT", "4100"));
 	const host = get("HOST", "127.0.0.1");
-	let agent: RunningAgent | undefined;
+	let agent: AgentProcess | undefined;
 
 	let server: Server;
 	if (env.AGENT_ID) {
@@ -46,7 +63,7 @@ export async function runAgentProcess(definition: AgentDefinition = assistantAge
 			createSchema: env.AGENT_CREATE_SCHEMA === "true",
 		};
 		try {
-			agent = await startAgent(config, definition);
+			agent = await startOrRefuse(config, definition);
 		} catch (error) {
 			if (error instanceof AgentOwnedElsewhereError) {
 				// The supervisor (the platform, or Kubernetes) sees exit code 3 and retries later.
@@ -59,7 +76,7 @@ export async function runAgentProcess(definition: AgentDefinition = assistantAge
 	} else if (env.RUNTIME_ACTIVATION_TOKEN) {
 		server = createStandbyServer({
 			activationToken: env.RUNTIME_ACTIVATION_TOKEN,
-			start: (config) => startAgent(config, definition),
+			start: (config) => startOrRefuse(config, definition),
 			onActivated: (running) => {
 				agent = running;
 			},

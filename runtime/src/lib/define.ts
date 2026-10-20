@@ -16,6 +16,20 @@ export type AgentContext = {
 /** A document an agent declares: created in every new conversation (conversation scope) or once (session scope). */
 export type AgentDocument = SessionDocToken<JsonObject> | ConversationDocToken<JsonObject>;
 
+/**
+ * A conversation document apps may read (`GET /v1/agents/{agent}/threads/{thread}/documents/{kind}`), with the same
+ * access as reading the thread. `maxBytes` bounds it as JSON (default DEFAULT_EXPOSED_DOCUMENT_BYTES, at most
+ * MAX_EXPOSED_DOCUMENT_BYTES): a larger one is refused (`document_too_large`), never cut.
+ */
+export type ExposedDocument = { readonly document: ConversationDocToken<JsonObject>; readonly maxBytes?: number };
+
+/** The default bound of an exposed document (64 KiB of JSON). */
+export const DEFAULT_EXPOSED_DOCUMENT_BYTES = 64 * 1024;
+/** The largest bound an exposed document may have (1 MiB of JSON; the platform reads no more). */
+export const MAX_EXPOSED_DOCUMENT_BYTES = 1024 * 1024;
+/** What an exposed document kind may look like (it is part of a URL). */
+export const EXPOSED_KIND = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
 /** Run policy for every conversation. The extension selection is the library's (see AgentDefinition.extensions). */
 export type AgentSettings = Omit<HarnessSettings, "extensions">;
 
@@ -34,6 +48,13 @@ export type AgentDefinition = {
 	readonly extensions?: readonly Extension[] | ((context: AgentContext) => readonly Extension[]);
 	/** Documents to create in every conversation (conversation scope) or once at start (session scope). */
 	readonly documents?: readonly AgentDocument[];
+	/**
+	 * The documents apps may read, through the platform, with the same access as reading the thread (opt-in, each one
+	 * bounded): conversation documents listed in `documents`, given as the document or as `{ document, maxBytes }`. A
+	 * thread's view lists the exposed documents it has with a revision, and its event streams say when one changes.
+	 * Session documents can't be exposed: every thread shares them, so a thread's reader would see the others' state.
+	 */
+	readonly expose?: readonly (ConversationDocToken<JsonObject> | ExposedDocument)[];
 	/** Runs in every commit that creates or forks a conversation, after the declared documents are created. */
 	readonly conversationCreated?: (tx: Tx, conversation: ConversationRecord) => void | Promise<void>;
 	/** Run policy (retry, compaction, progress, tool execution, queue modes, ...); read at every use. */
@@ -60,6 +81,7 @@ export class AgentDefinitionError extends Error {
 export function defineAgent(definition: AgentDefinition): AgentDefinition {
 	if (typeof definition !== "object" || definition === null) throw new AgentDefinitionError("an agent definition is an object");
 	for (const doc of definition.documents ?? []) checkDocument(doc);
+	exposedDocuments(definition);
 	if (Array.isArray(definition.extensions)) checkExtensions(definition.extensions as readonly Extension[]);
 	if (typeof definition.settings === "object" && definition.settings !== null && "extensions" in definition.settings) {
 		throw new AgentDefinitionError("settings.extensions is the library's: list extensions in the definition's extensions");
@@ -116,6 +138,28 @@ function checkDocument(doc: AgentDocument): void {
 	const scope: string = definition.scope;
 	if (scope !== "session" && scope !== "conversation") throw new AgentDefinitionError(`document ${kind}: only session and conversation documents can be declared`);
 	if ((definition as { family?: true }).family === true) throw new AgentDefinitionError(`document ${kind}: families can't be declared`);
+}
+
+/** A definition's exposed documents with their bounds, by kind, checked. */
+export function exposedDocuments(definition: AgentDefinition): ReadonlyMap<string, { document: ConversationDocToken<JsonObject>; maxBytes: number }> {
+	const out = new Map<string, { document: ConversationDocToken<JsonObject>; maxBytes: number }>();
+	const declared = new Set((definition.documents ?? []).map((doc) => doc?.definition?.kind));
+	for (const entry of definition.expose ?? []) {
+		const { document, maxBytes = DEFAULT_EXPOSED_DOCUMENT_BYTES } = ("document" in entry ? entry : { document: entry }) as ExposedDocument;
+		const kind = document?.definition?.kind;
+		if (typeof kind !== "string") throw new AgentDefinitionError("expose lists documents defined with defineDoc");
+		if (!EXPOSED_KIND.test(kind)) throw new AgentDefinitionError(`document ${JSON.stringify(kind)} can't be exposed: a kind is 1-128 letters, digits and . _ : -`);
+		if ((document.definition.scope as string) !== "conversation") {
+			throw new AgentDefinitionError(`document ${kind}: only conversation documents can be exposed (a session document is shared by every thread)`);
+		}
+		if (!declared.has(kind)) throw new AgentDefinitionError(`document ${kind} is exposed but not listed in documents (so every conversation has it)`);
+		if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_EXPOSED_DOCUMENT_BYTES) {
+			throw new AgentDefinitionError(`document ${kind}: maxBytes is a whole number from 1 to ${MAX_EXPOSED_DOCUMENT_BYTES}`);
+		}
+		if (out.has(kind)) throw new AgentDefinitionError(`document ${kind} is exposed twice`);
+		out.set(kind, { document, maxBytes });
+	}
+	return out;
 }
 
 /** Creates the declared documents of one new conversation (conversation scope), inside its creating commit. */

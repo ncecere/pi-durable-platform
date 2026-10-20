@@ -734,6 +734,16 @@ what authors must not do, versioning, the test kit). What any runtime must do (t
 activation, reports, ownership, exit codes, environment) is [docs/runtime-contract.md](docs/runtime-contract.md), with a
 conformance suite in the test kit. Only runtimes the operator builds into an image run; teams can't upload code yet.
 
+Custom state reaches apps through the thread, with the thread's access: a tool's `details` on its call in the view and
+events (bounded JSON), and conversation documents an author exposes, read with
+`GET /v1/agents/{id}/threads/{thread}/documents/{kind}` and announced in the thread's streams (`document.updated`);
+platform admins read them only with a reason, audited as `thread.admin_read`. Session documents are not exposed (every
+thread shares them). The platform records per agent the newest pi-durable version that has written its storage
+(`agent_storage_versions`) and refuses to start the agent on an older runtime, which the runtime asks before it opens
+the storage (`/runtime/start` on the gateway) and the platform checks again at `/status`: documents migrate when read,
+and older code rejects newer data, so rolling a runtime back after it has written is not supported. A starter project
+is in `examples/custom-agent/`.
+
 ## Launchers
 
 | `AGENTS_LAUNCHER` | Runtime per active agent | Hibernate | Wake |

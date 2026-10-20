@@ -88,6 +88,13 @@ func New(pool, agentsPool *pgxpool.Pool, box *secrets.Box, host *agenthost.Manag
 	s := &Service{pool: pool, agentsPool: agentsPool, q: dbgen.New(pool), box: box, prov: provision.New(agentsPool), host: host,
 		llm: models, mcp: servers, cfg: cfg, agentsURL: cfg.DatabaseURL, hub: threadHub{subs: map[chan ThreadEvent]struct{}{}}}
 	host.Resolve = s.resolve
+	host.Admit = func(ctx context.Context, agentID, version string) error {
+		id, err := uuid.Parse(agentID)
+		if err != nil {
+			return err
+		}
+		return s.AdmitRuntime(ctx, id, version)
+	}
 	return s
 }
 
@@ -116,6 +123,9 @@ type View struct {
 	Running                bool
 	// Model is the model it runs on (nil: the platform's default model).
 	Model *ModelRef
+	// Runtime is the upgrade check's record: the pi-durable version that has
+	// written its storage, and the last refusal (upgrade.go).
+	Runtime RuntimeState
 }
 
 // ModelRef is the model an agent or template version uses.
@@ -183,6 +193,9 @@ func (s *Service) List(ctx context.Context, a authz.Actor, includeManaged bool) 
 		if out[i].Model, err = s.modelRef(ctx, s.q, r.Agent); err != nil {
 			return nil, err
 		}
+		if out[i].Runtime, err = s.runtimeStateOf(ctx, s.q, r.Agent.ID); err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
 }
@@ -223,8 +236,12 @@ func (s *Service) view(ctx context.Context, q *dbgen.Queries, ag dbgen.Agent) (V
 	if err != nil {
 		return View{}, err
 	}
+	runtime, err := s.runtimeStateOf(ctx, q, ag.ID)
+	if err != nil {
+		return View{}, err
+	}
 	return View{Agent: ag, TeamSlug: t.Slug, TeamName: t.Name, TemplateSlug: tpl.Slug, TemplateName: tpl.Name,
-		TemplateCurrentVersion: tpl.CurrentVersion, Running: s.host.Running(ag.ID.String()), Model: model}, nil
+		TemplateCurrentVersion: tpl.CurrentVersion, Running: s.host.Running(ag.ID.String()), Model: model, Runtime: runtime}, nil
 }
 
 func (s *Service) load(ctx context.Context, q *dbgen.Queries, id uuid.UUID) (dbgen.Agent, error) {

@@ -438,6 +438,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/agents/{agentId}/threads/{threadId}/documents/{kind}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
+                threadId: components["parameters"]["ThreadIdParam"];
+                /** @description An exposed document's kind (as the agent's author defined it, e.g. acme.board) */
+                kind: components["parameters"]["DocumentKindParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read an exposed document of any conversation, with a reason (platform admins)
+         * @description A document is part of the conversation: platform admins read it only this way, like the conversation itself (adminReadAgentThread). Each read is recorded as thread.admin_read in the agent's team's audit log, with the reason and the document's kind, before the document is returned.
+         */
+        post: operations["adminReadAgentThreadDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/agents/{agentId}/threads/{threadId}/read": {
         parameters: {
             query?: never;
@@ -1652,6 +1678,32 @@ export interface paths {
         patch: operations["updateAgentThread"];
         trace?: never;
     };
+    "/v1/agents/{agentId}/threads/{threadId}/documents/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
+                threadId: components["parameters"]["ThreadIdParam"];
+                /** @description An exposed document's kind (as the agent's author defined it, e.g. acme.board) */
+                kind: components["parameters"]["DocumentKindParam"];
+            };
+            cookie?: never;
+        };
+        /**
+         * A document the agent exposes to apps, as the conversation has it now
+         * @description Custom agents keep state next to the transcript in documents (docs/custom-agents.md); a conversation document the agent's author marked as exposed can be read here, with exactly the access reading the thread needs (another's private thread is not found; platform staff use adminReadAgentThreadDocument). Wakes the agent like any read. The thread's view lists the exposed documents it has (`documents`, kind to revision), and its event streams say when one changes (`document.updated` in the delta format, a new revision in whole views). A kind the agent doesn't expose, or the thread doesn't have, is 404 document_not_found; one larger than its author's bound is 422 document_too_large (never cut).
+         */
+        get: operations["getAgentThreadDocument"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agentId}/threads/{threadId}/messages": {
         parameters: {
             query?: never;
@@ -1720,8 +1772,9 @@ export interface paths {
          *     whose `seq` (also the event's `id`) counts up by one. Types: `message.added`, `message.updated` (replace the
          *     message with that id), `partial.set`, `partial.appended` (text and thinking to append to the reply in
          *     progress), `partial.cleared`, `tool.started`, `tool.updated` and `tool.finished` (status, `outputAppended` or
-         *     `output`; null: none), `tool.removed`, `tools.set`, and `run` (`busy`). Tool events carry `startedAt` and
-         *     `elapsedMs` (live metadata, not part of the view). Applying the events in order to the snapshot gives the
+         *     `output`; null: none, and `details`, `detailsOmitted`), `tool.removed`, `tools.set`, `run` (`busy`), and
+         *     `document.updated` (`kind`, `revision`: an exposed document changed; read it with getAgentThreadDocument).
+         *     Tool events carry `startedAt` and `elapsedMs` (live metadata, not part of the view). Applying the events in order to the snapshot gives the
          *     view a new snapshot would; whatever can't be sent as a change (the conversation was compacted or reset) comes
          *     as a new snapshot. Every connection starts with a snapshot; with `Last-Event-ID` (EventSource sends it when it
          *     reconnects) its numbering goes on after that ID. A steering message is a `message.added` (a user message)
@@ -2979,6 +3032,10 @@ export interface components {
             running: boolean;
             /** @description The model it runs on (absent - the platform's default model) */
             model?: components["schemas"]["AgentModel"] | null;
+            /** @description The newest pi-durable version that has written the agent's storage, as its runtimes reported it (absent: none recorded yet). The platform refuses to start the agent on a runtime with an older one. */
+            storageVersion?: string | null;
+            /** @description The platform refused to start the agent on its runtime, which is older than the one that last wrote its data (absent: no refusal since the last start). Requests that wake it answer 409 runtime_too_old. */
+            runtimeRefused?: components["schemas"]["AgentRuntimeRefusal"] | null;
             /** Format: date-time */
             lastUsedAt?: string | null;
             /** Format: int64 */
@@ -2987,6 +3044,19 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        /** @description Why the agent's runtime was refused (the upgrade check, docs/custom-agents.md) */
+        AgentRuntimeRefusal: {
+            /** @description The refused runtime's pi-durable version (empty - it reported none) */
+            runtimeVersion: string;
+            /** @description The pi-durable version that has written the agent's storage */
+            storageVersion: string;
+            /**
+             * Format: date-time
+             * @description When the latest start was refused
+             */
+            at: string;
+            message: string;
         };
         AgentCreate: {
             name: string;
@@ -3279,6 +3349,10 @@ export interface components {
             /** @description Tool name (tool results) */
             name?: string;
             isError?: boolean;
+            /** @description A tool result's details: structured data the tool returned for UIs (any JSON, at most 16 KiB; larger ones are left out and detailsOmitted is true). Not shown to the model. */
+            details?: unknown;
+            /** @description The tool's details were larger than 16 KiB and left out */
+            detailsOmitted?: boolean;
             author?: components["schemas"]["ChatAuthor"];
             /**
              * Format: int64
@@ -3295,6 +3369,26 @@ export interface components {
             name: string;
             status: string;
             output?: string;
+            /** @description What the running tool has published for UIs so far (JSON, at most 16 KiB) */
+            details?: unknown;
+            /** @description The details were larger than 16 KiB and left out */
+            detailsOmitted?: boolean;
+        };
+        ChatDocumentRef: {
+            /** @description Changes when the document does (a hash of its content) */
+            revision: string;
+        };
+        /** @description An exposed document of a conversation */
+        ThreadDocument: {
+            kind: string;
+            /** @description The version of the document's shape (its definition's; values are migrated to it when read) */
+            version: number;
+            /** @description As in the thread's view; changes when the document does */
+            revision: string;
+            /** @description The document (JSON, at most the size its author exposes, 1 MiB at most) */
+            value: {
+                [key: string]: unknown;
+            };
         };
         ChatView: {
             busy: boolean;
@@ -3307,11 +3401,15 @@ export interface components {
             tools: components["schemas"]["ChatToolSlot"][];
             /** @description Paged reads only; pass it as `before` for the earlier messages (absent when there are none) */
             earlierCursor?: string;
+            /** @description The documents the agent exposes that the conversation has, by kind, with their revisions (absent when it has none). Read one with getAgentThreadDocument. */
+            documents?: {
+                [key: string]: components["schemas"]["ChatDocumentRef"];
+            };
         };
         /** @description One event of a thread's delta stream (`format=delta`, version 1). Which fields are set depends on `type`; see the stream's description. */
         ChatDeltaEvent: {
             /** @enum {string} */
-            type: "snapshot" | "message.added" | "message.updated" | "partial.set" | "partial.appended" | "partial.cleared" | "tool.started" | "tool.updated" | "tool.finished" | "tool.removed" | "tools.set" | "run";
+            type: "snapshot" | "message.added" | "message.updated" | "partial.set" | "partial.appended" | "partial.cleared" | "tool.started" | "tool.updated" | "tool.finished" | "tool.removed" | "tools.set" | "run" | "document.updated";
             /** Format: int64 */
             seq: number;
             /** @description The format's version (snapshot) */
@@ -3342,7 +3440,15 @@ export interface components {
              * @description How long the tool call had run when the event was sent
              */
             elapsedMs?: number;
+            /** @description tool.updated and tool.finished - the tool's new details (null - none) */
+            details?: unknown;
+            /** @description tool.updated and tool.finished - whether the details are now too large to send */
+            detailsOmitted?: boolean;
             busy?: boolean;
+            /** @description document.updated - the document's kind */
+            kind?: string;
+            /** @description document.updated - its new revision */
+            revision?: string;
         };
         /** @description Who made the change, resolved when the log is read */
         AuditActor: {
@@ -4080,6 +4186,8 @@ export interface components {
         AgentIdParam: string;
         /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
         ThreadIdParam: string;
+        /** @description An exposed document's kind (as the agent's author defined it, e.g. acme.board) */
+        DocumentKindParam: string;
         /** @description An exact action (team.member_add), or a prefix ending in a dot (team.) for every action in that group. */
         AuditActionParam: string;
         /** @description Only entries by the system */
@@ -4829,6 +4937,44 @@ export interface operations {
             };
             403: components["responses"]["ErrorReply"];
             404: components["responses"]["ErrorReply"];
+        };
+    };
+    adminReadAgentThreadDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
+                threadId: components["parameters"]["ThreadIdParam"];
+                /** @description An exposed document's kind (as the agent's author defined it, e.g. acme.board) */
+                kind: components["parameters"]["DocumentKindParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminThreadRead"];
+            };
+        };
+        responses: {
+            /** @description The document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadDocument"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
+            502: components["responses"]["ErrorReply"];
         };
     };
     adminReadAgentThread: {
@@ -7625,6 +7771,40 @@ export interface operations {
             };
             400: components["responses"]["ErrorReply"];
             404: components["responses"]["ErrorReply"];
+        };
+    };
+    getAgentThreadDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
+                threadId: components["parameters"]["ThreadIdParam"];
+                /** @description An exposed document's kind (as the agent's author defined it, e.g. acme.board) */
+                kind: components["parameters"]["DocumentKindParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ThreadDocument"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
+            502: components["responses"]["ErrorReply"];
+            503: components["responses"]["ErrorReply"];
         };
     };
     sendAgentMessage: {

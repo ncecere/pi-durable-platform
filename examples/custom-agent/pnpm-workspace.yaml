@@ -1,0 +1,4 @@
+# This directory is its own pnpm project (not part of runtime/'s). tsx's esbuild
+# installs a native binary.
+allowBuilds:
+  esbuild: true
