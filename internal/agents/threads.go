@@ -96,6 +96,10 @@ func owns(a authz.Actor, t Thread) bool {
 // canSee reports whether the actor (who may use the agent) may see the thread.
 func canSee(a authz.Actor, t Thread) bool { return t.Visibility != VisibilityPrivate || owns(a, t) }
 
+// CanSeeThread reports whether the actor, who may use the agent, may see the
+// thread (shared, or their own private one).
+func CanSeeThread(a authz.Actor, t Thread) bool { return canSee(a, t) }
+
 // listable reports whether the thread appears in the actor's lists and event
 // streams: one they canSee, and not another's reserved thread (started
 // without a message yet; anyone may still reach it by its ID).

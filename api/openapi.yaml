@@ -5572,9 +5572,15 @@ components:
           description: The thread every fire sends to (null - a new thread at every fire)
         messageTemplate:
           type: string
+          nullable: true
           description: >-
             The message, with placeholders {{payload}}, {{payload.<path>}} (webhooks), {{trigger.name}},
-            {{trigger.kind}}, {{fire.id}} and {{fire.time}}
+            {{trigger.kind}}, {{fire.id}} and {{fire.time}}. Null when withheld (messageHidden): an agent-made
+            trigger's message is conversation-derived text, so platform staff never see it, and people who may
+            use the agent see it only when they may read the thread it was made in.
+        messageHidden:
+          type: boolean
+          description: The message is withheld from the caller (messageTemplate is null)
         schedule:
           nullable: true
           allOf:

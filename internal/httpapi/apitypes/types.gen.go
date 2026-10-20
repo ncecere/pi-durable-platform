@@ -3545,9 +3545,12 @@ type Trigger struct {
 	Kind           TriggerKind        `json:"kind"`
 	LastFiredAt    *time.Time         `json:"lastFiredAt,omitempty"`
 
-	// MessageTemplate The message, with placeholders {{payload}}, {{payload.<path>}} (webhooks), {{trigger.name}}, {{trigger.kind}}, {{fire.id}} and {{fire.time}}
-	MessageTemplate string `json:"messageTemplate"`
-	Name            string `json:"name"`
+	// MessageHidden The message is withheld from the caller (messageTemplate is null)
+	MessageHidden *bool `json:"messageHidden,omitempty"`
+
+	// MessageTemplate The message, with placeholders {{payload}}, {{payload.<path>}} (webhooks), {{trigger.name}}, {{trigger.kind}}, {{fire.id}} and {{fire.time}}. Null when withheld (messageHidden): an agent-made trigger's message is conversation-derived text, so platform staff never see it, and people who may use the agent see it only when they may read the thread it was made in.
+	MessageTemplate *string `json:"messageTemplate"`
+	Name            string  `json:"name"`
 
 	// Once A one-time reminder (agent-made), removed when it fires
 	Once bool `json:"once"`

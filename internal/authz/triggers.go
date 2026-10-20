@@ -7,7 +7,9 @@ import "github.com/ncecere/pi-durable-platform/internal/apperr"
 //
 //   - Everyone who may use the agent reads its triggers, limits and runs
 //     (people and service accounts); platform staff read them as they read
-//     agents (settings and status, never conversations).
+//     agents (settings and status, never conversations). An agent-made
+//     trigger's message is conversation-derived: internal/triggers withholds
+//     it from staff, and from those who can't read its thread.
 //   - Only the agent's team's owners and admins manage them (create, change,
 //     pause, delete, rotate secrets, run now, set the agent's limits), as
 //     people in a browser session: never a service account, a personal API

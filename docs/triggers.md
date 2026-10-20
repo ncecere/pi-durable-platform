@@ -276,8 +276,16 @@ These routes are the gateway's (the agents' listener), not the public API.
 future (`time_passed`) and at most a year ahead (`too_far_ahead`); a message of 1-8,000 characters. Every trigger limit
 holds for their runs: the agent's pause, runs at once, budgets, back-off and the automatic pause.
 
+**Not from a private conversation.** A schedule set in a shared team's private thread (someone's own conversation with
+the agent) is refused, whether it would fire there or in a new thread (`403 schedule_private_thread`, with what to do):
+its message is written by the agent from that conversation, a new thread is shared, and the team's owners and admins
+see agent-made schedules. Firing only in that private thread would need the run to act for its person, which a
+schedule never does. The same goes for a private thread in a personal workspace that its owner didn't start. A personal
+workspace owner's own private threads may set schedules (below): the workspace, its agent and its new threads are
+theirs. A schedule set outside any thread the platform knows (a subagent's conversation) fires in a new thread.
+
 **Where it fires.** In the thread it was set in when that thread may take a trigger's message (the rules above: not
-reserved, no app's MCP servers, not private, and known to the platform), otherwise in a new thread at every fire;
+reserved, no app's MCP servers, and known to the platform), otherwise in a new thread at every fire;
 `whyNotHere` says why. One relaxation: in a personal workspace, a private thread its owner started may take it (the
 workspace and its agent are the owner's; their MCP identity token names them with `person_present: false` while the
 thread works on a triggered run). The thread is checked again at each fire: one that can no longer take it (made
@@ -292,7 +300,13 @@ that is skipped, by a limit or a paused agent, removes it at once), audited as `
 **Records and control.** `agent_triggers.source = 'agent'`, with `once` and `origin_thread_id` (migration 00025), and
 `created_by` null; each run keeps `trigger_source`. The console's Triggers tab lists them with *Made by the agent* and
 a link to the conversation; the team's owners and admins (a personal workspace's owner) pause, resume, run now or
-delete them like any trigger, but can't change them (`409 agent_made_trigger`). Names come from the agent or from the
+delete them like any trigger, but can't change them (`409 agent_made_trigger`).
+**Their message is withheld** (`messageTemplate: null`, `messageHidden: true` in the Triggers API) from those who
+mustn't read the conversation it came from: always from platform admins and auditors reading the agent's triggers
+through their platform role (in shared teams and personal workspaces alike; a platform admin reads conversations only
+with the reasoned, audited read), and from people and service accounts who may use the agent but not read the thread
+it was set in (another's private one, made before such schedules were refused, or a thread that is gone). People's
+triggers' messages are the team's settings and stay visible. Names come from the agent or from the
 time (`Reminder 2026-10-21 09:00 Europe/Paris`, `Schedule 0 9 * * 1 UTC`), never from the message: names are in the
 audit log, messages never are.
 

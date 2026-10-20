@@ -134,6 +134,9 @@ func (s *Service) now() time.Time { return s.Now().UTC() }
 type View struct {
 	Trigger    dbgen.AgentTrigger
 	WebhookURL string
+	// MessageHidden: the message (Trigger.MessageTemplate, then "") is
+	// withheld from the caller (withhold).
+	MessageHidden bool
 }
 
 func (s *Service) view(t dbgen.AgentTrigger) View {
@@ -191,16 +194,59 @@ func access(ctx context.Context, q *dbgen.Queries, a authz.Actor, agentID uuid.U
 }
 
 func (s *Service) readable(ctx context.Context, a authz.Actor, agentID uuid.UUID) (dbgen.Agent, dbgen.Team, error) {
-	ag, team, sub, err := access(ctx, s.q, a, agentID)
-	if err != nil {
-		return ag, team, err
-	}
-	return ag, team, authz.CheckTriggerRead(sub.AgentSubject)
+	ag, team, _, err := s.readableAs(ctx, a, agentID)
+	return ag, team, err
 }
 
-// List returns the agent's triggers.
+// readableAs is readable, with the actor's relationship to the agent.
+func (s *Service) readableAs(ctx context.Context, a authz.Actor, agentID uuid.UUID) (dbgen.Agent, dbgen.Team, authz.AgentSubject, error) {
+	ag, team, sub, err := access(ctx, s.q, a, agentID)
+	if err != nil {
+		return ag, team, sub.AgentSubject, err
+	}
+	return ag, team, sub.AgentSubject, authz.CheckTriggerRead(sub.AgentSubject)
+}
+
+// withhold hides agent-made triggers' messages from those who mustn't read
+// them (docs/triggers.md). The agent wrote the message in a conversation, so
+// it is conversation-derived text: platform staff, who read the agent's
+// triggers through their platform role (never its conversations), never see
+// it, whatever the thread or team (a personal workspace's included); people
+// and service accounts who may use the agent see it when it was made outside
+// a thread or in a thread they may read (shared, or their own private one),
+// not when that thread is another's private one or is gone. People's
+// triggers' messages are the team's settings and stay visible.
+func withhold(ctx context.Context, q *dbgen.Queries, a authz.Actor, sub authz.AgentSubject, views []View) error {
+	canUse := authz.CheckAgentUse(sub) == nil
+	for i := range views {
+		t := &views[i].Trigger
+		if t.Source != SourceAgent {
+			continue
+		}
+		hide := !canUse
+		if !hide && t.OriginThreadID != nil {
+			th, err := q.GetAgentThread(ctx, dbgen.GetAgentThreadParams{AgentID: t.AgentID, ThreadID: *t.OriginThreadID})
+			switch {
+			case errors.Is(store.NotFound(err), store.ErrNotFound):
+				hide = true
+			case err != nil:
+				return err
+			default:
+				hide = !agents.CanSeeThread(a, th)
+			}
+		}
+		if hide {
+			t.MessageTemplate, views[i].MessageHidden = "", true
+		}
+	}
+	return nil
+}
+
+// List returns the agent's triggers (agent-made ones' messages withheld
+// from some: withhold).
 func (s *Service) List(ctx context.Context, a authz.Actor, agentID uuid.UUID) ([]View, error) {
-	if _, _, err := s.readable(ctx, a, agentID); err != nil {
+	_, _, sub, err := s.readableAs(ctx, a, agentID)
+	if err != nil {
 		return nil, err
 	}
 	rows, err := s.q.ListAgentTriggers(ctx, agentID)
@@ -211,19 +257,26 @@ func (s *Service) List(ctx context.Context, a authz.Actor, agentID uuid.UUID) ([
 	for i, t := range rows {
 		out[i] = s.view(t)
 	}
-	return out, nil
+	return out, withhold(ctx, s.q, a, sub, out)
 }
 
-// Get returns one of the agent's triggers.
+// Get returns one of the agent's triggers (withhold applies).
 func (s *Service) Get(ctx context.Context, a authz.Actor, agentID, id uuid.UUID) (View, error) {
-	if _, _, err := s.readable(ctx, a, agentID); err != nil {
+	_, _, sub, err := s.readableAs(ctx, a, agentID)
+	if err != nil {
 		return View{}, err
 	}
 	t, err := s.q.GetTrigger(ctx, dbgen.GetTriggerParams{ID: id, AgentID: agentID})
 	if errors.Is(store.NotFound(err), store.ErrNotFound) {
 		return View{}, errNotFound
+	} else if err != nil {
+		return View{}, err
 	}
-	return s.view(t), err
+	out := []View{s.view(t)}
+	if err := withhold(ctx, s.q, a, sub, out); err != nil {
+		return View{}, err
+	}
+	return out[0], nil
 }
 
 // draft is a trigger's settings being checked.
@@ -565,7 +618,20 @@ func (s *Service) Update(ctx context.Context, a authz.Actor, agentID, id uuid.UU
 		out.View = s.view(updated)
 		return audit.Record(ctx, q, e)
 	})
-	return out, err
+	if err != nil || out.Trigger.Source != SourceAgent {
+		return out, err
+	}
+	// Paused or resumed: its message as the caller may see it.
+	_, _, sub, err := access(ctx, s.q, a, agentID)
+	if err != nil {
+		return Saved{}, err
+	}
+	views := []View{out.View}
+	if err := withhold(ctx, s.q, a, sub.AgentSubject, views); err != nil {
+		return Saved{}, err
+	}
+	out.View = views[0]
+	return out, nil
 }
 
 // Delete removes a trigger: its address stops working, and its runs stay

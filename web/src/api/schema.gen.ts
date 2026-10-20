@@ -2336,8 +2336,10 @@ export interface components {
             pausedReason?: "user" | "failures" | null;
             /** @description The thread every fire sends to (null - a new thread at every fire) */
             threadId: string | null;
-            /** @description The message, with placeholders {{payload}}, {{payload.<path>}} (webhooks), {{trigger.name}}, {{trigger.kind}}, {{fire.id}} and {{fire.time}} */
-            messageTemplate: string;
+            /** @description The message, with placeholders {{payload}}, {{payload.<path>}} (webhooks), {{trigger.name}}, {{trigger.kind}}, {{fire.id}} and {{fire.time}}. Null when withheld (messageHidden): an agent-made trigger's message is conversation-derived text, so platform staff never see it, and people who may use the agent see it only when they may read the thread it was made in. */
+            messageTemplate: string | null;
+            /** @description The message is withheld from the caller (messageTemplate is null) */
+            messageHidden?: boolean;
             schedule?: components["schemas"]["TriggerSchedule"] | null;
             /** @description Where a webhook's sender POSTs (webhooks) */
             webhookUrl?: string | null;
