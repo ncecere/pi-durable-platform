@@ -45,6 +45,24 @@ func (e AgentModelSource) Valid() bool {
 	}
 }
 
+// Defines values for AgentMoveTeamKind.
+const (
+	AgentMoveTeamKindPersonal AgentMoveTeamKind = "personal"
+	AgentMoveTeamKindTeam     AgentMoveTeamKind = "team"
+)
+
+// Valid indicates whether the value is a known member of the AgentMoveTeamKind enum.
+func (e AgentMoveTeamKind) Valid() bool {
+	switch e {
+	case AgentMoveTeamKindPersonal:
+		return true
+	case AgentMoveTeamKindTeam:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AgentTemplateStatus.
 const (
 	AgentTemplateStatusPending   AgentTemplateStatus = "pending"
@@ -1270,6 +1288,79 @@ type AgentModel struct {
 
 // AgentModelSource agent: chosen for this agent; template: its template version's
 type AgentModelSource string
+
+// AgentMove defines model for AgentMove.
+type AgentMove struct {
+	// ModelId A model to switch to as part of the move (one the target team may use); default the agent's
+	ModelId *openapi_types.UUID `json:"modelId,omitempty"`
+
+	// Team The target team's slug or ID
+	Team string `json:"team"`
+}
+
+// AgentMoveBlocker defines model for AgentMoveBlocker.
+type AgentMoveBlocker struct {
+	// Code The error code the move would be refused with
+	//
+	// Example: move_template_unavailable
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// AgentMovePlan defines model for AgentMovePlan.
+type AgentMovePlan struct {
+	AgentId openapi_types.UUID `json:"agentId"`
+
+	// Allowed Whether the move would be done now (no blockers)
+	Allowed  bool               `json:"allowed"`
+	Blockers []AgentMoveBlocker `json:"blockers"`
+
+	// ExternalKey The agent's key, dropped by the move (PUT .../agents/by-key/{key} no longer finds it)
+	ExternalKey *string       `json:"externalKey,omitempty"`
+	From        AgentMoveTeam `json:"from"`
+
+	// McpServersDropped Names of its template version's MCP servers that the target team may not use (they stop applying)
+	McpServersDropped []string `json:"mcpServersDropped"`
+
+	// Model The model it would run on in the target team (absent - the platform's default model)
+	Model *AgentModel `json:"model,omitempty"`
+
+	// PeopleLosingAccess People of the current team who aren't in the target team
+	PeopleLosingAccess int64 `json:"peopleLosingAccess"`
+
+	// PrivateThreads Private threads; they stay their creator's
+	PrivateThreads int64 `json:"privateThreads"`
+
+	// PrivateThreadsUnreachable Private threads whose creator can't use the agent in the target team (a service account, or a person who isn't a member)
+	PrivateThreadsUnreachable int64 `json:"privateThreadsUnreachable"`
+
+	// ServiceAccountsLosingAccess The current team's service accounts, whose keys no longer reach the agent
+	ServiceAccountsLosingAccess int64 `json:"serviceAccountsLosingAccess"`
+
+	// SharedThreads Shared threads, which everyone who may use the agent in the target team will see
+	SharedThreads int64 `json:"sharedThreads"`
+
+	// TargetMembers People in the target team (who may use the agent after the move)
+	TargetMembers int64 `json:"targetMembers"`
+
+	// TargetServiceAccounts The target team's service accounts (who may use the agent after the move)
+	TargetServiceAccounts int64 `json:"targetServiceAccounts"`
+
+	// ThreadMcpServers MCP servers apps set on its threads, removed by the move
+	ThreadMcpServers int64         `json:"threadMcpServers"`
+	To               AgentMoveTeam `json:"to"`
+}
+
+// AgentMoveTeam defines model for AgentMoveTeam.
+type AgentMoveTeam struct {
+	Id   openapi_types.UUID `json:"id"`
+	Kind AgentMoveTeamKind  `json:"kind"`
+	Name string             `json:"name"`
+	Slug string             `json:"slug"`
+}
+
+// AgentMoveTeamKind defines model for AgentMoveTeam.Kind.
+type AgentMoveTeamKind string
 
 // AgentTemplate defines model for AgentTemplate.
 type AgentTemplate struct {
@@ -2947,6 +3038,21 @@ type UpdateAgentParams struct {
 	IfMatch IfMatchHeader `json:"If-Match"`
 }
 
+// PlanAgentMoveParams defines parameters for PlanAgentMove.
+type PlanAgentMoveParams struct {
+	// Team The target team's slug or ID
+	Team string `form:"team" json:"team"`
+
+	// ModelId A model to switch to as part of the move (one the target team may use)
+	ModelId *openapi_types.UUID `form:"modelId,omitempty" json:"modelId,omitempty"`
+}
+
+// MoveAgentParams defines parameters for MoveAgent.
+type MoveAgentParams struct {
+	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
+	IfMatch IfMatchHeader `json:"If-Match"`
+}
+
 // ListAgentThreadsParams defines parameters for ListAgentThreads.
 type ListAgentThreadsParams struct {
 	// Limit Page size (1-200). Without it, every thread.
@@ -3172,6 +3278,9 @@ type CreateTemplateVersionJSONRequestBody = AgentTemplateVersionCreate
 
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = AgentUpdate
+
+// MoveAgentJSONRequestBody defines body for MoveAgent for application/json ContentType.
+type MoveAgentJSONRequestBody = AgentMove
 
 // CreateAgentThreadJSONRequestBody defines body for CreateAgentThread for application/json ContentType.
 type CreateAgentThreadJSONRequestBody = AgentThreadCreate

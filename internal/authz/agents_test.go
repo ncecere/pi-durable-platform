@@ -1,6 +1,18 @@
 package authz
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/ncecere/pi-durable-platform/internal/apperr"
+)
+
+func apperrStatus(err error) int {
+	e, ok := apperr.As(err)
+	if !ok {
+		return 0
+	}
+	return e.Status
+}
 
 func TestAgentRules(t *testing.T) {
 	person := func(role string, managed bool) AgentSubject { return AgentSubject{Role: role, ServiceManaged: managed} }
@@ -54,5 +66,43 @@ func TestAgentRules(t *testing.T) {
 	if CheckKeyedAgentCreate(false, RoleOwner, true) != nil || CheckKeyedAgentCreate(false, "", true) == nil ||
 		CheckKeyedAgentCreate(true, RoleEditor, true) == nil {
 		t.Error("keyed agents in a personal workspace: its owner only")
+	}
+}
+
+func TestAgentMoveRules(t *testing.T) {
+	shared := func(role string) MoveSide { return MoveSide{Role: role} }
+	personal := func(role string) MoveSide { return MoveSide{Role: role, Personal: true} }
+	cases := []struct {
+		name                       string
+		from, to                   MoveSide
+		service, padmin, staff, ok bool
+		code                       int
+	}{
+		{"owner of both", shared(RoleOwner), shared(RoleOwner), false, false, false, true, 0},
+		{"admin of both", shared(RoleAdmin), shared(RoleAdmin), false, false, false, true, 0},
+		{"admin here, editor there", shared(RoleAdmin), shared(RoleEditor), false, false, false, false, 403},
+		{"editor here, owner there", shared(RoleEditor), shared(RoleOwner), false, false, false, false, 403},
+		{"not on the target", shared(RoleOwner), shared(""), false, false, false, false, 404},
+		{"a service account", shared(RoleEditor), shared(RoleEditor), true, false, false, false, 403},
+		{"into one's own workspace", shared(RoleAdmin), personal(RoleOwner), false, false, false, true, 0},
+		{"out of one's own workspace", personal(RoleOwner), shared(RoleAdmin), false, false, false, true, 0},
+		{"out of one's own workspace into a team as member", personal(RoleOwner), shared(RoleMember), false, false, false, false, 403},
+		{"platform admin between teams they're not on", shared(""), shared(""), false, true, true, true, 0},
+		{"platform admin into a team they own", shared(""), shared(RoleOwner), false, true, true, false, 403},
+		{"platform admin into a team they're a member of", shared(""), shared(RoleMember), false, true, true, false, 403},
+		{"platform admin out of a team they own", shared(RoleOwner), shared(""), false, true, true, true, 0},
+		{"platform admin out of someone's workspace", personal(""), shared(""), false, true, true, false, 403},
+		{"platform admin into someone's workspace", shared(""), personal(""), false, true, true, false, 403},
+		{"platform auditor", shared(""), shared(""), false, false, true, false, 403},
+	}
+	for _, c := range cases {
+		err := CheckAgentMove(c.from, c.to, c.service, c.padmin, c.staff)
+		if (err == nil) != c.ok {
+			t.Errorf("%s: %v, want ok=%v", c.name, err, c.ok)
+			continue
+		}
+		if err != nil && apperrStatus(err) != c.code {
+			t.Errorf("%s: %v, want %d", c.name, err, c.code)
+		}
 	}
 }

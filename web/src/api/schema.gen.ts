@@ -1574,6 +1574,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agentId}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        /**
+         * What moving the agent to another team would change (a dry run; who may move it)
+         * @description Authorized like the move itself. 200 with allowed false and the blockers when the move would be refused for what it needs in the target team (its template, its model, a free name, room under the team's limits).
+         */
+        get: operations["planAgentMove"];
+        put?: never;
+        /**
+         * Move the agent, with its conversations, to another team or workspace (owners and admins of both; platform admins between shared teams)
+         * @description A person (browser session, personal API key or an app they connected; never a service account) who is an owner or admin of both teams, or a platform admin between shared teams (not into a team they are a member of unless they may move it out of its team). A personal workspace on either side: its owner only. The agent keeps its schema, template version and conversations; its record now belongs to the target team, whose rules apply from then on. Its template and model must be available to the target team (409 move_template_unavailable, move_model_unavailable; modelId switches the model), its name free there (409 name_taken), and the team below its limits (409 too_many_agents, limit_reached). Service-managed agents don't move (409 agent_service_managed). Its external key, the MCP servers apps set on its threads, and the old team's MCP servers, service accounts and models stop applying; usage stays with the team it happened in. The runtime is stopped and starts with the new team's configuration on the next request. Audited in both teams' logs (agent.move).
+         */
+        post: operations["moveAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agentId}/threads": {
         parameters: {
             query?: never;
@@ -2471,6 +2497,86 @@ export interface components {
              * @description For a new agent, a model published to the team (default the template's)
              */
             modelId?: string;
+        };
+        AgentMove: {
+            /** @description The target team's slug or ID */
+            team: string;
+            /**
+             * Format: uuid
+             * @description A model to switch to as part of the move (one the target team may use); default the agent's
+             */
+            modelId?: string;
+        };
+        AgentMoveTeam: {
+            /** Format: uuid */
+            id: string;
+            slug: string;
+            name: string;
+            /** @enum {string} */
+            kind: "team" | "personal";
+        };
+        AgentMoveBlocker: {
+            /**
+             * @description The error code the move would be refused with
+             * @example move_template_unavailable
+             */
+            code: string;
+            message: string;
+        };
+        AgentMovePlan: {
+            /** Format: uuid */
+            agentId: string;
+            from: components["schemas"]["AgentMoveTeam"];
+            to: components["schemas"]["AgentMoveTeam"];
+            /** @description Whether the move would be done now (no blockers) */
+            allowed: boolean;
+            blockers: components["schemas"]["AgentMoveBlocker"][];
+            /**
+             * Format: int64
+             * @description Shared threads, which everyone who may use the agent in the target team will see
+             */
+            sharedThreads: number;
+            /**
+             * Format: int64
+             * @description Private threads; they stay their creator's
+             */
+            privateThreads: number;
+            /**
+             * Format: int64
+             * @description Private threads whose creator can't use the agent in the target team (a service account, or a person who isn't a member)
+             */
+            privateThreadsUnreachable: number;
+            /**
+             * Format: int64
+             * @description People in the target team (who may use the agent after the move)
+             */
+            targetMembers: number;
+            /**
+             * Format: int64
+             * @description The target team's service accounts (who may use the agent after the move)
+             */
+            targetServiceAccounts: number;
+            /**
+             * Format: int64
+             * @description People of the current team who aren't in the target team
+             */
+            peopleLosingAccess: number;
+            /**
+             * Format: int64
+             * @description The current team's service accounts, whose keys no longer reach the agent
+             */
+            serviceAccountsLosingAccess: number;
+            /** @description The agent's key, dropped by the move (PUT .../agents/by-key/{key} no longer finds it) */
+            externalKey?: string | null;
+            /**
+             * Format: int64
+             * @description MCP servers apps set on its threads, removed by the move
+             */
+            threadMcpServers: number;
+            /** @description Names of its template version's MCP servers that the target team may not use (they stop applying) */
+            mcpServersDropped: string[];
+            /** @description The model it would run on in the target team (absent - the platform's default model) */
+            model?: components["schemas"]["AgentModel"] | null;
         };
         AgentUpdate: {
             name?: string;
@@ -6569,6 +6675,77 @@ export interface operations {
                 };
             };
             404: components["responses"]["ErrorReply"];
+        };
+    };
+    planAgentMove: {
+        parameters: {
+            query: {
+                /** @description The target team's slug or ID */
+                team: string;
+                /** @description A model to switch to as part of the move (one the target team may use) */
+                modelId?: string;
+            };
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The plan */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AgentMovePlan"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    moveAgent: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+                "If-Match": components["parameters"]["IfMatchHeader"];
+            };
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentMove"];
+            };
+        };
+        responses: {
+            /** @description Moved */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Agent"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            412: components["responses"]["ErrorReply"];
+            428: components["responses"]["ErrorReply"];
         };
     };
     listAgentThreads: {

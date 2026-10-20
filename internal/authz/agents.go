@@ -130,3 +130,52 @@ func CheckKeyedAgentCreate(isService bool, role string, personal bool) error {
 	}
 	return nil
 }
+
+// MoveSide is one team of an agent's move as the actor sees it.
+type MoveSide struct {
+	Role     string // the actor's role in the team ("" when not on it)
+	Personal bool   // a personal workspace
+}
+
+var errTeamNotFound = apperr.NotFound("team_not_found", "Team not found")
+
+// CheckAgentMove decides whether the actor may move an agent (that it may
+// see: CheckAgentSee) from one team to another. Moving takes the agent's
+// conversations along: its shared threads become the target team's to read.
+//
+//   - People only (a session, a personal API key, an app acting for them):
+//     service accounts never; their team role is editor at most.
+//   - On each side, an owner or admin of the team, as for deleting an agent
+//     there and bringing conversations into it.
+//   - A personal workspace on either side: its owner only. Platform admins
+//     don't move a person's conversations out of, or anything into, someone
+//     else's workspace.
+//   - Platform admins (platformAdmin; never through an app) stand in for an
+//     owner or admin of a shared team: of the target always, of the source
+//     only when they are not on the target team, so their platform role
+//     never gets them a team's conversations to read (that stays the
+//     reasoned, audited read).
+//
+// A target team the actor is not on and can't see reads as not found
+// (staff: platform admins and auditors see every team).
+func CheckAgentMove(from, to MoveSide, isService, platformAdmin, staff bool) error {
+	if isService {
+		return apperr.Forbidden("Service accounts can't move agents")
+	}
+	if to.Role == "" && !staff {
+		return errTeamNotFound
+	}
+	manages := func(side MoveSide, standIn bool) bool {
+		if side.Personal {
+			return side.Role == RoleOwner
+		}
+		return RoleAtLeast(side.Role, RoleAdmin) || standIn
+	}
+	if !manages(from, platformAdmin && to.Role == "") {
+		return apperr.Forbidden("Only the agent's team's owners and admins can move it (a personal workspace's: its owner)")
+	}
+	if !manages(to, platformAdmin) {
+		return apperr.Forbidden("Only the target team's owners and admins can move agents into it (a personal workspace's: its owner)")
+	}
+	return nil
+}

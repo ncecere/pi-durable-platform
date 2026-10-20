@@ -3541,6 +3541,103 @@ paths:
                     $ref: '#/components/schemas/Ok'
         '404':
           $ref: '#/components/responses/ErrorReply'
+  /v1/agents/{agentId}/move:
+    parameters:
+    - $ref: '#/components/parameters/AgentIdParam'
+    get:
+      tags:
+      - agents
+      operationId: planAgentMove
+      summary: What moving the agent to another team would change (a dry run; who may move it)
+      description: >-
+        Authorized like the move itself. 200 with allowed false and the blockers when the move would be refused for
+        what it needs in the target team (its template, its model, a free name, room under the team's limits).
+      parameters:
+      - name: team
+        in: query
+        required: true
+        description: The target team's slug or ID
+        schema:
+          type: string
+      - name: modelId
+        in: query
+        required: false
+        description: A model to switch to as part of the move (one the target team may use)
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: The plan
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgentMovePlan'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+    post:
+      tags:
+      - agents
+      operationId: moveAgent
+      summary: Move the agent, with its conversations, to another team or workspace (owners and admins of both; platform admins between shared teams)
+      description: >-
+        A person (browser session, personal API key or an app they connected; never a service account) who is an
+        owner or admin of both teams, or a platform admin between shared teams (not into a team they are a member
+        of unless they may move it out of its team). A personal workspace on either side: its owner only. The agent
+        keeps its schema, template version and conversations; its record now belongs to the target team, whose
+        rules apply from then on. Its template and model must be available to the target team (409
+        move_template_unavailable, move_model_unavailable; modelId switches the model), its name free there (409
+        name_taken), and the team below its limits (409 too_many_agents, limit_reached). Service-managed agents
+        don't move (409 agent_service_managed). Its external key, the MCP servers apps set on its threads, and the
+        old team's MCP servers, service accounts and models stop applying; usage stays with the team it happened in.
+        The runtime is stopped and starts with the new team's configuration on the next request. Audited in both
+        teams' logs (agent.move).
+      parameters:
+      - $ref: '#/components/parameters/IfMatchHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentMove'
+      responses:
+        '200':
+          description: Moved
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/ErrorReply'
+        '403':
+          $ref: '#/components/responses/ErrorReply'
+        '404':
+          $ref: '#/components/responses/ErrorReply'
+        '409':
+          $ref: '#/components/responses/ErrorReply'
+        '412':
+          $ref: '#/components/responses/ErrorReply'
+        '428':
+          $ref: '#/components/responses/ErrorReply'
   /v1/agents/{agentId}/threads:
     parameters:
     - $ref: '#/components/parameters/AgentIdParam'
@@ -5471,6 +5568,106 @@ components:
           type: string
           format: uuid
           description: For a new agent, a model published to the team (default the template's)
+    AgentMove:
+      type: object
+      required: [team]
+      properties:
+        team:
+          type: string
+          description: The target team's slug or ID
+        modelId:
+          type: string
+          format: uuid
+          description: A model to switch to as part of the move (one the target team may use); default the agent's
+    AgentMoveTeam:
+      type: object
+      required: [id, slug, name, kind]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [team, personal]
+    AgentMoveBlocker:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: The error code the move would be refused with
+          example: move_template_unavailable
+        message:
+          type: string
+    AgentMovePlan:
+      type: object
+      required: [agentId, from, to, allowed, blockers, sharedThreads, privateThreads, privateThreadsUnreachable, targetMembers,
+        targetServiceAccounts, peopleLosingAccess, serviceAccountsLosingAccess, threadMcpServers, mcpServersDropped]
+      properties:
+        agentId:
+          type: string
+          format: uuid
+        from:
+          $ref: '#/components/schemas/AgentMoveTeam'
+        to:
+          $ref: '#/components/schemas/AgentMoveTeam'
+        allowed:
+          type: boolean
+          description: Whether the move would be done now (no blockers)
+        blockers:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentMoveBlocker'
+        sharedThreads:
+          type: integer
+          format: int64
+          description: Shared threads, which everyone who may use the agent in the target team will see
+        privateThreads:
+          type: integer
+          format: int64
+          description: Private threads; they stay their creator's
+        privateThreadsUnreachable:
+          type: integer
+          format: int64
+          description: Private threads whose creator can't use the agent in the target team (a service account, or a person who isn't a member)
+        targetMembers:
+          type: integer
+          format: int64
+          description: People in the target team (who may use the agent after the move)
+        targetServiceAccounts:
+          type: integer
+          format: int64
+          description: The target team's service accounts (who may use the agent after the move)
+        peopleLosingAccess:
+          type: integer
+          format: int64
+          description: People of the current team who aren't in the target team
+        serviceAccountsLosingAccess:
+          type: integer
+          format: int64
+          description: The current team's service accounts, whose keys no longer reach the agent
+        externalKey:
+          type: string
+          nullable: true
+          description: The agent's key, dropped by the move (PUT .../agents/by-key/{key} no longer finds it)
+        threadMcpServers:
+          type: integer
+          format: int64
+          description: MCP servers apps set on its threads, removed by the move
+        mcpServersDropped:
+          type: array
+          description: Names of its template version's MCP servers that the target team may not use (they stop applying)
+          items:
+            type: string
+        model:
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/AgentModel'
+          description: The model it would run on in the target team (absent - the platform's default model)
     AgentUpdate:
       type: object
       properties:

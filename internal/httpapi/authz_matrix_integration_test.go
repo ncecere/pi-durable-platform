@@ -440,6 +440,18 @@ func (c *mctx) personalTeam() string {
 	return c.e.personal
 }
 
+// moveTarget is a fresh shared team to move an agent to, where the caller
+// has the role it has on team B (platform roles: not on it).
+func (c *mctx) moveTarget() string {
+	slug := fmt.Sprintf("target-%d", c.e.next())
+	id := c.e.exec(`INSERT INTO teams (slug, name) VALUES ($1, 'Target') RETURNING id::text`, slug)
+	roles := map[caller]string{cMember: "member", cEditor: "editor", cTeamAdmin: "admin", cOwner: "owner"}
+	if r, ok := roles[c.who]; ok {
+		c.e.exec(`INSERT INTO team_members (team_id, user_id, role) VALUES ($1, $2, $3) RETURNING role`, id, c.e.userIDs[c.who], r)
+	}
+	return slug
+}
+
 // mcpServer is the fixture MCP server, or a fresh one for a destructive call
 // expected to succeed.
 func (c *mctx) mcpServer(fresh bool) string {

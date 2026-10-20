@@ -233,8 +233,17 @@ var matrixPolicies = map[string]policy{
 	"updateAgent": {scope: scopeTeam, own: editors, build: func(c *mctx) request {
 		return patch(c.agent("", true), map[string]any{"description": "updated by the matrix"}).h(rev1)
 	}},
-	"deleteAgent":      {scope: scopeTeam, own: admins | padmin, foreign: padmin, build: func(c *mctx) request { return del(c.agent("", true)) }},
-	"hibernateAgent":   {scope: scopeTeam, own: members, build: func(c *mctx) request { return post(c.agent("/hibernate", true), nil) }},
+	"deleteAgent":    {scope: scopeTeam, own: admins | padmin, foreign: padmin, build: func(c *mctx) request { return del(c.agent("", true)) }},
+	"hibernateAgent": {scope: scopeTeam, own: members, build: func(c *mctx) request { return post(c.agent("/hibernate", true), nil) }},
+	// Moving an agent: its team's owners and admins, into a team where they
+	// have the same role (moveTarget); platform admins between shared teams
+	// they are not on (agent_move_integration_test.go covers the rest).
+	"planAgentMove": {scope: scopeTeam, own: admins, foreign: padmin, build: func(c *mctx) request {
+		return get(c.agent("/move?team="+c.moveTarget(), false))
+	}},
+	"moveAgent": {scope: scopeTeam, own: admins, foreign: padmin, build: func(c *mctx) request {
+		return post(c.agent("/move", true), map[string]any{"team": c.moveTarget()}).h(rev1)
+	}},
 	"listAgentThreads": {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.agent("/threads", false)) }},
 	// Starting a thread is authorized like sending a message.
 	"createAgentThread": {scope: scopeTeam, own: members, build: func(c *mctx) request { return post(c.agent("/threads", false), nil) }},
