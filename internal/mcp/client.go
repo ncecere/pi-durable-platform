@@ -29,6 +29,11 @@ type Tool struct {
 	Title       string          `json:"title,omitempty"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
+	// ModelVisible is set on every tool ListTools returns: its MCP Apps
+	// visibility was read and lets the model see it. A stored list with a
+	// tool without it predates that check and may hold app-only tools; it is
+	// read again at start (RecheckToolLists).
+	ModelVisible bool `json:"modelVisible,omitempty"`
 }
 
 const (
@@ -239,6 +244,7 @@ func ListTools(ctx context.Context, client *http.Client, url string, headers map
 				t.InputSchema = json.RawMessage(`{"type":"object","properties":{}}`)
 			}
 			t.Title, t.Description = truncate(t.Title, 200), truncate(t.Description, 4000)
+			t.ModelVisible = true
 			tools = append(tools, t)
 		}
 		if page.NextCursor == "" {

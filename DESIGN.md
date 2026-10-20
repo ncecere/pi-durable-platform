@@ -350,7 +350,11 @@ or some, and can let apps give its agents their own servers for one thread (`cli
 - **Catalog servers** reach agents as `mcp__<slug>__<tool>` tools, defined from the stored tool list and connected on
   first use with pi-mcp. More than 20 MCP tools are deferred behind `tool_search`. Tools an MCP App keeps for its own
   interface (`_meta.ui.visibility` without `"model"`, the MCP Apps extension) are never offered to the model; the
-  platform shows no app interfaces yet, so an app's tools work as plain tools. Per server, **proxy** (default: the
+  platform shows no app interfaces yet, so an app's tools work as plain tools. Stored tools carry `modelVisible`; a
+  list stored before the platform read that field (any server, the platform's or a team's, enabled or not) is read
+  again once at start, in the background, through the normal refresh (a team's server through the address guard,
+  with the usual time limit); one that can't be read keeps its list, records the error and is tried at the next
+  start. Per server, **proxy** (default: the
   agent calls `/mcp-proxy/server/<id>` on the gateway, which adds the headers, refuses `tools/call` for tools the
   version left out and logs each call in `mcp_calls`) or **direct** (the runtime gets the URL and headers).
 - **App servers**: a chat app sends the MCP servers its user enabled with a message (`mcpServers`) or with

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -649,6 +650,45 @@ func (s *Service) refresh(ctx context.Context, m dbgen.McpServer, headers map[st
 	}
 	v, err := s.fullView(ctx, s.q, updated)
 	return v, blocked, err
+}
+
+// RecheckToolLists reads again, through the normal refresh, the tool list
+// of every server (the platform's and teams', enabled or not, since
+// enabling one doesn't read its tools) stored before the platform read MCP
+// Apps' visibility: such a list may hold tools an app keeps for its own
+// interface, which agents would be offered. Run once at start, in the
+// background: a team's server goes through the address guard and each read
+// has ListTools' time limit. A list that can't be read again stays (with
+// the error recorded, as for an admin's refresh) and is tried at the next
+// start. Only server IDs and slugs are logged.
+func (s *Service) RecheckToolLists(ctx context.Context, log *slog.Logger) error {
+	servers, err := s.q.ListMCPServersWithOldTools(ctx)
+	if err != nil {
+		return err
+	}
+	for _, m := range servers {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		headers, err := s.open(m.HeadersEnc, serverAD(m.ID))
+		if err != nil {
+			log.Warn("mcp: can't read an old tool list again (headers)", "server", m.ID, "slug", m.Slug)
+			continue
+		}
+		v, _, err := s.refresh(ctx, m, headers)
+		switch {
+		case err != nil:
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			log.Warn("mcp: can't store a tool list read again", "server", m.ID, "slug", m.Slug)
+		case v.Server.ToolsError != nil:
+			log.Warn("mcp: an old tool list couldn't be read again; trying at the next start", "server", m.ID, "slug", m.Slug)
+		default:
+			log.Info("mcp: old tool list read again", "server", m.ID, "slug", m.Slug, "tools", len(v.Tools))
+		}
+	}
+	return nil
 }
 
 // DeleteServer removes any server (platform admins); refused while

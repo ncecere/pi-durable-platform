@@ -29,6 +29,15 @@ UPDATE mcp_servers SET tools = $2, tools_refreshed_at = now(), tools_error = $3,
 WHERE id = $1
 RETURNING *;
 
+-- name: ListMCPServersWithOldTools :many
+-- Servers (every owner's, enabled or not) whose stored tool list predates
+-- reading MCP Apps' visibility (v0.3): a tool without modelVisible. Such a
+-- list may offer agents tools an app keeps for its own interface.
+SELECT * FROM mcp_servers s
+WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(s.tools) = 'array' THEN s.tools ELSE '[]'::jsonb END) e
+              WHERE e->'modelVisible' IS NULL)
+ORDER BY s.created_at, s.id;
+
 -- name: DeleteMCPServer :exec
 DELETE FROM mcp_servers WHERE id = $1;
 

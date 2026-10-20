@@ -21,6 +21,7 @@ the Kubernetes API, or in the runtime itself); what a replica keeps in memory is
 | Thread events | `NOTIFY pdp_threads` after the change, every replica `LISTEN`s and fans out to its own subscribers | Safe: a subscriber on one replica hears changes made through another |
 | Gateway and MCP proxy (model proxy, MCP gateway) | Stateless per request; `Mcp-Session-Id` is the upstream's | Safe |
 | Background loops: session, OAuth and thread clean-up; rate counter clean-up | Idempotent deletes | Safe to run on every replica |
+| Reading again MCP tool lists stored before v0.3, at start | Each replica that starts while such a list remains reads it again and stores the result | Safe: the same refresh as an admin's; replicas starting together may read a list twice |
 | Group re-check | People are claimed with `FOR UPDATE SKIP LOCKED` and marked checked | Safe: each person is asked about once per interval |
 | Agent activity for the idle reaper: open streams, last request | **Was** this replica's memory | Made safe, below |
 | Waking an agent | **Was** one process's mutex (single flight) | Made safe, below |
