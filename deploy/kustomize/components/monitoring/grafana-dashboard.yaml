@@ -10,7 +10,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pi-durable-platform
     app.kubernetes.io/instance: pi-durable-platform
-    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/version: "0.4.0"
     grafana_dashboard: "1"
 data:
   pi-durable-platform.json: |-

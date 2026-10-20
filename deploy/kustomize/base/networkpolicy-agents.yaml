@@ -11,7 +11,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pi-durable-platform
     app.kubernetes.io/instance: pi-durable-platform
-    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/version: "0.4.0"
 spec:
   podSelector: {}
   policyTypes: [Ingress, Egress]
@@ -24,7 +24,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pi-durable-platform
     app.kubernetes.io/instance: pi-durable-platform
-    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/version: "0.4.0"
 spec:
   podSelector: {}
   policyTypes: [Egress]
@@ -48,7 +48,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pi-durable-platform
     app.kubernetes.io/instance: pi-durable-platform
-    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/version: "0.4.0"
 spec:
   podSelector:
     matchLabels:
@@ -74,7 +74,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pi-durable-platform
     app.kubernetes.io/instance: pi-durable-platform
-    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/version: "0.4.0"
 spec:
   podSelector:
     matchLabels:
@@ -101,7 +101,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pi-durable-platform
     app.kubernetes.io/instance: pi-durable-platform
-    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/version: "0.4.0"
 spec:
   podSelector:
     matchLabels:

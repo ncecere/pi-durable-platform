@@ -8,6 +8,77 @@ the entry says how to adapt. The design is in [DESIGN.md](DESIGN.md), and each r
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-20
+
+Agents that run on their own: custom agents built with the runtime as a library, triggers (schedules, signed webhooks
+and agents' own reminders), tool approvals, hibernation that respects background work, a signed identity token for MCP
+servers, and two first-party agents (triage and a deep researcher). Includes database migrations `00021` to `00026`.
+Read [the upgrade notes](docs/releases/v0.4.0.md#upgrading-from-v030).
+
+### Added
+
+- **The runtime as a library.** `@pdp/runtime` (`defineAgent`, extensions, documents, settings, `defineSubagent` with
+  background subagents, `runAgentProcess`, `runAuthor`) builds custom agents on the same runtime the platform ships,
+  with its guards always applied; `@pdp/runtime/testing` is a test kit (a fake model, restarts at chosen points, replay
+  assertions, the storage conformance suite). A written runtime contract ([docs/runtime-contract.md](docs/runtime-contract.md),
+  contract version 2 at `/status`) and an example ([examples/custom-agent](examples/custom-agent)) (#28, #61, #64).
+- **Custom state for apps.** Tools return structured `details` that apps receive with the tool call; agents expose
+  conversation documents, read with `GET /v1/agents/{id}/threads/{thread}/documents/{kind}` and announced by a
+  `document.updated` event (#64).
+- **The upgrade check.** The platform records, per agent, the newest pi-durable version that wrote its storage and
+  refuses older runtimes (`409 runtime_too_old`), so an old image can't misread newer state (#64).
+- **Triggers.** Schedules (cron in a time zone, missed-run policy) and webhooks (`POST /v1/hooks/{id}`, signed with
+  `X-PDP-Signature`, replay-safe) start runs that send a message built from a template, in a new or a fixed thread.
+  Runs have limits (concurrency, run time, budgets), pause and auto-pause after failures, and an optional signed
+  completion callback. The agent's Triggers tab manages them (owners and admins); unattended runs act as no person
+  (#15, #63).
+- **Agent-made schedules.** A template version's *Schedules* setting (`agentSchedules`) gives its agents the `schedule`,
+  `list_schedules` and `cancel_schedule` tools: one-time reminders and recurring work, with the agent's own credential,
+  within limits (`TRIGGERS_AGENT_MAX`, `TRIGGERS_AGENT_MIN_INTERVAL`, `TRIGGERS_AGENT_DAILY_RUNS`) (#67).
+- **Background-aware hibernation.** The runtime reports background work at `/status`; an agent with background work
+  stays awake up to `AGENTS_BACKGROUND_MAX` (default 2h), after which the platform aborts it
+  (`POST /background/abort`). A reply that only waits for a person doesn't keep an agent awake (#34, #65).
+- **Tool approvals.** A template version lists tools (names or `*` patterns) that wait for a person's approval, with a
+  role and a timeout. The wait survives restarts and hibernation; approvers see redacted arguments and decide in the
+  conversation or the agent's Approvals tab, by API (`/v1/agents/{id}/approvals`, and `/v1/me/approvals` for the
+  requests waiting for the caller) or through an app (#16, #66).
+- **MCP identity tokens.** In proxy mode, MCP servers receive `MCP-Gateway-Identity`, an ES256 token (five minutes,
+  audience per server) naming the calling agent and, when the platform can vouch for it from its own records, the
+  person it acts for (a personal workspace's owner, a private thread's creator) and whether they are present. Keys
+  at `/.well-known/mcp-identity-jwks.json`; `pi-durable-platform rotate-mcp-identity-key` rotates them; per-server
+  settings `sendIdentity`, `identityAudience`, `identityEmail` ([docs/mcp-identity.md](docs/mcp-identity.md)) (#57, #62).
+- **First-party agents.** A template version has a kind: `assistant` (the default), `triage` (works an issue queue
+  through the MCP tools its settings name, keeps an exposed queue document, asks before writing) or `researcher` (an
+  exposed plan and sources, parallel subagents, a report). Both are built only with the library's public exports and
+  ship in the standard runtime image; the console renders their documents ([docs/first-party-agents.md](docs/first-party-agents.md))
+  (#35, #68).
+- **Commands.** `rotate-mcp-identity-key` and `reset-storage-version` (both audited).
+- **Settings.** `AGENTS_BACKGROUND_MAX`, `TRIGGERS_INTERVAL`, `TRIGGERS_MAX_RUN_TIME`, `TRIGGERS_MAX_CONCURRENT_RUNS`,
+  `TRIGGERS_PAUSE_AFTER_FAILURES`, `TRIGGERS_AGENT_MAX`, `TRIGGERS_AGENT_MIN_INTERVAL`, `TRIGGERS_AGENT_DAILY_RUNS`.
+
+### Changed
+
+- **The runtime is an application of the library.** The default assistant is `assistantAgent`, defined with
+  `defineAgent` like any custom agent; runtimes report `contractVersion` and `piDurableVersion` at `/status`.
+- **Audit entries can name an agent as the actor** (agent-made schedules).
+- **Subagents don't get the schedule tools**: only the conversation a person or a trigger talks to sets schedules.
+
+### Security
+
+- A runtime can no longer pin an agent's storage version with an absurd pi-durable version (a reported version is
+  recorded only within the same major and one minor ahead of the shipped one); `reset-storage-version` recovers.
+- Agent-made schedules can't be set from someone else's private conversation (`403 schedule_private_thread`); their
+  message is hidden from platform staff and from people who can't read the conversation it came from.
+- Only verified webhook deliveries count against a webhook's rate limit; unverified requests have their own limit per
+  webhook and client address, so a flood of bad signatures can't block the real sender.
+- An agent's own schedules start at most `TRIGGERS_AGENT_DAILY_RUNS` runs a UTC day, bounding a chain of reminders.
+- Approval arguments are redacted by credential-like names and values, showing the redacted length, instead of by any
+  name containing `key` or `auth`.
+- A run fired before its agent moved to another team fails (`agent_moved`) instead of reaching the new team.
+- A platform admin's reasoned document read is audited whatever its outcome, and staff get the same 404 for a missing
+  thread or document kind.
+- At most 100 approval requests wait per agent; beyond that the platform answers with a denial.
+
 ## [0.3.0] - 2026-10-20
 
 Apps at scale: paging, incremental event streams, steering, safe agent creation, moving agents, and OAuth Connect for
@@ -229,7 +300,10 @@ runtime).
   version, the non-root user and the read-only root filesystem, scans them with Trivy, publishes a multi-arch index,
   signs it, and creates the GitHub Release with SBOMs and checksums.
 
-[Unreleased]: https://github.com/ncecere/pi-durable-platform/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/ncecere/pi-durable-platform/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ncecere/pi-durable-platform/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/ncecere/pi-durable-platform/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/ncecere/pi-durable-platform/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/ncecere/pi-durable-platform/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/ncecere/pi-durable-platform/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ncecere/pi-durable-platform/releases/tag/v0.1.0

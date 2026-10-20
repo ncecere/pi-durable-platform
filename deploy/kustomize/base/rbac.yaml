@@ -10,7 +10,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pi-durable-platform
     app.kubernetes.io/instance: pi-durable-platform
-    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/version: "0.4.0"
 rules:
   # One pod per agent, its secrets in a Secret of the same name.
   - apiGroups: [""]
@@ -28,7 +28,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pi-durable-platform
     app.kubernetes.io/instance: pi-durable-platform
-    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/version: "0.4.0"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

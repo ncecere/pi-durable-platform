@@ -13,7 +13,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pi-durable-platform
     app.kubernetes.io/instance: pi-durable-platform
-    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/version: "0.4.0"
 spec:
   # Our own policies (networkpolicy-agents.yaml); the controller's default allows internet egress.
   networkPolicyManagement: Unmanaged
@@ -39,7 +39,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: runtime
-          image: "ghcr.io/ncecere/pi-durable-platform-runtime:v0.3.0"
+          image: "ghcr.io/ncecere/pi-durable-platform-runtime:v0.4.0"
           env:
             - { name: HOST, value: "0.0.0.0" }
             - { name: PORT, value: "4100" }
@@ -77,7 +77,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pi-durable-platform
     app.kubernetes.io/instance: pi-durable-platform
-    app.kubernetes.io/version: "0.3.0"
+    app.kubernetes.io/version: "0.4.0"
 spec:
   replicas: 2
   sandboxTemplateRef:
