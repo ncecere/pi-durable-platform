@@ -25,7 +25,14 @@ const teamMCPSecret = "Bearer team-mcp-secret"
 // returns the status and body.
 func mcpProxyCall(t *testing.T, gatewayURL, serverID, cred, tool string) (int, string) {
 	t.Helper()
-	req, _ := http.NewRequest("POST", gatewayURL+"/mcp-proxy/server/"+serverID,
+	return mcpProxyCallKind(t, gatewayURL, "server", serverID, cred, tool)
+}
+
+// mcpProxyCallKind is mcpProxyCall for a catalog or team "server" or an
+// app's "thread" server.
+func mcpProxyCallKind(t *testing.T, gatewayURL, kind, serverID, cred, tool string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest("POST", gatewayURL+"/mcp-proxy/"+kind+"/"+serverID,
 		bytes.NewReader([]byte(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"`+tool+`","arguments":{"text":"hi"}}}`)))
 	req.Header.Set("Authorization", "Bearer "+cred)
 	req.Header.Set("Content-Type", "application/json")

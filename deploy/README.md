@@ -50,6 +50,21 @@ Derived from `internal/agenthost/launcher`; the [v0.1.0 notes](../docs/releases/
    install PostgreSQL. [`examples/cloudnative-pg`](examples/cloudnative-pg) is a CloudNativePG cluster and the
    policies for its pods; any PostgreSQL 17 reachable from the cluster works (managed services included: give the
    chart its address in `networkPolicy.database.cidrs`).
+
+   **Keep agents' roles out of the platform database.** Agent roles are login roles of the same PostgreSQL server, and
+   PostgreSQL lets PUBLIC connect to every database it creates. The platform's advisory locks (waking an agent, the
+   reaper, migrations) live in the platform database: a role that can connect there could hold them and stop agents
+   from waking or the platform from starting. Revoke it and grant it back to the platform's role (and any other role
+   that uses that database):
+
+   ```sql
+   REVOKE CONNECT ON DATABASE pdp FROM PUBLIC;
+   GRANT CONNECT ON DATABASE pdp TO pdp;
+   ```
+
+   Other databases on the server need the same `REVOKE`, or `pg_hba.conf` rules that let agent roles (`agent_<uuid>`)
+   reach the agents database only: the CloudNativePG example does both. `doctor` warns until PUBLIC can no longer
+   connect to the platform database and lists the other databases it can still connect to ([DESIGN.md](../DESIGN.md#agent-storage-and-ownership)).
 3. **An OIDC client** at your identity provider, with redirect URI `https://<your host>/auth/callback`.
 4. **An ingress controller and TLS** for the host in `appUrl` (the platform refuses a non-loopback `http://` URL).
 5. **For `agent-sandbox`**: [Agent Sandbox](https://agent-sandbox.sigs.k8s.io) with its extensions (SandboxTemplate,
@@ -75,7 +90,8 @@ kubectl -n pi-durable-platform get pods
 kubectl -n pi-durable-platform exec deploy/pi-durable-platform -- /pi-durable-platform doctor
 ```
 
-`doctor` checks the configuration, both databases, migrations and the agents provisioning role. Then sign in at your
+`doctor` checks the configuration, both databases, migrations and the agents provisioning role, and warns when PUBLIC may
+still connect to the platform database (see step 2 above). Then sign in at your
 `appUrl`: the person whose OIDC subject is `BOOTSTRAP_ADMIN_SUBJECT` becomes platform admin on their first sign-in
 (once). Teams, agents, models and MCP servers are managed from the console, not from the deployment.
 
@@ -142,6 +158,11 @@ Set the new version (`--version` / the image digests of the release notes) and a
 database on start; a single replica is replaced, not rolled (a short outage), while several roll one at a time with
 none missing (see [Replicas](#replicas)). The warm pool replaces its standby
 runtimes at once; running agents move to the new runtime image when they next wake.
+
+If your PostgreSQL still lets PUBLIC connect to the platform database (any install made before this check existed does),
+`doctor` warns after the upgrade. The platform works either way; run the `REVOKE` and `GRANT` it prints, in
+[Before you install](#before-you-install) step 2, and add the same `REVOKE` for other databases on the server that
+agents must not reach. Nothing is revoked automatically: other roles may depend on PUBLIC's access.
 
 ## How the two stay in step
 

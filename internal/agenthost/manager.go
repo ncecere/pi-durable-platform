@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
@@ -441,6 +442,13 @@ func (m *Manager) ReapLoop(ctx context.Context, interval time.Duration) {
 	}
 }
 
+// maxStatusBytes bounds what the reaper reads from a runtime's /status (a few
+// hundred bytes in practice). The runtime is not trusted: an agent's code can
+// make it answer with any body, and the reaper runs on every replica.
+const maxStatusBytes = 64 << 10
+
+var errStatusTooLarge = errors.New("runtime status reply is too large")
+
 func (m *Manager) status(ctx context.Context, ep launcher.Endpoint) (runtimeStatus, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, ep.BaseURL+"/status", nil)
 	req.Header.Set("Authorization", "Bearer "+ep.Token)
@@ -452,8 +460,16 @@ func (m *Manager) status(ctx context.Context, ep launcher.Endpoint) (runtimeStat
 	if resp.StatusCode != http.StatusOK {
 		return runtimeStatus{}, fmt.Errorf("status %d", resp.StatusCode)
 	}
+	// Over the limit is an error, never a truncated parse.
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxStatusBytes+1))
+	if err != nil {
+		return runtimeStatus{}, err
+	}
+	if len(raw) > maxStatusBytes {
+		return runtimeStatus{}, errStatusTooLarge
+	}
 	var body struct{ Data runtimeStatus }
-	err = json.NewDecoder(resp.Body).Decode(&body)
+	err = json.Unmarshal(raw, &body)
 	return body.Data, err
 }
 

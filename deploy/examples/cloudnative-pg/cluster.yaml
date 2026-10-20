@@ -13,6 +13,22 @@
 # Create the Secret pdp-agents-admin first (secrets.example.yaml). Adjust
 # storage, instances and resources. Each running agent holds one connection
 # (two while it is replaced): size max_connections for your agents.
+#
+# Keep agents' roles out of the platform database. PostgreSQL lets PUBLIC
+# connect to every database it creates, and an agent's role is a login role on
+# the same server that runs code the platform doesn't trust. The platform's
+# advisory locks (waking an agent, the reaper, migrations) live in database pdp:
+# a role that can connect there could hold them and stop agents from waking or
+# the platform from starting. Two steps, both below:
+#   1. REVOKE CONNECT on pdp from PUBLIC and grant it to the platform's role
+#      (postInitApplicationSQL runs once, when the cluster is created; on a
+#      running cluster run the same statements yourself:
+#        kubectl cnpg psql pdp-db -- -d pdp -c 'REVOKE CONNECT ON DATABASE pdp FROM PUBLIC' \
+#          -c 'GRANT CONNECT ON DATABASE pdp TO pdp'
+#      and add the same pair for any other database on the server that agents
+#      must not reach, including `postgres`).
+#   2. pg_hba rules that let agent roles (agent_<uuid>) reach pdp_agents only.
+# `pi-durable-platform doctor` warns until PUBLIC can no longer connect.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -35,10 +51,21 @@ spec:
   postgresql:
     parameters:
       max_connections: "200"
+    # User-defined rules come before CloudNativePG's catch-all, and the first
+    # match wins. Agent roles are named agent_<uuid without dashes>
+    # (PostgreSQL 16+ reads a leading slash as a regular expression). Adjust
+    # the connection type (host or hostssl) and add your own rules for the
+    # platform and your operators after these.
+    pg_hba:
+      - host pdp_agents /^agent_ all scram-sha-256
+      - host all /^agent_ all reject
   bootstrap:
     initdb:
       database: pdp
       owner: pdp
+      postInitApplicationSQL:
+        - REVOKE CONNECT ON DATABASE pdp FROM PUBLIC
+        - GRANT CONNECT ON DATABASE pdp TO pdp
   managed:
     roles:
       - name: pdp_agents_admin

@@ -309,7 +309,7 @@ func TestDoctorEncryptionKeys(t *testing.T) {
 	}(),
 		doctor.Options{Timeout: 10 * time.Second})
 	var buf bytes.Buffer
-	if err := rep.WriteText(&buf); err != nil || !rep.OK || !strings.Contains(buf.String(), "warn") || !strings.Contains(buf.String(), "1 warning") {
+	if err := rep.WriteText(&buf); err != nil || !rep.OK || !strings.Contains(buf.String(), "warn  keys encryption") {
 		t.Errorf("report ok=%v err=%v:\n%s", rep.OK, err, buf.String())
 	}
 

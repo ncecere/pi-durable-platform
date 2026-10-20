@@ -3,7 +3,9 @@
 // migration state, with timings, then key rotation (API keys still on another
 // pepper, stored secrets still sealed with the previous encryption key), then
 // the agents database (AGENTS_DATABASE_URL): that it answers, that its role may
-// provision agents, and which agent roles belong to no agent. It changes nothing.
+// provision agents, and which agent roles belong to no agent, and whether PUBLIC
+// may connect to the platform database and the agents database's siblings
+// (publicconnect.go). It changes nothing.
 package doctor
 
 import (
@@ -87,6 +89,7 @@ func Run(ctx context.Context, cfg config.Config, opts Options) Report {
 		defer pool.Close()
 	}
 	r.agentsDatabase(ctx, pool)
+	r.publicConnect(ctx, pool) // publicconnect.go
 	return r.report()
 }
 
