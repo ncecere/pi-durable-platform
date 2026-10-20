@@ -586,7 +586,7 @@ design, threat model and limits are in [docs/triggers.md](docs/triggers.md).
 
 A template version can mark tools (built-in or MCP, by name or `*` pattern) as needing a person's approval; the call
 waits in its tool task's `beforeTool` hook, before pi-durable records its intent, so it survives restarts and
-hibernation, and the platform records the request (`tool_approvals`, migration 00023), lets the people allowed decide
+hibernation, and the platform records the request (`tool_approvals`, migration 00024), lets the people allowed decide
 (`POST /v1/agents/{id}/approvals/{approvalId}`; the thread's creator for a private thread, the run's author or the
 team's owners, admins and the version's role for a shared one, owners and admins for an unattended run; never staff),
 times requests out (default 24 h) and delivers the decision to the runtime, waking it. The thread view and its streams

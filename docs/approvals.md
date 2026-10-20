@@ -1,7 +1,7 @@
 # Tool approvals: a person approves sensitive tool calls before they run
 
 Design note for roadmap item P ([#16](https://github.com/ncecere/pi-durable-platform/issues/16)). Status: **built**
-(this note, `runtime/src/lib/approvals.ts`, `internal/agents/approvals.go`, migration 00023, the console's test chat
+(this note, `runtime/src/lib/approvals.ts`, `internal/agents/approvals.go`, migration 00024, the console's test chat
 and Approvals tab).
 
 ## Why
