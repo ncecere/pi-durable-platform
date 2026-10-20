@@ -2,8 +2,8 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { EntryRecord } from "@earendil-works/pi-durable";
 import { afterEach, describe, expect, it } from "vitest";
-import { startAgent } from "../src/agent.ts";
-import { buildView } from "../src/view.ts";
+import { startAgent } from "../src/lib/agent.ts";
+import { buildView } from "../src/lib/view.ts";
 import { ADMIN_URL, dropSchema, uniqueSchema, withAdmin } from "./support.ts";
 
 const TOKEN = "runtime-token-0123456789";

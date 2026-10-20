@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createAgentModels } from "../src/models.ts";
+import { createAgentModels } from "../src/lib/models.ts";
 
 const catalog = {
 	MODEL_PROVIDER: "catalog",

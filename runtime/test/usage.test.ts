@@ -1,6 +1,6 @@
 import type { Usage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { UsageReporter } from "../src/usage.ts";
+import { UsageReporter } from "../src/lib/usage.ts";
 
 const usage = (input: number, output: number, cacheRead = 0): Usage =>
 	({ input, output, cacheRead, cacheWrite: 0, totalTokens: input + output, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }) as Usage;

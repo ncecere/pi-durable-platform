@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { numberPlaceholders, translateSql } from "../src/storage/translate.ts";
+import { numberPlaceholders, translateSql } from "../src/lib/storage/translate.ts";
 
 describe("translateSql", () => {
 	it("numbers placeholders outside literals", () => {

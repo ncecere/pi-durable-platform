@@ -1,8 +1,8 @@
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import { type RunningAgent, startAgent } from "../src/agent.ts";
-import { createStandbyServer, parseConfig } from "../src/standby.ts";
+import { type RunningAgent, startAgent } from "../src/lib/agent.ts";
+import { createStandbyServer, parseConfig } from "../src/lib/standby.ts";
 import { ADMIN_URL, dropSchema, uniqueSchema, withAdmin } from "./support.ts";
 
 const ACTIVATION = "activation-token-for-tests-only-0123456789";

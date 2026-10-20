@@ -23,7 +23,7 @@ Later: teams build and upload their own agents (self-service). That requires str
 |---|---|---|
 | 1 | Go control plane in the style of Grounded / Open MCP Portal: OIDC + dev personas, fixed platform and team roles, Postgres (pgx, sqlc, goose), OpenAPI, embedded React UI. | Proven patterns, one binary, same RBAC model. |
 | 2 | Pi Durable runs in a separate **Node runtime** (`runtime/`), one process per agent. | Pi Durable is TypeScript. |
-| 3 | **Agent state in PostgreSQL**, not SQLite. Pi's own `SqliteStorage` runs unchanged on a small SQL facade over one dedicated pg connection (`runtime/src/storage`). | Stateless agent pods: an agent can wake on any node, no node-pinned volumes. |
+| 3 | **Agent state in PostgreSQL**, not SQLite. Pi's own `SqliteStorage` runs unchanged on a small SQL facade over one dedicated pg connection (`runtime/src/lib/storage`). | Stateless agent pods: an agent can wake on any node, no node-pinned volumes. |
 | 4 | **One schema and one database role per agent**, in a database separate from platform metadata. | Database-enforced isolation between agents; easy delete. |
 | 5 | **Single owner per agent** through an ownership record in the agent's own schema, naming the database session that owns it, on the agent's only connection, never re-established. See [Agent storage and ownership](#agent-storage-and-ownership). | A stale pod that loses its connection loses its ability to write at the same moment its ownership ends. No other agent's role can write, lock or take over the record. |
 | 6 | **One runtime per active agent; idle agents hibernate** (no pod, no connection). Requests wake them. | Thousands of per-user agents cannot all hold pods. |
@@ -299,7 +299,7 @@ Each provider has an access mode:
   agents' network must allow the provider).
 
 **Usage.** The proxy records every request it relays. For models it does not see (direct-mode providers and the
-platform's default model), the runtime counts each finished response (`runtime/src/usage.ts`) and reports batches to
+platform's default model), the runtime counts each finished response (`runtime/src/lib/usage.ts`) and reports batches to
 the gateway's `/usage` with its credential; reports for a proxied model are ignored, so nothing counts twice. Reports
 (`GET /v1/teams/{team}/usage`, `GET /v1/admin/usage`) sum requests and tokens per day, model, agent or team, with a
 cost estimate from the models' current prices. Service-managed agents are named only for the team's owners, admins and
@@ -499,7 +499,7 @@ on `GET /v1/agents/events`.
   `tool.removed`, `tools.set` and `run` (`busy`). Tool events carry `startedAt` (the call's time in the transcript,
   else when the stream first saw it) and `elapsedMs`, live metadata outside the view. Without `format` (or with
   `format=view`) the stream is unchanged: whole views. The runtime's stream is coalesced like whole views (at most 10
-  flushes a second); each flush compares the view the client holds with the current one (`runtime/src/delta.ts`), so
+  flushes a second); each flush compares the view the client holds with the current one (`runtime/src/lib/delta.ts`), so
   applying the events in order to the snapshot gives exactly the view a new snapshot would (a property test checks
   it on random evolutions, and an end-to-end test on a recorded run with a tool round and a steer). The reply grows
   by appends, so the bytes follow the new tokens, not the transcript's length (tested). The transcript is rebuilt
@@ -675,6 +675,17 @@ row is deleted only after all of them, so a failure (for example a role that own
 server, or privileges granted by someone else) leaves the agent in place with an error, and deleting again finishes. A
 role left `NOLOGIN` by a failed deletion gets its login back when the agent's storage is next provisioned.
 
+## The agent runtime and custom agents
+
+`runtime/` is a library, `@pdp/runtime` (`runtime/src/lib`, exported from `runtime/package.json`), and the platform's
+own agent is its default composition (`src/main.ts` runs `assistantAgent`: the template's instructions and `get_time`).
+A custom agent defines its own extensions (tools, prompt sections, hooks, tasks), documents, `conversationCreated` and
+settings with the same API; the library owns each thread's extension selection, so an author's guard runs on every turn.
+[docs/custom-agents.md](docs/custom-agents.md) is the design note (trust model, API, what the library guarantees and
+what authors must not do, versioning, the test kit). What any runtime must do (the HTTP API, `/status`, standby and
+activation, reports, ownership, exit codes, environment) is [docs/runtime-contract.md](docs/runtime-contract.md), with a
+conformance suite in the test kit. Only runtimes the operator builds into an image run; teams can't upload code yet.
+
 ## Launchers
 
 | `AGENTS_LAUNCHER` | Runtime per active agent | Hibernate | Wake |
@@ -685,7 +696,7 @@ role left `NOLOGIN` by a failed deletion gets its login back when the agent's st
 | `agent-sandbox` + `AGENTS_SANDBOX_WARM_POOL` | a standby runtime claimed from a `SandboxWarmPool` (claim `agent-<id>`) | release the claim | claim + activate |
 
 Warm mode: the pool's pods run the runtime image without `AGENT_ID`, with `RUNTIME_ACTIVATION_TOKEN`; they are Ready
-and wait (`runtime/src/standby.ts`). Waking an agent creates its claim, and the platform `POST`s the agent's
+and wait (`runtime/src/lib/standby.ts`). Waking an agent creates its claim, and the platform `POST`s the agent's
 configuration (schema, database URL, runtime token, model settings) to the claimed runtime's `/activate` with the
 activation token. From then on the runtime is that agent and only accepts the agent's own token. Nothing about the
 agent is stored in Kubernetes, and the pool refills after each claim, so a wake skips scheduling, image pull and Node
@@ -870,6 +881,11 @@ with the inventory of what each replica keeps). In short:
   (`provision_integration_test.go`, `doctor_integration_test.go`, `prune_roles_integration_test.go`).
 - A real Harness keeps its conversation and deduplicates retried requests across a process restart
   (`harness.test.ts`); a manual `kill -9` mid-reply resumed and completed the reply.
+- The runtime contract: the platform's runtime process passes the HTTP conformance suite (and the standby suite), exits
+  1 when its database connection is lost, 3 while another process owns the agent and 0 on `SIGTERM`
+  (`contract.test.ts`). A crash in the middle of a model request, a tool call or a subagent neither repeats nor loses
+  work after the restart (`restart.test.ts`, on the test kit's in-memory storage), and a guard in an agent's definition runs on every turn, across model and
+  MCP changes and for a run resumed at start (`guards.test.ts`).
 
 ## Known limits and open items
 
@@ -879,7 +895,7 @@ event streams and steering since v0.3, see above). The design-level ones:
 
 - Agent roles still share the server's connection and CPU capacity (no per-role quotas), and any role can see that
   other roles' sessions exist. Cross-agent ownership interference is closed (see Agent storage and ownership), but
-  uploaded agent code (#28, #29) still needs hostile-code isolation of the pod and a decision on whether it gets direct
+  uploaded agent code (#29; the checks are listed in [docs/custom-agents.md](docs/custom-agents.md#what-step-2-must-check)) still needs hostile-code isolation of the pod and a decision on whether it gets direct
   database credentials at all (a storage proxy is the alternative).
 - The v0.1.x compatibility advisory lock stays until no v0.1.x runtime is left; removing it is a later release.
 - Schema-per-agent means ~25 relations per agent. Fine for thousands; for much larger counts, a native storage with an

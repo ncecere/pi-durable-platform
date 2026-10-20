@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { startAgent } from "../src/agent.ts";
+import { startAgent } from "../src/lib/agent.ts";
 import { dropSchema, uniqueSchema, withAdmin, ADMIN_URL } from "./support.ts";
 
 const TOKEN = "runtime-token-0123456789";

@@ -1,0 +1,158 @@
+# The runtime contract (version 1)
+
+What a process must do for the platform to run it as an agent. The platform's own runtime (`runtime/`, the library
+`@pdp/runtime`) implements it, and so does any custom agent built with the library ([custom-agents.md](custom-agents.md)).
+A runtime reports the version it implements at `/status` (`contractVersion`).
+
+**Conformance.** `@pdp/runtime/testing` has the contract as HTTP tests anyone can run against a runtime, with Vitest or
+Jest:
+
+```ts
+import { registerRuntimeConformance, registerStandbyConformance } from "@pdp/runtime/testing";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+registerRuntimeConformance({ describe, it, expect, beforeAll, afterAll }, "my runtime", async () => {
+	const runtime = await startMyRuntime(); // its model must answer messages, with any text
+	return { baseUrl: runtime.url, token: runtime.token, close: () => runtime.stop() };
+});
+```
+
+`runtime/test/contract.test.ts` runs both suites against the platform's runtime process (`src/main.ts` on PostgreSQL,
+as the local launcher starts it) and against the test kit's in-memory agent, and checks the process's exit codes.
+
+## The process
+
+A runtime starts in one of two modes, chosen by its environment:
+
+- **As an agent**: with `AGENT_ID`. It opens the agent's storage, takes ownership, resumes unfinished work and serves
+  the agent's HTTP API.
+- **In standby**: without `AGENT_ID`, with `RUNTIME_ACTIVATION_TOKEN` (Agent Sandbox warm pools). It serves `/healthz`
+  and waits to be activated as one agent ([Standby and activation](#standby-and-activation)).
+
+### Environment
+
+| Variable | Meaning |
+|---|---|
+| `AGENT_ID` | The agent's ID (agent mode). |
+| `AGENT_NAME`, `AGENT_INSTRUCTIONS` | Its name and its template version's instructions (defaults: "Assistant" and the assistant's default prompt). |
+| `AGENT_SCHEMA`, `AGENT_DATABASE_URL` | Its schema and its own database role's connection URL. |
+| `AGENT_CREATE_SCHEMA` | `true` creates the schema if missing (development only; the platform provisions it). |
+| `RUNTIME_TOKEN` | The bearer token the platform presents on every request but `/healthz`. |
+| `RUNTIME_ACTIVATION_TOKEN` | Standby: the token `/activate` requires. |
+| `PORT`, `HOST` | Where to listen (default `4100` and `127.0.0.1`; the image sets `HOST=0.0.0.0`). |
+| `MODEL_PROVIDER` | `demo` (a scripted model, the default), `catalog` or `openai-compatible`. |
+| `MODEL_API`, `MODEL_BASE_URL`, `MODEL_API_KEY`, `MODEL_ID` | The model: its API (`openai-completions`, `openai-responses`, `anthropic-messages`), where to reach it (the platform's model proxy, or the provider in direct mode) and the key (the agent's gateway credential in proxy mode). |
+| `MODEL_NAME`, `MODEL_PROVIDER_NAME`, `MODEL_CONTEXT_WINDOW`, `MODEL_MAX_TOKENS`, `MODEL_REASONING`, `MODEL_IMAGES`, `MODEL_HEADERS` | The model's description; `MODEL_HEADERS` is a JSON object of extra request headers (direct mode). |
+| `MODEL_USAGE_URL`, `MODEL_USAGE_KEY` | Set when the gateway can't count the model's usage (direct mode, the platform's default model): the runtime reports it there. |
+| `DEMO_TOKENS_PER_SECOND` | The demo model's speed. |
+| `MCP_SERVERS` | JSON array of the template's MCP servers (slug, name, URL, headers in direct mode, tools). |
+| `MCP_THREADS_URL`, `MCP_KEY` | Where to fetch the MCP servers apps gave a thread, and the credential. |
+| `PLATFORM_GATEWAY_URL`, `PLATFORM_KEY` | Where to report thread status, and the credential. |
+
+`MODEL_API_KEY` (in proxy mode), `MODEL_USAGE_KEY`, `MCP_KEY` and `PLATFORM_KEY` are the agent's gateway credential.
+None of these values may be logged.
+
+### Exit codes and signals
+
+| Exit | When | The supervisor |
+|---|---|---|
+| 0 | `SIGTERM` or `SIGINT`: a graceful stop (hibernation). Work in flight stays pending in storage and resumes on the next start; ownership is released at once. | Starts it again on the next request. |
+| 1 | Storage failed, or the database connection was lost. | Restarts it; the new process resumes from storage. |
+| 2 | Misconfigured (neither `AGENT_ID` nor `RUNTIME_ACTIVATION_TOKEN`, a required variable missing). | Reports the error. |
+| 3 | Another process owns the agent (its previous runtime hasn't stopped yet). | Retries later. |
+
+### Storage and ownership
+
+- All durable state is in the agent's schema, so any process started for the agent resumes where the last one stopped.
+- **One owner at a time.** The runtime records its database session as the agent's owner (`pdp_ownership` in the
+  agent's schema) and refuses to start while the recorded session exists (exit 3, or `409 owned_elsewhere` on
+  activation). It takes ownership and writes on one connection, never re-established: when it is lost, the runtime
+  exits 1, so its ability to write ends exactly when its ownership does (DESIGN.md, Agent storage and ownership).
+- A graceful stop releases ownership before disconnecting, so the next start doesn't wait.
+
+## The HTTP API
+
+Only the platform calls a runtime. Every route but `/healthz` requires `Authorization: Bearer <RUNTIME_TOKEN>`
+(compared in constant time; otherwise `401 unauthorized`). Success is `{"data": …}`, an error
+`{"error": {"code", "message"}}`. Request bodies are JSON, at most 256 KiB.
+
+Thread IDs and request IDs are 1-64 of `[A-Za-z0-9_-]`.
+
+| Route | Answer |
+|---|---|
+| `GET /healthz` | `200 {"ok": true}`, without a token. In standby: `{"ok": true, "activated": false\|true}`. |
+| `GET /status` | `200`, the [status](#status). |
+| `GET /threads` | `200`, the threads, newest activity first: `{threadId, conversationId, title, createdAt, updatedAt}` (Unix ms; the title is the first line of the first message, at most 60 characters). |
+| `POST /threads/{thread}/messages` | Body `{text, requestId?, whenBusy?, author?, announceAuthor?}`. Starts the thread if it doesn't exist, submits the message, `202 {"submissionId"}`. A retried `requestId` returns the first submission. `whenBusy`: `followUp` (default: after the reply in progress) or `steer` (joins it after its current tool round). `author` (`{kind: user\|service_account, id, name, via?}`) is set by the platform and recorded on the message; `announceAuthor: true` tells the model who is speaking (`[Message from <name>]` before the text). Errors: `400 invalid_thread_id`, `invalid_text` (empty or over 32,000 characters), `invalid_request_id`, `invalid_when_busy`, `invalid_request` (not JSON), `413`. |
+| `GET /threads/{thread}` | `200`, the chat view: `{busy, messages, partial?, tools}` (DESIGN.md, Threads: message metadata). `?limit=&before=` pages it (`earlierCursor`); `400` for a bad `limit` or cursor. |
+| `GET /threads/{thread}/events` | Server-sent events, coalesced to at most 10 a second: `view` events (the whole view) by default; with `format=delta` (`v=1`) a `snapshot` and then changes, each with an `id` (its sequence; `Last-Event-ID` continues it). `once=true` sends the current state and ends; `limit` keeps the latest messages. `400 invalid_format`, `unsupported_version`. |
+| `POST /threads/{thread}/stop` | Aborts the reply in progress and withdraws queued input: `202 {"ok": true}`. |
+| `DELETE /threads/{thread}` | Stops and forgets the thread: `200 {"ok": true}`. |
+
+A thread the runtime doesn't have is `404 thread_not_found` on every thread route; any other path is
+`404 not_found`.
+
+### Status
+
+`GET /status` is how every platform replica learns whether an agent is idle (the reaper hibernates it when all three
+activity fields say so for `AGENTS_IDLE_TIMEOUT`):
+
+| Field | Meaning |
+|---|---|
+| `agentId`, `name`, `model` | Who the runtime is, and its model (`provider/id`). |
+| `busyThreads` | Threads with a reply in progress. |
+| `openStreams` | Event streams open now (through any platform replica). |
+| `lastActivityAt` | Unix ms of the last request, stream or reply end. |
+| `contractVersion` | The contract version the runtime implements: `1`. |
+| `piDurableVersion` | The pi-durable version it runs on (`1.3.0`). |
+
+The platform reads at most 64 KiB, requires the activity fields to be well-formed, and accepts the versions only within
+bounds (a contract version from 1 to 1000; a pi-durable version that is a semantic version with an optional short
+pre-release), dropping anything else (`internal/agenthost`). It stores nothing from them yet.
+
+## Standby and activation
+
+A runtime in standby answers `503 not_activated` on every route but `/healthz` and `/activate`. The platform claims it
+and sends `POST /activate` with `Authorization: Bearer <RUNTIME_ACTIVATION_TOKEN>` and the agent's configuration:
+
+```json
+{"agentId": "…", "name": "…", "instructions": "…", "schema": "agent_…", "databaseUrl": "postgres://…", "token": "…",
+ "env": {"MODEL_PROVIDER": "catalog", "…": "…"}}
+```
+
+`schema` is an agent schema name (`agent_[a-z0-9_]{1,56}`), `databaseUrl` a PostgreSQL URL, `token` at least 16
+characters, and `env` holds only the model, MCP and platform variables above (`MODEL_*`, `MCP_SERVERS`,
+`MCP_THREADS_URL`, `MCP_KEY`, `PLATFORM_GATEWAY_URL`, `PLATFORM_KEY`, `DEMO_TOKENS_PER_SECOND`); the body is at most
+4 MiB.
+
+| Answer | When |
+|---|---|
+| `200 {"activated": true, "agentId"}` | The runtime is now that agent and accepts only the agent's `token`. Activating again with the same agent and token answers 200 too (the platform may retry). |
+| `400 invalid_config` | The body is not a valid configuration. |
+| `401 unauthorized` | Wrong activation token. |
+| `409 already_activated` | It already runs another agent. |
+| `409 owned_elsewhere` | Another process still owns the agent; the runtime stays in standby and the platform retries. |
+| `500 activation_failed` | The agent couldn't start; the process exits 1 and comes back in standby. |
+
+## Reports to the platform
+
+Best effort: each is retried a few times, and the next start reconciles what was missed.
+
+- **Thread status**, with `Authorization: Bearer <PLATFORM_KEY>` to `PLATFORM_GATEWAY_URL`: at start
+  `POST /threads/sync {threads: [ThreadStatus], at}` with every thread, and at the end of each reply
+  `POST /threads/report ThreadStatus`, where `ThreadStatus` is `{threadId, title, createdAt, busy, lastReplyAt?,
+  lastError?, at}` (`lastError`: why the reply failed or went unanswered, for people). The platform keeps the newest by
+  `at`, so it can list an agent's threads without waking it.
+- **Usage**, when `MODEL_USAGE_URL` is set: batches of `{requests, input, output, cacheRead, cacheWrite}` to it, with
+  `Authorization: Bearer <MODEL_USAGE_KEY>`, a moment after responses end and when the runtime stops.
+- **Thread MCP servers**, when `MCP_THREADS_URL` is set: `GET MCP_THREADS_URL?thread=<thread>` (before each message;
+  without `thread` at start, for every thread) with `Authorization: Bearer <MCP_KEY>` returns `{data: [server]}`.
+
+## Versions of this contract
+
+| Version | Change |
+|---|---|
+| 1 | First written version: what runtimes of platform 0.1 to 0.3 did, plus `contractVersion` and `piDurableVersion` at `/status`. |
+
+The version goes up when a runtime and a platform of different versions can't work together (a route or field one side
+needs and the other lacks, a changed meaning). Additions both sides may ignore keep it.

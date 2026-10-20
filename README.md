@@ -192,7 +192,7 @@ nothing under it (DESIGN.md, "Secrets and key rotation").
 | `internal/llm`, `internal/mcp` | The model catalog and gateway; the MCP catalog and proxy |
 | `internal/netguard`, `internal/teamnet` | The address guard for URLs teams and apps choose |
 | `internal/agenthost` | Agent storage provisioning, launchers (local processes, Kubernetes pods, Agent Sandbox), wake/proxy/hibernate |
-| `runtime/` | The Pi Durable agent runtime and its PostgreSQL storage (`pnpm test` needs the compose Postgres) |
+| `runtime/` | The Pi Durable agent runtime and its PostgreSQL storage, also a library for custom agents ([docs/custom-agents.md](docs/custom-agents.md), [docs/runtime-contract.md](docs/runtime-contract.md); `pnpm test` needs the compose Postgres) |
 | `web/src/router.tsx`, `web/src/components/layout/nav.tsx` | The web routes and navigation |
 
 Success responses are `{"data": …}`; errors are `{"error": {"code", "message"}}`. Browser writes need the session's

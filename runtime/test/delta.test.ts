@@ -5,10 +5,10 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { createRegistry, defineExtension, defineTool, Harness, MemoryStorage } from "@earendil-works/pi-durable";
 import { afterEach, describe, expect, it } from "vitest";
-import { applyDelta, type DeltaEvent, DeltaStream } from "../src/delta.ts";
-import { createRuntimeServer } from "../src/server.ts";
-import { ThreadStore } from "../src/threads.ts";
-import { type ChatMessage, type ChatTool, type ChatView, cursorMessage, messageCursor, pageView, parsePage } from "../src/view.ts";
+import { applyDelta, type DeltaEvent, DeltaStream } from "../src/lib/delta.ts";
+import { createRuntimeServer } from "../src/lib/server.ts";
+import { ThreadStore } from "../src/lib/threads.ts";
+import { type ChatMessage, type ChatTool, type ChatView, cursorMessage, messageCursor, pageView, parsePage } from "../src/lib/view.ts";
 
 const ctx = BACKGROUND_CONTEXT;
 const TOKEN = "runtime-token-0123456789";
