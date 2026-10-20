@@ -164,7 +164,15 @@ describe("Team › MCP servers › a server", () => {
     await waitFor(() => expect(made(calls, "PATCH", serverPath)).toHaveLength(1));
     const patch = made(calls, "PATCH", serverPath)[0]!;
     expect(patch.headers.get("If-Match")).toBe('"2"');
-    expect(patch.body).toEqual({ name: "Team Tickets", description: "The team's ticketing", url: "https://nowhere.example/mcp", enabled: true });
+    expect(patch.body).toEqual({
+      name: "Team Tickets",
+      description: "The team's ticketing",
+      url: "https://nowhere.example/mcp",
+      enabled: true,
+      sendIdentity: true,
+      identityAudience: "",
+      identityEmail: false,
+    });
     expect(await screen.findByText("The server's host name could not be resolved")).toBeInTheDocument();
     expect(url).toHaveAttribute("aria-invalid", "true");
   });

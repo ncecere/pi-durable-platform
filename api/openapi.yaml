@@ -4898,7 +4898,7 @@ components:
           nullable: true
     McpServer:
       type: object
-      required: [id, name, slug, description, url, accessMode, enabled, visibility, personal, hasHeaders, tools, revision, createdAt, updatedAt]
+      required: [id, name, slug, description, url, accessMode, enabled, visibility, personal, hasHeaders, tools, sendIdentity, identityAudience, identityEmail, revision, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -4935,6 +4935,20 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/McpTool'
+        sendIdentity:
+          type: boolean
+          description: >-
+            In proxy mode, every request the platform forwards carries a signed identity token (MCP-Gateway-Identity:
+            the agent, its team, the thread's visibility and, when the platform's records say so, the person the call
+            is for). Direct mode never does. See docs/mcp-identity.md
+        identityAudience:
+          type: string
+          nullable: true
+          x-omitempty: false
+          description: The identity token's audience (aud); null when it is the server's URL
+        identityEmail:
+          type: boolean
+          description: The identity token includes the person's email
         toolsRefreshedAt:
           type: string
           format: date-time
@@ -4996,6 +5010,16 @@ components:
             type: string
         enabled:
           type: boolean
+        sendIdentity:
+          type: boolean
+          description: Send the signed identity token in proxy mode (default on). See docs/mcp-identity.md
+        identityAudience:
+          type: string
+          maxLength: 2048
+          description: The identity token's audience; empty for the server's URL (the default)
+        identityEmail:
+          type: boolean
+          description: Include the person's email in the identity token (default off)
     McpServerUpdate:
       type: object
       properties:
@@ -5029,6 +5053,16 @@ components:
             type: string
         enabled:
           type: boolean
+        sendIdentity:
+          type: boolean
+          description: Send the signed identity token in proxy mode (default on). See docs/mcp-identity.md
+        identityAudience:
+          type: string
+          maxLength: 2048
+          description: The identity token's audience; empty for the server's URL (the default)
+        identityEmail:
+          type: boolean
+          description: Include the person's email in the identity token (default off)
     McpAttach:
       type: object
       required: [serverId]

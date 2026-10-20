@@ -19,6 +19,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/apperr"
 	"github.com/ncecere/pi-durable-platform/internal/audit"
 	"github.com/ncecere/pi-durable-platform/internal/authz"
+	"github.com/ncecere/pi-durable-platform/internal/mcpidentity"
 	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
 	"github.com/ncecere/pi-durable-platform/internal/store"
@@ -46,7 +47,8 @@ var (
 	errBadURL        = apperr.Invalid("invalid_url", "The URL must be an http or https URL without credentials or fragment")
 	errBadMode       = apperr.Invalid("invalid_access_mode", "Access mode is proxy or direct")
 	errBadVisibility = apperr.Invalid("invalid_visibility", "Visibility is all or teams")
-	errBadHeaders    = apperr.Invalid("invalid_headers", "Headers: at most 20, valid names (not host, content or session headers), values up to 4096 characters on one line")
+	errBadHeaders    = apperr.Invalid("invalid_headers", "Headers: at most 20, valid names (not host, content, session or identity headers), values up to 4096 characters on one line")
+	errBadAudience   = apperr.Invalid("invalid_identity_audience", "The identity audience is up to 2048 characters without spaces (empty: the server's URL)")
 	// ErrUnavailable: the server is disabled, or not published to the team.
 	ErrUnavailable = apperr.Conflict("mcp_server_unavailable", "That MCP server is not available to this team (disabled, or not published to it)")
 
@@ -55,7 +57,10 @@ var (
 	reserved     = map[string]bool{"host": true, "content-length": true, "content-type": true, "connection": true,
 		"transfer-encoding": true, "te": true, "upgrade": true, "keep-alive": true, "trailer": true, "accept": true,
 		"accept-encoding": true, "mcp-session-id": true, "mcp-protocol-version": true, "last-event-id": true,
-		"proxy-authorization": true}
+		"proxy-authorization": true,
+		// Only the gateway sets the identity token, and the runtime's thread
+		// never reaches a server.
+		"mcp-gateway-identity": true, "pdp-thread": true}
 )
 
 // Service manages MCP servers.
@@ -70,6 +75,9 @@ type Service struct {
 	Client ClientPolicy
 	// Metrics counts the MCP proxy's requests and tool calls (nil: none).
 	Metrics *metrics.Metrics
+	// Identity signs the identity tokens the proxy sends servers (nil: no
+	// tokens, for commands that don't serve).
+	Identity *mcpidentity.Keys
 }
 
 // ClientPolicy says which MCP servers apps may give agents, and how agents
@@ -232,6 +240,24 @@ type ServerInput struct {
 	Enabled                                              *bool
 	// Personal: available in personal workspaces (default: when visibility is all).
 	Personal *bool
+	Identity IdentityInput
+}
+
+// IdentityInput are a server's identity token settings (nil: unchanged, or
+// the default: on, the server's URL as audience, no email).
+type IdentityInput struct {
+	Send     *bool
+	Audience *string
+	Email    *bool
+}
+
+// checkAudience returns the trimmed audience ("": the server's URL).
+func checkAudience(a string) (string, error) {
+	a = strings.TrimSpace(a)
+	if len(a) > 2048 || strings.ContainsFunc(a, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
+		return "", errBadAudience
+	}
+	return a, nil
 }
 
 func checkName(name string) (string, error) {
@@ -306,7 +332,8 @@ func (s *Service) open(enc, ad []byte) (map[string]string, error) {
 
 func snapshot(m dbgen.McpServer, teamSlugs []string) map[string]any {
 	out := map[string]any{"name": m.Name, "slug": m.Slug, "url": m.URL, "accessMode": m.AccessMode, "enabled": m.Enabled,
-		"visibility": m.Visibility, "personal": m.Personal, "hasHeaders": len(m.HeadersEnc) > 0}
+		"visibility": m.Visibility, "personal": m.Personal, "hasHeaders": len(m.HeadersEnc) > 0,
+		"sendIdentity": m.SendIdentity, "identityAudience": m.IdentityAudience, "identityEmail": m.IdentityEmail}
 	if m.Visibility == "teams" {
 		out["teams"] = teamSlugs
 	}
@@ -407,6 +434,12 @@ func (s *Service) createServer(ctx context.Context, a authz.Actor, sc scope, in 
 	if err := checkHeaders(in.Headers); err != nil {
 		return ServerView{}, err
 	}
+	audience := ""
+	if in.Identity.Audience != nil {
+		if audience, err = checkAudience(*in.Identity.Audience); err != nil {
+			return ServerView{}, err
+		}
+	}
 	id := uuid.New()
 	enc, err := s.seal(in.Headers, serverAD(id))
 	if err != nil {
@@ -423,7 +456,8 @@ func (s *Service) createServer(ctx context.Context, a authz.Actor, sc scope, in 
 		m, err := q.InsertMCPServer(ctx, dbgen.InsertMCPServerParams{ID: id, Name: name, Slug: in.Slug, Description: in.Description,
 			URL: u.String(), HeadersEnc: enc, AccessMode: in.AccessMode, Enabled: in.Enabled == nil || *in.Enabled,
 			Visibility: in.Visibility, CreatedBy: uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil},
-			Personal: personal, TeamID: teamID})
+			Personal: personal, TeamID: teamID, SendIdentity: in.Identity.Send == nil || *in.Identity.Send,
+			IdentityAudience: audience, IdentityEmail: in.Identity.Email != nil && *in.Identity.Email})
 		if apperr.IsUniqueViolation(err, "mcp_servers_slug_key") {
 			return errSlugTaken
 		} else if apperr.IsUniqueViolation(err, "") {
@@ -457,6 +491,7 @@ type ServerUpdate struct {
 	Teams                                          *[]string
 	Enabled                                        *bool
 	Personal                                       *bool
+	Identity                                       IdentityInput
 }
 
 // UpdateServer changes any server (platform admins, If-Match). The slug
@@ -515,9 +550,21 @@ func (s *Service) updateServer(ctx context.Context, a authz.Actor, sc scope, id 
 			beforeSlugs[i] = t.Slug
 		}
 		p := dbgen.UpdateMCPServerParams{ID: id, Name: m.Name, Description: m.Description, URL: m.URL, HeadersEnc: m.HeadersEnc,
-			AccessMode: m.AccessMode, Enabled: m.Enabled, Visibility: m.Visibility, Personal: m.Personal}
+			AccessMode: m.AccessMode, Enabled: m.Enabled, Visibility: m.Visibility, Personal: m.Personal,
+			SendIdentity: m.SendIdentity, IdentityAudience: m.IdentityAudience, IdentityEmail: m.IdentityEmail}
 		if in.Personal != nil {
 			p.Personal = *in.Personal
+		}
+		if in.Identity.Send != nil {
+			p.SendIdentity = *in.Identity.Send
+		}
+		if in.Identity.Audience != nil {
+			if p.IdentityAudience, err = checkAudience(*in.Identity.Audience); err != nil {
+				return err
+			}
+		}
+		if in.Identity.Email != nil {
+			p.IdentityEmail = *in.Identity.Email
 		}
 		if in.Name != nil {
 			if p.Name, err = checkName(*in.Name); err != nil {

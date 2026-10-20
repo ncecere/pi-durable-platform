@@ -25,6 +25,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
 	"github.com/ncecere/pi-durable-platform/internal/mcp"
+	"github.com/ncecere/pi-durable-platform/internal/mcpidentity"
 	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/testutil"
 )
@@ -42,6 +43,8 @@ type testApp struct {
 	Models *llm.Service
 	// MCP is the MCP catalog.
 	MCP *mcp.Service
+	// Identity signs the MCP identity tokens (and rotates their keys).
+	Identity *mcpidentity.Keys
 	// Auth is sign-in and sessions (the group re-check).
 	Auth *auth.Service
 	// Origin is the origin of the browser's requests when it isn't URL: a
@@ -161,7 +164,8 @@ func newTestAppWith(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 	go deps.Agents.RunThreadEvents(eventsCtx, log)
 
 	jar, _ := cookiejar.New(nil)
-	return &testApp{t: t, URL: srv.URL, GatewayURL: gw.URL, Pool: pool, Client: &http.Client{Jar: jar}, Agents: deps.Agents, Models: deps.Models, MCP: deps.MCP, Auth: deps.Auth, Metrics: deps.Metrics, cfg: cfg}
+	return &testApp{t: t, URL: srv.URL, GatewayURL: gw.URL, Pool: pool, Client: &http.Client{Jar: jar}, Agents: deps.Agents, Models: deps.Models, MCP: deps.MCP, Auth: deps.Auth, Metrics: deps.Metrics, cfg: cfg,
+		Identity: deps.MCPIdentity}
 }
 
 func (a *testApp) do(method, path string, body any, headers map[string]string) (int, []byte) {

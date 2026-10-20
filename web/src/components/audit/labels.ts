@@ -72,6 +72,8 @@ export const actionLabels: Record<string, string> = {
   "mcp_server.delete": "Deleted MCP server",
   "platform.model_settings": "Changed team provider and MCP server settings",
   "platform.secrets_rekey": "Re-sealed stored secrets under the current encryption key",
+  "platform.mcp_identity_key_create": "Created the MCP identity signing key",
+  "platform.mcp_identity_key_rotate": "Rotated the MCP identity signing key",
   "oauth.client_register": "Registered app",
   "oauth.consent": "Connected app",
   "oauth.token_issue": "Issued app token",

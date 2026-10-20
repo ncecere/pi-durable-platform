@@ -25,6 +25,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/httpapi"
 	"github.com/ncecere/pi-durable-platform/internal/llm"
 	"github.com/ncecere/pi-durable-platform/internal/mcp"
+	"github.com/ncecere/pi-durable-platform/internal/mcpidentity"
 	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/oauth"
 	"github.com/ncecere/pi-durable-platform/internal/platform"
@@ -103,6 +104,13 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	defer deps.Agents.Close()
 	if err := prepareAgents(ctx, deps.Agents, log); err != nil {
 		return fmt.Errorf("agents database: %w", err)
+	}
+	// The MCP identity token's first key, before any call needs it (replicas
+	// make one between them; a failure here is retried at the first call).
+	if created, err := deps.MCPIdentity.Ensure(ctx); err != nil {
+		log.Warn("mcp identity: can't create the signing key yet", "err", err)
+	} else if created {
+		log.Info("mcp identity: created the first signing key")
 	}
 	health := httpapi.NewHealth(map[string]func(context.Context) error{"postgres": pool.Ping, "agents-postgres": deps.Agents.Ping})
 	deps.Health = health
@@ -284,6 +292,10 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger, opts ...Op
 	}
 	servers := mcp.New(pool, box, mcp.ClientPolicy{Hosts: hosts, Mode: cfg.Agents.ClientMCPMode})
 	servers.Metrics = m
+	// The proxy tells MCP servers who a call is for, in a token signed with
+	// the platform's own keys (docs/mcp-identity.md).
+	identity := mcpidentity.New(pool, box, cfg.AppURL)
+	servers.Identity = identity
 	// Teams' own MCP servers are reached through the address guard too, with
 	// the same development allowance; changing the private networks closes
 	// the connections kept to them.
@@ -310,6 +322,7 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger, opts ...Op
 		Agents:          agentSvc,
 		Models:          models,
 		MCP:             servers,
+		MCPIdentity:     identity,
 		Secrets:         box,
 		RateStore:       rates,
 	}, nil

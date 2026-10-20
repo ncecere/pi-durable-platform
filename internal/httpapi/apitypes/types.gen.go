@@ -2150,11 +2150,20 @@ type McpServer struct {
 	Enabled     bool                `json:"enabled"`
 	HasHeaders  bool                `json:"hasHeaders"`
 	Id          openapi_types.UUID  `json:"id"`
-	Name        string              `json:"name"`
+
+	// IdentityAudience The identity token's audience (aud); null when it is the server's URL
+	IdentityAudience *string `json:"identityAudience"`
+
+	// IdentityEmail The identity token includes the person's email
+	IdentityEmail bool   `json:"identityEmail"`
+	Name          string `json:"name"`
 
 	// Personal Available in personal workspaces (when created, defaults to visibility = all)
 	Personal bool  `json:"personal"`
 	Revision int64 `json:"revision"`
+
+	// SendIdentity In proxy mode, every request the platform forwards carries a signed identity token (MCP-Gateway-Identity: the agent, its team, the thread's visibility and, when the platform's records say so, the person the call is for). Direct mode never does. See docs/mcp-identity.md
+	SendIdentity bool `json:"sendIdentity"`
 
 	// Slug Names its tools for the model (mcp__<slug>__<tool>); unique across the platform and every team
 	Slug string `json:"slug"`
@@ -2184,10 +2193,19 @@ type McpServerCreate struct {
 	Description *string                    `json:"description,omitempty"`
 	Enabled     *bool                      `json:"enabled,omitempty"`
 	Headers     *map[string]string         `json:"headers,omitempty"`
-	Name        string                     `json:"name"`
+
+	// IdentityAudience The identity token's audience; empty for the server's URL (the default)
+	IdentityAudience *string `json:"identityAudience,omitempty"`
+
+	// IdentityEmail Include the person's email in the identity token (default off)
+	IdentityEmail *bool  `json:"identityEmail,omitempty"`
+	Name          string `json:"name"`
 
 	// Personal Available in personal workspaces (when created, defaults to visibility = all)
 	Personal *bool `json:"personal,omitempty"`
+
+	// SendIdentity Send the signed identity token in proxy mode (default on). See docs/mcp-identity.md
+	SendIdentity *bool `json:"sendIdentity,omitempty"`
 
 	// Slug Default from the name; cannot change later
 	Slug  *string   `json:"slug,omitempty"`
@@ -2212,13 +2230,22 @@ type McpServerUpdate struct {
 
 	// Headers Replaces every header ({} removes them)
 	Headers *map[string]string `json:"headers,omitempty"`
-	Name    *string            `json:"name,omitempty"`
+
+	// IdentityAudience The identity token's audience; empty for the server's URL (the default)
+	IdentityAudience *string `json:"identityAudience,omitempty"`
+
+	// IdentityEmail Include the person's email in the identity token (default off)
+	IdentityEmail *bool   `json:"identityEmail,omitempty"`
+	Name          *string `json:"name,omitempty"`
 
 	// Personal Available in personal workspaces (when created, defaults to visibility = all)
-	Personal   *bool                      `json:"personal,omitempty"`
-	Teams      *[]string                  `json:"teams,omitempty"`
-	Url        *string                    `json:"url,omitempty"`
-	Visibility *McpServerUpdateVisibility `json:"visibility,omitempty"`
+	Personal *bool `json:"personal,omitempty"`
+
+	// SendIdentity Send the signed identity token in proxy mode (default on). See docs/mcp-identity.md
+	SendIdentity *bool                      `json:"sendIdentity,omitempty"`
+	Teams        *[]string                  `json:"teams,omitempty"`
+	Url          *string                    `json:"url,omitempty"`
+	Visibility   *McpServerUpdateVisibility `json:"visibility,omitempty"`
 }
 
 // McpServerUpdateAccessMode defines model for McpServerUpdate.AccessMode.

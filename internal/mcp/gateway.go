@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
+	"github.com/ncecere/pi-durable-platform/internal/mcpidentity"
 	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/netguard"
 	"github.com/ncecere/pi-durable-platform/internal/oauth"
@@ -51,6 +52,11 @@ type RuntimeServer struct {
 	// Thread and Client mark a server an app gave one thread.
 	Thread string `json:"thread,omitempty"`
 	Client bool   `json:"client,omitempty"`
+	// SendThread: the runtime names the thread of each tool call
+	// (mcpidentity.ThreadHeader), so the gateway can say who the call is
+	// for. Only for catalog servers reached through the gateway; the
+	// header never goes further.
+	SendThread bool `json:"sendThread,omitempty"`
 }
 
 func proxyURL(gatewayURL, kind string, id uuid.UUID) string {
@@ -101,6 +107,7 @@ func (s *Service) TemplateServers(ctx context.Context, ag Agent, gatewayURL stri
 			}
 		} else {
 			rs.URL, rs.Headers = proxyURL(gatewayURL, "server", m.ID), map[string]string{"Authorization": "Bearer " + ag.Credential}
+			rs.SendThread = true
 		}
 		out = append(out, rs)
 	}
@@ -203,6 +210,12 @@ type target struct {
 	metric string
 	// thread is the thread an app's server belongs to ("" for others).
 	thread string
+	// identity: send the identity token (a platform or team server in
+	// proxy mode with Send identity on; never an app's), for audience (its
+	// URL when ""), with the person's email when email.
+	identity bool
+	audience string
+	email    bool
 }
 
 func (s *Service) resolveTarget(ctx context.Context, ag Agent, kind string, id uuid.UUID) (target, bool, error) {
@@ -236,7 +249,8 @@ func (s *Service) resolveTarget(ctx context.Context, ag Agent, kind string, id u
 		return target{}, false, err
 	}
 	headers, err := s.open(m.HeadersEnc, serverAD(m.ID))
-	t := target{url: m.URL, headers: headers, serverID: uuid.NullUUID{UUID: m.ID, Valid: true}, serverName: m.Name, team: m.TeamID.Valid, metric: m.Slug}
+	t := target{url: m.URL, headers: headers, serverID: uuid.NullUUID{UUID: m.ID, Valid: true}, serverName: m.Name, team: m.TeamID.Valid, metric: m.Slug,
+		identity: m.SendIdentity && m.AccessMode == ModeProxy, audience: m.IdentityAudience, email: m.IdentityEmail}
 	if m.TeamID.Valid {
 		t.metric = metrics.ServerTeam
 	}
@@ -286,8 +300,16 @@ func (s *Service) relay(w http.ResponseWriter, r *http.Request, ag Agent, kind s
 		return
 	}
 	known(t.metric)
+	// The thread the runtime says the request belongs to: only a name to
+	// look up among this agent's threads (identity.go).
+	thread := r.Header.Get(mcpidentity.ThreadHeader)
+	if thread != "" && !threadIDRE.MatchString(thread) {
+		gatewayError(w, http.StatusBadRequest, "invalid_thread", "The "+mcpidentity.ThreadHeader+" header must be a thread ID")
+		return
+	}
 	var body []byte
 	var calls []string
+	single := false
 	if r.Method == http.MethodPost {
 		if body, err = io.ReadAll(io.LimitReader(r.Body, maxMCPRequest+1)); err != nil || len(body) > maxMCPRequest {
 			gatewayError(w, http.StatusRequestEntityTooLarge, "too_large", "The request is too large")
@@ -306,6 +328,7 @@ func (s *Service) relay(w http.ResponseWriter, r *http.Request, ag Agent, kind s
 			gatewayError(w, http.StatusBadRequest, "invalid_request", "The body must be JSON-RPC")
 			return
 		}
+		single = len(msgs) == 1
 		for _, m := range msgs {
 			if m.Method != "tools/call" {
 				continue
@@ -330,6 +353,23 @@ func (s *Service) relay(w http.ResponseWriter, r *http.Request, ag Agent, kind s
 	}
 	for k, v := range t.headers {
 		up.Header.Set(k, v)
+	}
+	// Only the gateway's own token travels in the identity header.
+	up.Header.Del(mcpidentity.Header)
+	if t.identity && s.Identity != nil {
+		tool := ""
+		if single && len(calls) == 1 {
+			tool = calls[0]
+		}
+		token, err := s.identityToken(ctx, ag, t, thread, tool)
+		if err != nil {
+			// Never the token or key material: the error says which step failed.
+			log.Error("mcp proxy: identity token", "agent", ag.ID, "server", t.serverName, "err", err)
+			gatewayError(w, http.StatusServiceUnavailable, "identity_unavailable", "The platform couldn't sign the identity token for this MCP server")
+			s.logCalls(ag, t, calls, false, time.Now(), log)
+			return
+		}
+		up.Header.Set(mcpidentity.Header, token)
 	}
 	for _, h := range []string{"Content-Type", "Accept", "Mcp-Session-Id", "MCP-Protocol-Version", "Last-Event-ID"} {
 		if v := r.Header.Get(h); v != "" {

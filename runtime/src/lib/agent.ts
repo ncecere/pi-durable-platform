@@ -135,6 +135,8 @@ export async function startAgent(config: AgentConfig, definition: AgentDefinitio
 
 	const current: ModelRef = { provider: model.provider, modelId: model.modelId };
 	const threads = new ThreadStore(harness, () => ({ model: current, extensions: base() }));
+	// Calls to the template's MCP servers through the platform name their thread, so the platform can say who they are for.
+	mcp.threadOf = (conversationId) => threads.threadOf(conversationId);
 	// pi keeps the model and extensions a conversation was created with (pi.agent). A thread begun before the agent's
 	// model changed would keep asking for the old one, which this runtime no longer has (its turns would end unanswered,
 	// no_model), and one begun before an extension was added would run without it (a guard, say). So the runtime moves

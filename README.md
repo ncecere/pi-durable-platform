@@ -31,8 +31,9 @@ endorsed by Earendil.
 - **Model catalog.** OpenAI, Anthropic and compatible providers (LiteLLM, vLLM, Ollama, OpenRouter …), model discovery,
   publishing to teams, proxy (through the platform's model gateway) or direct access, team-owned providers, prices and
   usage reports with cost estimates.
-- **MCP catalog.** Platform and team remote MCP servers, per-template tool selection, a logging MCP proxy, and MCP
-  servers an app supplies for one thread.
+- **MCP catalog.** Platform and team remote MCP servers, per-template tool selection, a logging MCP proxy that tells
+  servers who a call is for in a signed identity token ([docs/mcp-identity.md](docs/mcp-identity.md)), and MCP servers
+  an app supplies for one thread.
 - **Threads.** Recorded by the platform (listing never wakes an agent), with status, an events stream, private and
   shared threads, message authors and metadata, and audited reads by platform admins who state a reason.
 - **Access for apps.** Team service accounts with expiring keys, personal API keys, and OAuth Connect (an OAuth 2.1
@@ -169,6 +170,8 @@ pi-durable-platform prune-roles [--dry-run]
                               drop agent database roles no agent owns (left by a dropped agents database)
 pi-durable-platform rekey [--dry-run] [--batch N]
                               re-seal every stored secret under the current ENCRYPTION_KEY
+pi-durable-platform rotate-mcp-identity-key [--prepublish 24h] [--now [--drop-previous]]
+                              add a new key for the identity tokens MCP servers receive
 pi-durable-platform version   print the version
 ```
 
@@ -190,6 +193,7 @@ nothing under it (DESIGN.md, "Secrets and key rotation").
 | `internal/httpapi` | Route table (`server.go`), handlers, middleware, the contract and authorization-matrix tests |
 | `internal/{auth,teams,platform,apikeys,serviceaccounts,audit,agents,oauth}` | The services; each authorizes and audits in the same transaction as the change |
 | `internal/llm`, `internal/mcp` | The model catalog and gateway; the MCP catalog and proxy |
+| `internal/mcpidentity` | The MCP identity token: its signing keys, rotation and JWKS |
 | `internal/netguard`, `internal/teamnet` | The address guard for URLs teams and apps choose |
 | `internal/agenthost` | Agent storage provisioning, launchers (local processes, Kubernetes pods, Agent Sandbox), wake/proxy/hibernate |
 | `runtime/` | The Pi Durable agent runtime and its PostgreSQL storage, also a library for custom agents ([docs/custom-agents.md](docs/custom-agents.md), [docs/runtime-contract.md](docs/runtime-contract.md); `pnpm test` needs the compose Postgres) |

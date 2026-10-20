@@ -39,7 +39,7 @@ func box(t testing.TB, current []byte, previous ...[]byte) *secrets.Box {
 }
 
 // sealedValues is how many sealed values seed() stores.
-const sealedValues = 13
+const sealedValues = 15
 
 // value is one sealed value the fixture stored.
 type value struct {
@@ -109,6 +109,12 @@ func seed(t testing.TB, pool *pgxpool.Pool, sealer *secrets.Box) *fixture {
 		}
 		f.exec(t, `INSERT INTO model_providers (id, name, kind, base_url, api_key_enc, headers_enc) VALUES ($1, $2, 'openai', 'https://api.example.com/v1', $3, $4)`,
 			id, fmt.Sprintf("provider-%d", i), f.seal(t, "model_providers", "api_key_enc", id, "model_provider:"+id.String(), fmt.Sprintf("sk-provider-%d", i)), headers)
+	}
+	for i := range 2 {
+		// The MCP identity token's signing keys (the value stands in for a key).
+		id := uuid.New()
+		f.exec(t, `INSERT INTO mcp_identity_keys (id, kid, private_key_enc, public_jwk, signs_from) VALUES ($1, $2, $3, '{}', now())`,
+			id, fmt.Sprintf("kid-%d", i), f.seal(t, "mcp_identity_keys", "private_key_enc", id, "mcp_identity_key:"+id.String(), fmt.Sprintf("private-key-%d", i)))
 	}
 	for i := range 2 {
 		id := uuid.New()
@@ -252,7 +258,7 @@ func TestRekeyMovesEverythingToTheCurrentKey(t *testing.T) {
 
 	// One audit entry for the run, with counts and no values.
 	audits := f.audits(t)
-	if len(audits) != 1 || !strings.Contains(audits[0], `"resealed": 13`) || !strings.Contains(audits[0], `"complete": true`) {
+	if len(audits) != 1 || !strings.Contains(audits[0], `"resealed": 15`) || !strings.Contains(audits[0], `"complete": true`) {
 		t.Fatalf("audit entries = %v", audits)
 	}
 	for _, v := range f.values {
@@ -512,10 +518,11 @@ func TestRekeyBatchBounds(t *testing.T) {
 // services keep theirs unexported, so this reads their sources.
 func TestAssociatedDataMatchesTheServices(t *testing.T) {
 	for file, snippets := range map[string][]string{
-		"../llm/service.go":       {`[]byte("model_provider:" + id.String())`},
-		"../mcp/service.go":       {`[]byte("mcp_server:" + id.String())`, `[]byte("thread_mcp_server:" + id.String())`},
-		"../agents/agents.go":     {`ad := []byte(p.ID.String())`, `[]byte(ag.ID.String())`},
-		"../auth/grouprecheck.go": {`[]byte("idp_refresh_token:" + userID.String())`},
+		"../llm/service.go":             {`[]byte("model_provider:" + id.String())`},
+		"../mcp/service.go":             {`[]byte("mcp_server:" + id.String())`, `[]byte("thread_mcp_server:" + id.String())`},
+		"../agents/agents.go":           {`ad := []byte(p.ID.String())`, `[]byte(ag.ID.String())`},
+		"../auth/grouprecheck.go":       {`[]byte("idp_refresh_token:" + userID.String())`},
+		"../mcpidentity/mcpidentity.go": {`[]byte("mcp_identity_key:" + id.String())`},
 	} {
 		src, err := os.ReadFile(file)
 		if err != nil {

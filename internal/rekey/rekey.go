@@ -89,6 +89,8 @@ var columns = []column{
 	{table: "thread_mcp_servers", name: "headers_enc", ad: func(id uuid.UUID) []byte { return []byte("thread_mcp_server:" + id.String()) }},
 	// The refresh token of a person's last sign-in (group re-checks, internal/auth).
 	{table: "user_idp_tokens", name: "refresh_token_enc", key: "user_id", ad: func(id uuid.UUID) []byte { return []byte("idp_refresh_token:" + id.String()) }},
+	// The MCP identity token's signing keys (internal/mcpidentity).
+	{table: "mcp_identity_keys", name: "private_key_enc", ad: func(id uuid.UUID) []byte { return []byte("mcp_identity_key:" + id.String()) }},
 }
 
 // ColumnResult is what is stored in one sealed column.

@@ -1,7 +1,8 @@
 // Package doctor implements `pi-durable-platform doctor`: the configuration
 // and production safety checks, then PostgreSQL connectivity and the
 // migration state, with timings, then key rotation (API keys still on another
-// pepper, stored secrets still sealed with the previous encryption key), then
+// pepper, stored secrets still sealed with the previous encryption key, the
+// MCP identity token's signing key: missing or old), then
 // (with OIDC_ALLOWED_GROUPS) how many recently active people the group re-check
 // has no refresh token for, then the agents database (AGENTS_DATABASE_URL): that
 // it answers, that its role may provision agents, which agent roles belong to no
@@ -24,6 +25,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/agenthost/provision"
 	"github.com/ncecere/pi-durable-platform/internal/buildinfo"
 	"github.com/ncecere/pi-durable-platform/internal/config"
+	"github.com/ncecere/pi-durable-platform/internal/mcpidentity"
 	"github.com/ncecere/pi-durable-platform/internal/rekey"
 	"github.com/ncecere/pi-durable-platform/internal/secrets"
 	"github.com/ncecere/pi-durable-platform/internal/store"
@@ -170,6 +172,7 @@ func (r *runner) postgres(ctx context.Context) *pgxpool.Pool {
 	if r.migrations(cctx, pool) {
 		r.keys(cctx, pool)
 		r.encryption(cctx, pool)
+		r.mcpIdentity(cctx, pool)
 		r.groupRecheck(ctx, pool)
 	}
 	return pool
@@ -411,6 +414,43 @@ func (r *runner) encryption(ctx context.Context, pool *pgxpool.Pool) {
 		c.Detail = fmt.Sprintf("no stored secret is sealed with ENCRYPTION_KEY_PREVIOUS (%d under ENCRYPTION_KEY): it can be removed", current)
 	default:
 		c.Detail = fmt.Sprintf("every stored secret (%d) is sealed with ENCRYPTION_KEY", current)
+	}
+	r.add(c)
+}
+
+// mcpIdentity reports the MCP identity token's signing key (nothing is
+// opened): which key signs and since when, keys waiting to sign, and a
+// warning when there is none yet or it is older than mcpidentity.MaxKeyAge.
+func (r *runner) mcpIdentity(ctx context.Context, pool *pgxpool.Pool) {
+	start := time.Now()
+	st, err := mcpidentity.Inspect(ctx, dbgen.New(pool), time.Now())
+	c := Check{Group: "keys", Name: "mcp-identity", Status: OK, DurationMs: millis(time.Since(start))}
+	upcoming := ""
+	if n := len(st.Upcoming); n > 0 {
+		upcoming = fmt.Sprintf("; %d key(s) published, signing from %s", n, st.Upcoming[0].SignsFrom.UTC().Format(time.RFC3339))
+	}
+	switch {
+	case err != nil:
+		c.Status, c.Detail = Fail, err.Error()
+	case st.Signing == nil && st.Total == 0:
+		c.Status = Warn
+		c.Detail = "no key signs MCP identity tokens yet"
+		c.Fix = "pi-durable-platform serve creates one when it starts (or run pi-durable-platform rotate-mcp-identity-key --now)"
+	case st.Signing == nil:
+		c.Status = Fail
+		c.Detail = "no MCP identity key signs now" + upcoming + ": calls to MCP servers that receive the identity token fail"
+		c.Fix = "Run pi-durable-platform rotate-mcp-identity-key --now"
+	case time.Since(st.Signing.SignsFrom) > mcpidentity.MaxKeyAge:
+		c.Status = Warn
+		c.Detail = fmt.Sprintf("the MCP identity key %s has signed since %s (more than %d days)%s", st.Signing.Kid,
+			st.Signing.SignsFrom.UTC().Format(time.RFC3339), int(mcpidentity.MaxKeyAge.Hours()/24), upcoming)
+		if len(st.Upcoming) == 0 {
+			c.Fix = "Run pi-durable-platform rotate-mcp-identity-key (the new key is published a day before it signs)"
+		} else {
+			c.Status = Info
+		}
+	default:
+		c.Detail = fmt.Sprintf("the MCP identity key %s signs, since %s%s", st.Signing.Kid, st.Signing.SignsFrom.UTC().Format(time.RFC3339), upcoming)
 	}
 	r.add(c)
 }
