@@ -9,6 +9,30 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AgentAwakeReasons.
+const (
+	Background AgentAwakeReasons = "background"
+	Recent     AgentAwakeReasons = "recent"
+	Reply      AgentAwakeReasons = "reply"
+	Stream     AgentAwakeReasons = "stream"
+)
+
+// Valid indicates whether the value is a known member of the AgentAwakeReasons enum.
+func (e AgentAwakeReasons) Valid() bool {
+	switch e {
+	case Background:
+		return true
+	case Recent:
+		return true
+	case Reply:
+		return true
+	case Stream:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AgentMessageCreateWhenBusy.
 const (
 	FollowUp AgentMessageCreateWhenBusy = "followUp"
@@ -1444,9 +1468,11 @@ type AdminThreadRead struct {
 
 // Agent defines model for Agent.
 type Agent struct {
-	CreatedAt   time.Time `json:"createdAt"`
-	Description string    `json:"description"`
-	Enabled     bool      `json:"enabled"`
+	// Awake Why it isn't hibernating, from its runtime's own report: only on GET /v1/agents/{agentId}, while it runs and its runtime answers (absent otherwise, and in lists)
+	Awake       *AgentAwake `json:"awake,omitempty"`
+	CreatedAt   time.Time   `json:"createdAt"`
+	Description string      `json:"description"`
+	Enabled     bool        `json:"enabled"`
 
 	// ExternalKey The key it was ensured with (PUT .../agents/by-key/{key}), if any
 	ExternalKey *string            `json:"externalKey,omitempty"`
@@ -1483,6 +1509,27 @@ type Agent struct {
 	TemplateVersion int32     `json:"templateVersion"`
 	UpdatedAt       time.Time `json:"updatedAt"`
 }
+
+// AgentAwake What keeps a running agent from hibernating (docs/hibernation.md)
+type AgentAwake struct {
+	// BackgroundSince When the oldest of them started
+	BackgroundSince *time.Time `json:"backgroundSince,omitempty"`
+
+	// BackgroundTasks Units of background work keeping it awake (at most 1000)
+	BackgroundTasks int32 `json:"backgroundTasks"`
+
+	// OverCeiling Background work older than the platform's ceiling, which the reaper aborts at its next pass
+	OverCeiling bool `json:"overCeiling"`
+
+	// Reasons reply - a thread is replying; stream - someone is watching a thread; background - background work (tasks, background subagents) younger than the platform's ceiling; recent - it was used within the idle timeout. Empty: it hibernates at the idle reaper's next pass.
+	Reasons []AgentAwakeReasons `json:"reasons"`
+
+	// WaitingForPerson Its tasks waiting for a person's answer (an approval, a question); they don't keep it awake
+	WaitingForPerson int32 `json:"waitingForPerson"`
+}
+
+// AgentAwakeReasons defines model for AgentAwake.Reasons.
+type AgentAwakeReasons string
 
 // AgentCreate defines model for AgentCreate.
 type AgentCreate struct {

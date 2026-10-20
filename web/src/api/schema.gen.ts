@@ -3030,6 +3030,8 @@ export interface components {
             enabled: boolean;
             /** @description Whether its runtime is up now (it hibernates when idle and wakes on the next request) */
             running: boolean;
+            /** @description Why it isn't hibernating, from its runtime's own report: only on GET /v1/agents/{agentId}, while it runs and its runtime answers (absent otherwise, and in lists) */
+            awake?: components["schemas"]["AgentAwake"] | null;
             /** @description The model it runs on (absent - the platform's default model) */
             model?: components["schemas"]["AgentModel"] | null;
             /** @description The newest pi-durable version that has written the agent's storage, as its runtimes reported it (absent: none recorded yet). The platform refuses to start the agent on a runtime with an older one. */
@@ -3057,6 +3059,28 @@ export interface components {
              */
             at: string;
             message: string;
+        };
+        /** @description What keeps a running agent from hibernating (docs/hibernation.md) */
+        AgentAwake: {
+            /** @description reply - a thread is replying; stream - someone is watching a thread; background - background work (tasks, background subagents) younger than the platform's ceiling; recent - it was used within the idle timeout. Empty: it hibernates at the idle reaper's next pass. */
+            reasons: ("reply" | "stream" | "background" | "recent")[];
+            /**
+             * Format: int32
+             * @description Units of background work keeping it awake (at most 1000)
+             */
+            backgroundTasks: number;
+            /**
+             * Format: date-time
+             * @description When the oldest of them started
+             */
+            backgroundSince?: string | null;
+            /**
+             * Format: int32
+             * @description Its tasks waiting for a person's answer (an approval, a question); they don't keep it awake
+             */
+            waitingForPerson: number;
+            /** @description Background work older than the platform's ceiling, which the reaper aborts at its next pass */
+            overCeiling: boolean;
         };
         AgentCreate: {
             name: string;

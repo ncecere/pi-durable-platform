@@ -99,8 +99,9 @@ func newTestAppDeps(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 	return newTestAppWith(t, mutate, log, hook, false)
 }
 
-// newTestAppWith is newTestAppDeps, with personal workspaces on or off.
-func newTestAppWith(t *testing.T, mutate func(*config.Config), log *slog.Logger, hook func(*httpapi.Deps), personalWorkspaces bool) *testApp {
+// newTestAppWith is newTestAppDeps, with personal workspaces on or off (and
+// options for app.NewDeps: another launcher).
+func newTestAppWith(t *testing.T, mutate func(*config.Config), log *slog.Logger, hook func(*httpapi.Deps), personalWorkspaces bool, opts ...app.Option) *testApp {
 	t.Helper()
 	pool, _ := testutil.NewDB(t)
 	var handler http.Handler
@@ -131,7 +132,7 @@ func newTestAppWith(t *testing.T, mutate func(*config.Config), log *slog.Logger,
 	if err := cfg.Validate("serve"); err != nil {
 		t.Fatal(err)
 	}
-	deps, err := app.NewDeps(cfg, pool, log)
+	deps, err := app.NewDeps(cfg, pool, log, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
