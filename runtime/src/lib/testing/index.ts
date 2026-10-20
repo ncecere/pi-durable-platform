@@ -5,7 +5,7 @@
  */
 export { afterGate, answer, type FakeModel, type FakeStep, fakeModel, type Gate, gate, toolCall } from "./model.ts";
 export { memoryStorage, StorageCrashed, TestStorage } from "./storage.ts";
-export { startTestAgent, type TestAgent, type TestAgentOptions } from "./agent.ts";
+export { type ExposedDocumentRead, startTestAgent, type TestAgent, type TestAgentOptions } from "./agent.ts";
 export { expectReplayed, ReplayAssertionError, type ReplaySummary } from "./replay.ts";
 export {
 	type ConformanceRunner,

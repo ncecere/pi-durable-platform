@@ -14,9 +14,20 @@ export {
 	AgentDefinitionError,
 	type AgentDocument,
 	type AgentSettings,
+	DEFAULT_EXPOSED_DOCUMENT_BYTES,
 	defineAgent,
+	type ExposedDocument,
+	MAX_EXPOSED_DOCUMENT_BYTES,
 } from "./define.ts";
-export { type AgentConfig, AgentOwnedElsewhereError, type RunningAgent, type StartOptions, startAgent } from "./agent.ts";
+export {
+	type AgentConfig,
+	AgentOwnedElsewhereError,
+	type AgentProcess,
+	type RunningAgent,
+	RuntimeRefusedError,
+	type StartOptions,
+	startAgent,
+} from "./agent.ts";
 export { runAgentProcess } from "./process.ts";
 export { assistantAgent, assistantExtension, DEFAULT_INSTRUCTIONS } from "./assistant.ts";
 export { defineSubagent, type SubagentDetails, type SubagentOptions } from "./subagent.ts";
@@ -25,11 +36,13 @@ export * from "./facade.ts";
 
 // ── Platform parts: not covered by the library's promise ─────────────────────────────
 export { openPostgresAgentStorage, type OpenPostgresAgentStorageOptions, type PostgresAgentStorage, OWNERSHIP_TABLE } from "./storage/postgres.ts";
-export { createRuntimeServer, type RuntimeOptions } from "./server.ts";
+export { createRuntimeServer, type ExposedDocuments, revisionOf, type RuntimeOptions } from "./server.ts";
+export { checkUpgrade, refusedHandler } from "./upgrade.ts";
 export { createStandbyServer, parseConfig } from "./standby.ts";
 export { type ThreadRecord, ThreadsDoc, ThreadStore } from "./threads.ts";
 export { gatewayPost, type ThreadStatus, ThreadStatusReporter, unansweredError } from "./thread-status.ts";
 export { AgentMcp, type McpServerConfig, modelVisible, toolName } from "./mcp.ts";
 export { type AgentModels, createAgentModels } from "./models.ts";
 export { countingUsage, UsageReporter } from "./usage.ts";
-export { buildView, type ChatMessage, type ChatView, USER_ENTRY } from "./view.ts";
+export { boundedDetails, buildView, type ChatDocumentRef, type ChatMessage, type ChatTool, type ChatView, MAX_DETAILS_BYTES, USER_ENTRY } from "./view.ts";
+export { applyDelta, type DeltaEvent, DELTA_VERSION } from "./delta.ts";

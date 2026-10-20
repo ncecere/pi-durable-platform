@@ -1,4 +1,4 @@
-import { type ChatMessage, type ChatPartial, type ChatTool, type ChatView, pageView } from "./view.ts";
+import { type ChatDocumentRef, type ChatMessage, type ChatPartial, type ChatTool, type ChatView, pageView } from "./view.ts";
 
 /**
  * Incremental event streams (`GET /threads/{id}/events?format=delta`, version 1): a snapshot of the chat view, then
@@ -26,16 +26,47 @@ export type DeltaEvent =
 	/** A tool call of the current round appeared (status pending or running, or done for a call not offered). */
 	| ({ type: "tool.started"; seq: number; tool: ChatTool } & ToolTiming)
 	/**
-	 * A tool call's status or output changed: `outputAppended` extends the output, `output` replaces it (null: none).
+	 * A tool call's status, output or details changed: `outputAppended` extends the output, `output` replaces it (null:
+	 * none); `details` replaces the details (null: none) and `detailsOmitted` says whether they were too large to send.
 	 * `tool.finished` is the same change when the status becomes done.
 	 */
-	| ({ type: "tool.updated" | "tool.finished"; seq: number; callId: string; status?: string; output?: string | null; outputAppended?: string } & ToolTiming)
+	| ({
+			type: "tool.updated" | "tool.finished";
+			seq: number;
+			callId: string;
+			status?: string;
+			output?: string | null;
+			outputAppended?: string;
+			details?: unknown;
+			detailsOmitted?: boolean;
+	  } & ToolTiming)
 	/** The current round's tool call is gone (the round ended). */
 	| { type: "tool.removed"; seq: number; callId: string }
 	/** The tool list was reordered (rare): replace it. */
 	| { type: "tools.set"; seq: number; tools: ChatTool[] }
 	/** The run state: busy while the agent works on a message. */
-	| { type: "run"; seq: number; busy: boolean };
+	| { type: "run"; seq: number; busy: boolean }
+	/**
+	 * An exposed document of the thread changed (or appeared): its new revision. Read it with
+	 * `GET /threads/{thread}/documents/{kind}`; the event never carries the document itself.
+	 */
+	| { type: "document.updated"; seq: number; kind: string; revision: string };
+
+/**
+ * Adds a `document.updated` for every exposed document whose revision changed or that appeared; false when one the
+ * client has is gone (rare: a new snapshot says so).
+ */
+function diffDocuments(
+	held: Readonly<Record<string, ChatDocumentRef>> | undefined,
+	now: Readonly<Record<string, ChatDocumentRef>> | undefined,
+	changes: Change[],
+): boolean {
+	for (const kind of Object.keys(held ?? {})) if (now?.[kind] === undefined) return false;
+	for (const [kind, ref] of Object.entries(now ?? {})) {
+		if (held?.[kind]?.revision !== ref.revision) changes.push({ type: "document.updated", kind, revision: ref.revision });
+	}
+	return true;
+}
 
 /** Live metadata of a tool event, not part of the view: when the call started (Unix ms) and how long ago. */
 export type ToolTiming = { startedAt?: number; elapsedMs?: number };
@@ -76,6 +107,10 @@ export function applyDelta(view: ChatView | undefined, event: DeltaEvent): ChatV
 					if (event.output === null) delete next.output;
 					else if (event.output !== undefined) next.output = event.output;
 					if (event.outputAppended !== undefined) next.output = (next.output ?? "") + event.outputAppended;
+					if (event.details === null) delete next.details;
+					else if (event.details !== undefined) next.details = event.details;
+					if (event.detailsOmitted === true) next.detailsOmitted = true;
+					else if (event.detailsOmitted === false) delete next.detailsOmitted;
 					return next;
 				}),
 			};
@@ -85,6 +120,8 @@ export function applyDelta(view: ChatView | undefined, event: DeltaEvent): ChatV
 			return { ...view, tools: event.tools };
 		case "run":
 			return { ...view, busy: event.busy };
+		case "document.updated":
+			return { ...view, documents: { ...(view.documents ?? {}), [event.kind]: { revision: event.revision } } };
 	}
 }
 
@@ -123,6 +160,7 @@ export class DeltaStream {
 		this.diffPartial(sent.partial, view.partial, changes);
 		if (!this.diffTools(sent.tools, view.tools, view.messages, changes)) changes.push({ type: "tools.set", tools: view.tools });
 		if (sent.busy !== view.busy) changes.push({ type: "run", busy: view.busy });
+		if (!diffDocuments(sent.documents, view.documents, changes)) return [this.snapshot(view)];
 		if (changes.length === 0) return [];
 		const events = changes.map((change) => ({ ...change, seq: ++this.seq }) as DeltaEvent);
 		let held: ChatView | undefined = sent;
@@ -201,8 +239,10 @@ export class DeltaStream {
 				out.push({ type: "tool.started", tool, ...timing });
 				continue;
 			}
-			const change: { status?: string; output?: string | null; outputAppended?: string } = {};
+			const change: { status?: string; output?: string | null; outputAppended?: string; details?: unknown; detailsOmitted?: boolean } = {};
 			if (tool.status !== before.status) change.status = tool.status;
+			if (JSON.stringify(tool.details) !== JSON.stringify(before.details)) change.details = tool.details === undefined ? null : tool.details;
+			if ((tool.detailsOmitted === true) !== (before.detailsOmitted === true)) change.detailsOmitted = tool.detailsOmitted === true;
 			if (tool.output !== before.output) {
 				if (tool.output === undefined) change.output = null;
 				else if (before.output !== undefined && tool.output.startsWith(before.output)) change.outputAppended = tool.output.slice(before.output.length);

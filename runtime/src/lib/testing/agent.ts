@@ -35,6 +35,11 @@ export type TestAgent = {
 	send(threadId: string, text: string, body?: Record<string, unknown>): Promise<number>;
 	/** The thread's chat view, or undefined when it doesn't exist. */
 	view(threadId: string): Promise<ChatView | undefined>;
+	/**
+	 * An exposed document of the thread, as apps read it (`GET /threads/{thread}/documents/{kind}`), or undefined when
+	 * the thread or the document doesn't exist (or the kind isn't exposed). Other errors throw.
+	 */
+	document(threadId: string, kind: string): Promise<ExposedDocumentRead | undefined>;
 	/** Waits until the thread is idle and its last message is an answer (at most `timeoutMs`, default 10 s). */
 	settled(threadId: string, options?: { timeoutMs?: number; messages?: number }): Promise<ChatView>;
 	/** The agent's `/status`. */
@@ -49,6 +54,9 @@ export type TestAgent = {
 	/** A graceful stop (hibernation). */
 	close(): Promise<void>;
 };
+
+/** An exposed document as the runtime serves it: its kind, its definition's version, its revision and its value. */
+export type ExposedDocumentRead = { kind: string; version: number; revision: string; value: unknown };
 
 const TOKEN = "test-kit-runtime-token-0123456789";
 
@@ -103,6 +111,12 @@ export async function startTestAgent(definition: AgentDefinition = assistantAgen
 			return (reply.data as { submissionId: number }).submissionId;
 		},
 		view,
+		document: async (threadId, kind) => {
+			const { status, body } = await call(`/threads/${threadId}/documents/${encodeURIComponent(kind)}`);
+			if (status === 404) return undefined;
+			if (status !== 200) throw new Error(`GET /threads/${threadId}/documents/${kind}: ${status} ${JSON.stringify(body.error)}`);
+			return body.data as ExposedDocumentRead;
+		},
 		settled: async (threadId, { timeoutMs = 10_000, messages = 0 } = {}) => {
 			const deadline = Date.now() + timeoutMs;
 			let last: ChatView | undefined;

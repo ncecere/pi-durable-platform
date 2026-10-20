@@ -30,10 +30,43 @@ export type ChatView = {
 	 * none, and on unpaged reads.
 	 */
 	earlierCursor?: string;
+	/**
+	 * The documents the agent exposes to apps (docs/custom-agents.md, Documents for apps) that exist in this thread, by
+	 * kind, with each one's revision: it changes when the document does (read it with
+	 * `GET /threads/{thread}/documents/{kind}`). Absent when the agent exposes none.
+	 */
+	documents?: Record<string, ChatDocumentRef>;
 };
 
+/** An exposed document in the view: its revision (a hash of its content; equal content, equal revision). */
+export type ChatDocumentRef = { revision: string };
+
 export type ChatPartial = { text: string; thinking: string };
-export type ChatTool = { callId: string; name: string; status: string; output?: string };
+/**
+ * A tool call of the current round. `details`: what the tool published for UIs so far (its last `api.details()`),
+ * JSON, at most MAX_DETAILS_BYTES; `detailsOmitted` says it was larger and left out.
+ */
+export type ChatTool = { callId: string; name: string; status: string; output?: string } & ChatDetails;
+
+/** A tool's `details` (pi-durable's channel for UIs), bounded: see boundedDetails. */
+export type ChatDetails = { details?: unknown; detailsOmitted?: true };
+
+/** The most a tool's details may take in the view, as JSON (larger ones are left out, with `detailsOmitted`). */
+export const MAX_DETAILS_BYTES = 16 * 1024;
+
+/** A tool's details as the view carries them: JSON only, at most MAX_DETAILS_BYTES, else omitted (and said so). */
+export function boundedDetails(value: unknown): ChatDetails {
+	if (value === undefined || value === null) return {};
+	let json: string | undefined;
+	try {
+		json = JSON.stringify(value);
+	} catch {
+		return { detailsOmitted: true };
+	}
+	if (json === undefined) return {};
+	if (Buffer.byteLength(json, "utf8") > MAX_DETAILS_BYTES) return { detailsOmitted: true };
+	return { details: value };
+}
 
 export type ChatToolCall = { id: string; name: string; arguments: unknown; startedAt?: number; endedAt?: number };
 export type ChatUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
@@ -53,10 +86,14 @@ export type ChatMessage =
 			usage?: ChatUsage;
 			stopReason?: string;
 	  }
-	| { id: string; role: "tool"; toolCallId: string; name: string; text: string; isError: boolean; at?: number };
+	| ({ id: string; role: "tool"; toolCallId: string; name: string; text: string; isError: boolean; at?: number } & ChatDetails);
 
-export function buildView(entries: readonly EntryRecord[], live: Readonly<LiveState> | undefined): ChatView {
-	return { busy: live?.run !== undefined, messages: buildMessages(entries), ...liveParts(live) };
+export function buildView(
+	entries: readonly EntryRecord[],
+	live: Readonly<LiveState> | undefined,
+	documents?: Record<string, ChatDocumentRef>,
+): ChatView {
+	return { busy: live?.run !== undefined, messages: buildMessages(entries), ...liveParts(live), ...(documents === undefined ? {} : { documents }) };
 }
 
 /** The transcript part of the view: it changes only when entries do (the delta stream reuses it otherwise). */
@@ -100,6 +137,7 @@ export function liveParts(live: Readonly<LiveState> | undefined): Pick<ChatView,
 			name: slot.name,
 			status: slot.status,
 			...(slot.output === undefined ? {} : { output: slot.output }),
+			...boundedDetails((slot as { details?: unknown }).details),
 		})),
 	};
 }
@@ -184,6 +222,7 @@ function convert(id: string, message: Message, resultAt: ReadonlyMap<string, num
 				text: message.content.map((p) => (p.type === "text" ? p.text : "[image]")).join("\n"),
 				isError: message.isError,
 				...(at === undefined ? {} : { at }),
+				...boundedDetails((message as { details?: unknown }).details),
 			};
 		default:
 			return undefined;

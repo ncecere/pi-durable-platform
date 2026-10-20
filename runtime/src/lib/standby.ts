@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type RequestListener, type Server, type ServerResponse } from "node:http";
-import { type AgentConfig, AgentOwnedElsewhereError, type RunningAgent } from "./agent.ts";
+import { type AgentConfig, AgentOwnedElsewhereError, type AgentProcess } from "./agent.ts";
 import { DEFAULT_INSTRUCTIONS } from "./assistant.ts";
 
 /**
@@ -15,11 +15,11 @@ import { DEFAULT_INSTRUCTIONS } from "./assistant.ts";
  */
 export function createStandbyServer(options: {
 	activationToken: string;
-	start: (config: AgentConfig) => Promise<RunningAgent>;
-	onActivated?: (agent: RunningAgent, config: AgentConfig) => void;
+	start: (config: AgentConfig) => Promise<AgentProcess>;
+	onActivated?: (agent: AgentProcess, config: AgentConfig) => void;
 }): Server {
 	const expected = Buffer.from(`Bearer ${options.activationToken}`);
-	let active: { config: AgentConfig; agent?: RunningAgent; starting: Promise<RunningAgent> } | undefined;
+	let active: { config: AgentConfig; agent?: AgentProcess; starting: Promise<AgentProcess> } | undefined;
 	let delegate: RequestListener | undefined;
 
 	const handler: RequestListener = (request, response) => {
@@ -62,7 +62,7 @@ export function createStandbyServer(options: {
 		}
 		const starting = options.start(config);
 		active = { config, starting };
-		let agent: RunningAgent;
+		let agent: AgentProcess;
 		try {
 			agent = await starting;
 		} catch (error) {
