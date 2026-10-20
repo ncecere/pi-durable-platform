@@ -8,7 +8,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pi-durable-platform
     app.kubernetes.io/instance: pi-durable-platform
-    app.kubernetes.io/version: "0.2.0"
+    app.kubernetes.io/version: "0.3.0"
 data:
   APP_URL: "https://agents.example.com"
   LISTEN_ADDR: ":8098"
@@ -25,7 +25,7 @@ data:
   METRICS_ADDR: ":9090"
   AGENTS_LAUNCHER: "kubernetes"
   AGENTS_NAMESPACE: "pi-durable-agents"
-  AGENTS_IMAGE: "ghcr.io/ncecere/pi-durable-platform-runtime:v0.2.0"
+  AGENTS_IMAGE: "ghcr.io/ncecere/pi-durable-platform-runtime:v0.3.0"
   AGENTS_GATEWAY_ADDR: ":8099"
   AGENTS_GATEWAY_URL: "http://pi-durable-platform-gateway.pi-durable-platform.svc:8099"
   AGENTS_CLIENT_MCP_MODE: "proxy"

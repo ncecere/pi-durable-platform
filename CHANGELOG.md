@@ -8,6 +8,61 @@ the entry says how to adapt. The design is in [DESIGN.md](DESIGN.md), and each r
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-20
+
+Apps at scale: paging, incremental event streams, steering, safe agent creation, moving agents, and OAuth Connect for
+apps with many people. Includes database migrations `00018` to `00020`. Read
+[the upgrade notes](docs/releases/v0.3.0.md#upgrading-from-v020).
+
+### Added
+
+- **Paging and title search.** Thread lists take `limit`, an opaque `cursor` and `q` (a case-insensitive title
+  substring); without `limit` the reply is unchanged. Conversations page backwards with `limit` and `before` (#8).
+- **Incremental event streams.** `GET …/threads/{thread}/events?format=delta&v=1` sends a snapshot, then numbered
+  changes: messages added and updated, partial text, tools started, updated and finished (with elapsed time), and the
+  run's state, with `Last-Event-ID` after a reconnect. Without `format` the stream is unchanged (#9).
+- **Steering.** `whenBusy: "steer"` on a message joins the reply in progress; `followUp` (the default) queues behind
+  it. The console's test chat offers Steer, and Enter queues a follow-up (#10).
+- **Safe agent creation.** An `Idempotency-Key` header on `POST /v1/teams/{team}/agents` (per caller, 24 hours; a
+  reused key with a different request is 422), and `PUT …/agents/by-key/{key}` for a person in their own personal
+  workspace (a session, a personal API key or an app they connected): such agents are the person's, not
+  service-managed (#11).
+- **Moving an agent.** `POST /v1/agents/{id}/move`, with a dry run (`GET`), moves an agent with its conversations to
+  another team or a personal workspace, for people allowed on both sides. The target must offer its template and
+  model; private threads stay their creator's; service-managed agents don't move. The agent's Settings has a Move
+  action (#13).
+- **OAuth Connect for apps with many people.** `prompt=none` (`login_required`, `consent_required`,
+  `interaction_required`), `login_hint` (a mismatch never connects anyone silently), a read-only `agents:read` scope,
+  app secrets for trusted apps (`pdpcs_…`, issued by platform admins, at most two), an app-level event stream
+  (`GET /v1/app/events`) that names people only by per-app subjects, usage per connected app (`GET /v1/app/usage`),
+  and an Admin › Usage filter by app (#12).
+- **Usage for several agents at once.** A repeatable `agentId` (up to 100) and `groupBy=agent,day`; Team › Usage can
+  group by agent and day (#24).
+
+### Changed
+
+- **MCP Apps.** Tools an MCP server's app keeps for its own interface (`_meta.ui.visibility` without `"model"`) are
+  never offered to the model, as the MCP Apps extension requires. Tool lists stored before this release are read again
+  in the background when the platform starts.
+- **Service-managed agents** are those marked so (`agents.service_managed`), no longer every agent with an external
+  key; in a team that isn't a personal workspace a keyed agent is always service-managed (enforced by the database).
+
+### Fixed
+
+- A runtime start always uses the agent's current configuration: a request in flight during a move can't restart the
+  agent with the old team's model key or MCP servers, and an agent turned off isn't started by a request that was
+  authorized while it was on. Thread MCP servers set during a move don't survive it.
+- `q` with NUL or invalid UTF-8 returns 400 `invalid_query` instead of 500.
+
+### Security
+
+- During a rolling upgrade from v0.2, a v0.2 replica could create keyed agents that weren't service-managed, readable
+  by the team's people; migration `00020` makes the database enforce it and fixes such rows.
+- `prompt=none` no longer tells an app whether the browser is signed in as the `login_hint` account, unless the person
+  connected the app or it is trusted.
+- The app-level event stream names people only by the app's subjects, never by platform user ID, email or name.
+- Removing an app from the trusted list deletes its app secrets (audited); trusting it again needs new ones.
+
 ## [0.2.0] - 2026-10-19
 
 Run it anywhere, safely: deployment manifests, several replicas, metrics, key rotation, and a set of safety fixes.
