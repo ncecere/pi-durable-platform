@@ -206,7 +206,7 @@ func TestProvisionAsCreateRole(t *testing.T) {
 	}
 }
 
-// An agent's ownership record (runtime/src/storage/postgres.ts: a table in the
+// An agent's ownership record (runtime/src/lib/storage/postgres.ts: a table in the
 // agent's own schema, naming the owning session) can't be written, locked or
 // dropped by another agent's role, and its owner's session can't be ended or
 // its connections used up by another agent. The runtime's own version of this

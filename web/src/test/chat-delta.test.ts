@@ -1,4 +1,4 @@
-/* The console's delta applier follows the runtime's reference (runtime/src/delta.ts) on a recorded run's events. */
+/* The console's delta applier follows the runtime's reference (runtime/src/lib/delta.ts) on a recorded run's events. */
 import { applyChatDelta, type ChatDeltaEvent } from "../api/chat-delta";
 import type { Schemas } from "../api/client";
 

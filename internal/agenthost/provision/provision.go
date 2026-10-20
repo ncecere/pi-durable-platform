@@ -5,7 +5,7 @@
 // Isolation comes from ownership: an agent role owns only its schema and has
 // no privileges on any other, so it cannot read another agent's transcript,
 // write or lock another agent's ownership record (the runtime keeps it in the
-// agent's own schema, runtime/src/storage/postgres.ts), or end another agent's
+// agent's own schema, runtime/src/lib/storage/postgres.ts), or end another agent's
 // sessions. The agents database revokes PUBLIC's default privileges on schema
 // public so nothing else is reachable. The provisioning connection needs
 // CREATEROLE and CREATE on the agents database; it is never given to agents.
