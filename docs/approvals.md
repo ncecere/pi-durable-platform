@@ -103,6 +103,15 @@ admins. **Staff can't decide**: platform admins and auditors don't use agents of
 reasoned read doesn't extend to approvals. Someone who may see but not decide gets `canDecide: false` and 403
 `approval_forbidden` when they try.
 
+**What approvals guard against: the model, not the caller.** An approval stops the model from running a sensitive
+tool on its own judgement (a prompt injection in a web page, a webhook payload or a tool result included). It does not
+guard against the person, app or service account that started the run: the one whose message started the run may
+decide its approvals, so an app or a service account with the team's key can send a message and approve the calls it
+leads to through the same API, and a person's app (OAuth, acting for them) can approve calls in that person's runs. A
+caller who can talk to the agent could already ask it to use its tools; to keep a caller from approving its own calls,
+leave its runs to others (a shared thread where owners and admins decide, `role`) and give the agent no tool a caller
+may not use.
+
 **Who the run is for** is the author of the user message that started the run: the runtime walks back from the call's
 reply through the transcript to the first message after the previous answer (a steer that joined the run doesn't change
 it). For a call in a subagent's conversation, the thread's. A run with no author (none recorded, or a trigger) is
