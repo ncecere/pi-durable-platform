@@ -62,8 +62,10 @@ busy thread, no open stream, no recent activity, no younger background work), th
 `POST /background/abort` with the ceiling, records an audit entry on the agent's team (`agent.background_abort`, actor
 system, with the count aborted and the ceiling), counts it (`agent_background_aborts_total`), reads `/status` again and
 hibernates the agent if nothing else keeps it awake. Younger background work that remains keeps it awake, and is
-measured on its own. The ceiling is one platform setting applied to each agent's own work; the per-agent limits of
-triggers (#15) may replace it for the agents they start.
+measured on its own. The ceiling is one platform setting applied to each agent's own work. A triggered run
+([triggers.md](triggers.md)) is a thread's reply, bounded by its own `max_run_time`; the ceiling bounds what runs
+outside replies, so the two don't overlap. A per-agent ceiling, if teams need one, belongs with the triggers' per-agent
+limits.
 
 Several replicas: everything is the runtime's report, so the rule doesn't depend on which replica reaps (one at a time,
 as before). A ceiling abort is idempotent: a second one finds nothing old left.
@@ -95,7 +97,9 @@ What the marked task and the work waiting on it must do, so that hibernation in 
   where the waiting task reads it), and the work goes on.
 
 The marked kinds are reported as `waitingForPerson` at `/status`, so the console can say an agent is waiting for
-someone rather than working.
+someone rather than working. The triggers' seam for approvals ([triggers.md](triggers.md#approvals-16-later): a run
+`waiting`, its wait not counted as run time) fits this one: a reply whose only live work waits for a person is not a
+busy thread at `/status`, so the reaper may hibernate the agent while the triggered run waits.
 
 ## Visibility
 
