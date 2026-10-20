@@ -218,6 +218,10 @@ type TemplateInput struct {
 	// AgentSchedules lets its agents set their own schedules (the runtime's
 	// schedule tool; docs/triggers.md).
 	AgentSchedules bool
+	// Kind is the runtime's composition ("": the assistant) and KindSettings
+	// its settings (nil: the kind's defaults); docs/first-party-agents.md.
+	Kind         string
+	KindSettings *KindSettings
 }
 
 // checkTemplateModel checks a template version's model: a team template's
@@ -373,10 +377,14 @@ func (s *Service) CreateTemplate(ctx context.Context, a authz.Actor, teamRef str
 		if err != nil {
 			return err
 		}
+		kind, settings, err := checkKind(in.Kind, in.KindSettings)
+		if err != nil {
+			return err
+		}
 		if _, err := q.InsertTemplateVersion(ctx, dbgen.InsertTemplateVersionParams{TemplateID: tpl.ID, Version: 1,
 			Instructions: strings.TrimSpace(in.Instructions), Notes: in.Notes, CreatedBy: p.CreatedBy, ModelID: nullID(in.ModelID),
 			ClientMcp: in.ClientMCP, ApprovalTools: policy.Tools, ApprovalRole: policy.Role,
-			ApprovalTimeoutSeconds: policy.TimeoutSeconds, AgentSchedules: in.AgentSchedules}); err != nil {
+			ApprovalTimeoutSeconds: policy.TimeoutSeconds, AgentSchedules: in.AgentSchedules, Kind: kind, KindSettings: settings}); err != nil {
 			return err
 		}
 		if err := mcp.SaveAttach(ctx, q, tpl.ID, 1, in.MCP); err != nil {
@@ -438,6 +446,11 @@ type VersionInput struct {
 	AgentSchedules *bool
 	// Approvals: nil keeps the current version's; so does each nil field.
 	Approvals *ApprovalPolicyInput
+	// Kind: nil keeps the current version's. KindSettings: nil keeps the
+	// current version's when the kind stays, and takes the new kind's
+	// defaults when it changes; given, it replaces them as a whole.
+	Kind         *string
+	KindSettings *KindSettings
 }
 
 // AddVersion adds a version, which becomes the one new agents get. Existing
@@ -482,6 +495,20 @@ func (s *Service) AddVersion(ctx context.Context, a authz.Actor, id uuid.UUID, i
 			if err != nil {
 				return t, err
 			}
+			kind, settings := cur.Kind, cur.KindSettings
+			if in.Kind != nil || in.KindSettings != nil {
+				want, given := cur.Kind, in.KindSettings
+				if in.Kind != nil {
+					want = *in.Kind
+				}
+				if given == nil && want == cur.Kind {
+					stored := KindSettingsOf(cur.KindSettings)
+					given = &stored
+				}
+				if kind, settings, err = checkKind(want, given); err != nil {
+					return t, err
+				}
+			}
 			var attach []mcp.Attach
 			if in.MCP == nil {
 				rows, err := q.ListTemplateVersionMCP(ctx, dbgen.ListTemplateVersionMCPParams{TemplateID: id, Version: t.CurrentVersion})
@@ -509,8 +536,8 @@ func (s *Service) AddVersion(ctx context.Context, a authz.Actor, id uuid.UUID, i
 			if _, err = q.InsertTemplateVersion(ctx, dbgen.InsertTemplateVersionParams{TemplateID: id, Version: bumped.CurrentVersion,
 				Instructions: strings.TrimSpace(in.Instructions), Notes: in.Notes, ModelID: modelID, ClientMcp: clientMCP,
 				ApprovalTools: policy.Tools, ApprovalRole: policy.Role, ApprovalTimeoutSeconds: policy.TimeoutSeconds,
-				AgentSchedules: schedules,
-				CreatedBy:      uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil && a.Service == nil}}); err != nil {
+				AgentSchedules: schedules, Kind: kind, KindSettings: settings,
+				CreatedBy: uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil && a.Service == nil}}); err != nil {
 				return t, err
 			}
 			return bumped, mcp.SaveAttach(ctx, q, id, bumped.CurrentVersion, attach)

@@ -790,10 +790,15 @@ func (s *Service) spec(ctx context.Context, ag dbgen.Agent) (launcher.Spec, erro
 	if err := s.mcpEnv(ctx, ag, tv, string(token), env); err != nil {
 		return launcher.Spec{}, err
 	}
-	// Tools that ask a person first (docs/approvals.md).
-	if v := approvalEnv(PolicyOf(tv)); v != "" {
+	// Tools that ask a person first (docs/approvals.md), with the ones its
+	// kind adds (a triage version's write tools), and the kind itself
+	// (docs/first-party-agents.md).
+	policy := PolicyOf(tv)
+	policy.Tools = kindApprovals(tv.Kind, tv.KindSettings, policy.Tools)
+	if v := approvalEnv(policy); v != "" {
 		env["TOOL_APPROVALS"] = v
 	}
+	kindEnv(tv.Kind, tv.KindSettings, env)
 	// Where the runtime reports its threads' status and approvals (the gateway).
 	env["PLATFORM_GATEWAY_URL"] = strings.TrimRight(s.cfg.GatewayURL, "/")
 	env["PLATFORM_KEY"] = llm.ProxyCredential(ag.ID.String(), string(token))

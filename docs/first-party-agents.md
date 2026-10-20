@@ -22,9 +22,10 @@ rollbacks change them with the version. The catalog publishes a template of any 
 | Kind | `agent_template_versions.kind` (`assistant`, `triage`, `researcher`; default `assistant`) | `kind` on `AgentTemplateVersion`, `AgentTemplateCreate` and the new-version body |
 | Settings | `agent_template_versions.kind_settings` (a JSON object, at most 16 KiB, stored with its defaults filled in) | `kindSettings` (`AgentKindSettings`) |
 
-The platform refuses an unknown kind (`422 invalid_kind`) and settings the kind doesn't take, or bad values
-(`422 invalid_kind_settings`): a field of another kind is refused, not ignored. No new operation, so no change to the
-authorization matrix; creating a template and adding a version are audited as before.
+The platform refuses an unknown kind (`400 invalid_kind`), and settings the kind doesn't take or bad values
+(`400 invalid_kind_settings`; a field no kind has is `400 invalid_json`): a field of another kind is refused, not
+ignored. No new operation, so no change to the authorization matrix; creating a template and adding a version are
+audited as before.
 
 **Kinds ship in the standard runtime image**, so there is no new image or warm pool. The platform passes the kind like
 everything else the version decides, as variables of the [runtime contract](runtime-contract.md): `AGENT_KIND` and
