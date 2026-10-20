@@ -64,7 +64,7 @@ export function ClientBadges({ client }: { client: Pick<OAuthClientInfo, "kind" 
 }
 
 /** A table's app cell: logo, name with its badges, and host. */
-export function AppCell({ client }: { client: OAuthClientInfo }) {
+export function AppCell({ client, readOnly }: { client: OAuthClientInfo; readOnly?: boolean }) {
   return (
     <span className={o.app}>
       <AppLogo client={client} />
@@ -74,6 +74,11 @@ export function AppCell({ client }: { client: OAuthClientInfo }) {
           <span className={s.badges}>
             {client.name}
             <ClientBadges client={client} />
+            {readOnly && (
+              <Badge size="sm" tone="neutral">
+                Read only
+              </Badge>
+            )}
           </span>
         }
         secondary={<span className={client.kind === "metadata" ? s.mono : undefined}>{clientHostText(client)}</span>}

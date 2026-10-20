@@ -1,7 +1,8 @@
 /*
  * Admin › Usage (/admin/usage): every team's model requests and tokens per
  * day, team or model, with a cost estimate from the models' current prices.
- * Platform admins and auditors. Period (?range=) and grouping (?groupBy=) live in the URL.
+ * Platform admins and auditors. Period (?range=), grouping (?groupBy=) and
+ * the connected app it is limited to (?app=) live in the URL.
  */
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -12,6 +13,7 @@ import { UsageReportPage } from "@/components/usage/usage-report";
 import { CellText, type DataTableColumn } from "@/components/ui/data-table/data-table";
 import { TextLink } from "@/components/ui/text-link/text-link";
 import s from "../../shared.module.css";
+import { AppFilter, useAppParam } from "./app-filter";
 
 const groups: GroupOption<AdminUsageGroup>[] = [
   { value: "day", label: "Day" },
@@ -43,7 +45,8 @@ const teamColumn: DataTableColumn<UsageRow> = {
 export function AdminUsagePage() {
   const range = useUsageRange();
   const [groupBy, setGroupBy] = useGroupByParam(groups);
-  const report = useQuery(adminUsageQuery({ from: range.fromDay, to: range.toDay, groupBy }));
+  const [app, setApp] = useAppParam();
+  const report = useQuery(adminUsageQuery({ from: range.fromDay, to: range.toDay, groupBy, clientId: app || undefined }));
   const first = groupBy === "team" ? teamColumn : groupBy === "model" ? modelColumn : dayColumn;
   return (
     <UsageReportPage
@@ -55,6 +58,7 @@ export function AdminUsagePage() {
       options={groups}
       onGroupBy={setGroupBy}
       report={report}
+      notices={<AppFilter value={app} onChange={setApp} />}
       firstColumn={first}
       rowLabel={(r) => (groupBy === "team" ? teamName(r) : groupBy === "model" ? modelName(r) : dayLabel(r.day))}
     />

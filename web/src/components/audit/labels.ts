@@ -77,6 +77,8 @@ export const actionLabels: Record<string, string> = {
   "oauth.token_issue": "Issued app token",
   "oauth.revoke": "Revoked app access",
   "oauth.trusted_clients_update": "Changed trusted apps",
+  "oauth.client_secret_create": "Issued app secret",
+  "oauth.client_secret_delete": "Deleted app secret",
 };
 
 /** A recorded metadata field, when it's a string. */
@@ -189,6 +191,7 @@ export const targetTypeLabels: Record<string, string> = {
   oauth_client: "App",
   oauth_grant: "App connection",
   oauth_settings: "Trusted apps",
+  oauth_client_secret: "App secret",
   platform: "Platform",
 };
 

@@ -1,8 +1,10 @@
 /*
  * The consent page's question: the app (logo, name, host, Trusted or
- * Unverified), what it will be able to do (the agents scope in plain words;
- * it acts as the person, never with admin powers), where the browser goes
- * back to, and Deny / Allow.
+ * Unverified), what it will be able to do (the agents or agents:read scope
+ * in plain words; it acts as the person, never with admin powers), where the
+ * browser goes back to, and Deny / Allow. When the app expects another
+ * account than the one signed in (login_hint), it says so and offers only to
+ * cancel or to sign in as that account: Allow would connect the wrong one.
  */
 import { Check, ShieldOff } from "lucide-react";
 import type { OAuthConsent, OAuthDecision } from "@/api/oauth";
@@ -20,10 +22,13 @@ type Props = {
   decide: { mutate: (d: OAuthDecision) => void; isPending: boolean; variables?: OAuthDecision; error: unknown };
   /** The answer was sent and the browser is on its way back to the app. */
   leaving: boolean;
+  /** Signs out and starts the app's request again, to sign in as the account it expects. */
+  switchAccount: { mutate: () => void; isPending: boolean; error: unknown };
 };
 
 /** What a scope lets the app do, one line each (an unknown scope by its name). */
 function abilities(scope: string, personal?: OAuthConsent["personalWorkspace"]): string[] {
+  if (scope === "agents:read") return ["See your agents and read your conversations with them", "Follow your conversations as they change"];
   if (scope !== "agents") return [`Use the “${scope}” permission`];
   return [
     "See your agents and chat with them",
@@ -31,19 +36,21 @@ function abilities(scope: string, personal?: OAuthConsent["personalWorkspace"]):
   ];
 }
 
-export function ConsentBody({ consent, titleId, email, decide, leaving }: Props) {
+export function ConsentBody({ consent, titleId, email, decide, leaving, switchAccount }: Props) {
   const instance = useInstance();
   const { client } = consent;
   const unverified = client.kind === "registered";
-  const busy = decide.isPending || leaving;
+  const busy = decide.isPending || leaving || switchAccount.isPending;
   const scopes = consent.scopes.length > 0 ? consent.scopes : ["agents"];
+  const readOnly = scopes.every((sc) => sc === "agents:read");
+  const mismatch = consent.accountMismatch === true;
   return (
     <Stack gap={5}>
       <div className={styles.client}>
         <AppLogo client={client} size="lg" />
         <div className={styles.clientText}>
           <h1 id={titleId} className={styles.title}>
-            {client.name} wants to use your agents as you
+            {client.name} wants to {readOnly ? "read" : "use"} your agents as you
           </h1>
           <p className={styles.host}>
             <ClientBadges client={client} />
@@ -82,6 +89,11 @@ export function ConsentBody({ consent, titleId, email, decide, leaving }: Props)
           <li>
             <Check aria-hidden /> Act as you, with your access: what it does is recorded under your name
           </li>
+          {readOnly && (
+            <li data-tone="limit">
+              <ShieldOff aria-hidden /> Never send messages or change anything
+            </li>
+          )}
           <li data-tone="limit">
             <ShieldOff aria-hidden /> Never with admin powers, even if you have them
           </li>
@@ -91,17 +103,30 @@ export function ConsentBody({ consent, titleId, email, decide, leaving }: Props)
       <p className={styles.muted}>
         Signed in as <strong>{email}</strong>. You&apos;ll be sent back to <strong>{consent.redirectHost}</strong>.
       </p>
+      {mismatch && (
+        <Alert tone="warning" title="This isn't the account the app expects">
+          {client.name} asked to connect <strong>{consent.loginHint}</strong>, but you&apos;re signed in as <strong>{email}</strong>. Sign in as{" "}
+          {consent.loginHint} to connect it, or cancel.
+        </Alert>
+      )}
       {decide.error != null && <ErrorAlert error={decide.error} title="Couldn't send your answer" />}
+      {switchAccount.error != null && <ErrorAlert error={switchAccount.error} title="Couldn't sign you out" />}
       <p role="status" className={styles.muted}>
         {leaving ? `Taking you back to ${consent.redirectHost}…` : ""}
       </p>
       <div className={styles.actions}>
         <Button variant="secondary" disabled={busy} loading={decide.isPending && decide.variables === "deny"} onClick={() => decide.mutate("deny")}>
-          Deny
+          {mismatch ? "Cancel" : "Deny"}
         </Button>
-        <Button disabled={busy} loading={decide.isPending && decide.variables === "allow"} onClick={() => decide.mutate("allow")}>
-          Allow
-        </Button>
+        {mismatch ? (
+          <Button disabled={busy} loading={switchAccount.isPending} onClick={() => switchAccount.mutate()}>
+            Sign in as {consent.loginHint}
+          </Button>
+        ) : (
+          <Button disabled={busy} loading={decide.isPending && decide.variables === "allow"} onClick={() => decide.mutate("allow")}>
+            Allow
+          </Button>
+        )}
       </div>
     </Stack>
   );
