@@ -72,6 +72,12 @@ export type AgentDefinition = {
 	 * must do for that).
 	 */
 	readonly waitsForPerson?: readonly string[];
+	/**
+	 * The schedule tools (`schedule`, `list_schedules`, `cancel_schedule`: the agent sets its own reminders and recurring
+	 * work, docs/triggers.md). The library adds them, after the definition's extensions, when the platform allows it for
+	 * the agent's template version (PLATFORM_SCHEDULES). Default true; false leaves them out even then.
+	 */
+	readonly schedules?: boolean;
 };
 
 /** Extension names the platform's runtime installs itself. */

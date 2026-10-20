@@ -51,6 +51,7 @@ export { createStandbyServer, parseConfig } from "./standby.ts";
 export { type ThreadRecord, ThreadsDoc, ThreadStore } from "./threads.ts";
 export { gatewayPost, type ThreadStatus, ThreadStatusReporter, unansweredError } from "./thread-status.ts";
 export { AgentMcp, type McpServerConfig, modelVisible, toolName } from "./mcp.ts";
+export { type AgentSchedule, SCHEDULE_EXTENSION, scheduleExtension, type ScheduleOptions } from "./schedule.ts";
 export { type AgentModels, createAgentModels } from "./models.ts";
 export { countingUsage, UsageReporter } from "./usage.ts";
 export {
