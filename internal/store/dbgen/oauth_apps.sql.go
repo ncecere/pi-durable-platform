@@ -246,6 +246,41 @@ func (q *Queries) DeleteOAuthClientSecret(ctx context.Context, id uuid.UUID) (Oa
 	return i, err
 }
 
+const deleteOAuthClientSecretsExcept = `-- name: DeleteOAuthClientSecretsExcept :many
+DELETE FROM oauth_client_secrets WHERE NOT (client_id = ANY($1::text[])) RETURNING id, client_id, secret_hash, pepper_id, prefix, created_by, created_at, last_used_at
+`
+
+// Deletes the secrets of every client but keep (the apps trusted before and
+// after a change of the trusted list).
+func (q *Queries) DeleteOAuthClientSecretsExcept(ctx context.Context, keep []string) ([]OauthClientSecret, error) {
+	rows, err := q.db.Query(ctx, deleteOAuthClientSecretsExcept, keep)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OauthClientSecret{}
+	for rows.Next() {
+		var i OauthClientSecret
+		if err := rows.Scan(
+			&i.ID,
+			&i.ClientID,
+			&i.SecretHash,
+			&i.PepperID,
+			&i.Prefix,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.LastUsedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const ensureOAuthClientSubject = `-- name: EnsureOAuthClientSubject :one
 
 INSERT INTO oauth_client_subjects (client_id, user_id) VALUES ($1, $2)

@@ -225,7 +225,8 @@ keeps the person in one flow; an app that prefers an error uses `prompt=none` fi
 person. A platform admin issues a secret (`pdpcs_…`, 256 bits, shown once; Admin › Settings › App secrets,
 `POST /v1/admin/settings/oauth-clients/secrets`) to an app on the trusted list; at most two per app, to rotate. It is
 stored as a peppered digest like tokens, works only while the app is on the trusted list (read on every use and every
-30 s on open streams), and is used as `Authorization: Bearer pdpcs_…` on two endpoints only, which take nothing
+30 s on open streams; taking the app off the list deletes its secrets in the same transaction, audited, so trusting it
+again needs new ones), and is used as `Authorization: Bearer pdpcs_…` on two endpoints only, which take nothing
 else (not sessions, not people's tokens):
 
 - *Why a secret, not `private_key_jwt`.* Seeing every connected person's events and usage is more than any one

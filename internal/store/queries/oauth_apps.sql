@@ -25,6 +25,11 @@ SELECT count(*)::bigint FROM oauth_client_secrets WHERE client_id = $1;
 -- name: DeleteOAuthClientSecret :one
 DELETE FROM oauth_client_secrets WHERE id = $1 RETURNING *;
 
+-- name: DeleteOAuthClientSecretsExcept :many
+-- Deletes the secrets of every client but keep (the apps trusted before and
+-- after a change of the trusted list).
+DELETE FROM oauth_client_secrets WHERE NOT (client_id = ANY(@keep::text[])) RETURNING *;
+
 -- name: GetOAuthClientSecret :one
 SELECT * FROM oauth_client_secrets WHERE secret_hash = $1;
 

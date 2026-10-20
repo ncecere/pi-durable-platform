@@ -1966,7 +1966,7 @@ export interface paths {
         get: operations["adminGetTrustedClients"];
         /**
          * Replace the trusted apps (platform admins)
-         * @description Only apps identified by a Client ID Metadata Document (an https URL with a path) can be trusted: a registered app's ID changes, and anyone can register any name. A trusted app skips the consent screen, never the sign-in (nor the login_hint account check). Only a trusted app can have app secrets (GET /v1/app/events and /v1/app/usage): taking an app off the list stops its secrets at once.
+         * @description Only apps identified by a Client ID Metadata Document (an https URL with a path) can be trusted: a registered app's ID changes, and anyone can register any name. A trusted app skips the consent screen, never the sign-in (nor the login_hint account check). Only a trusted app can have app secrets (GET /v1/app/events and /v1/app/usage): taking an app off the list deletes its secrets in the same change (each audited as oauth.client_secret_delete, reason untrusted), so they stop at once and trusting the app again needs new secrets. A secret survives only if its app is trusted before and after the change.
          */
         put: operations["adminUpdateTrustedClients"];
         post?: never;
@@ -3573,7 +3573,7 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             lastUsedAt?: string | null;
-            /** @description Its app is on the trusted list now (the secret works only then) */
+            /** @description Its app is on the trusted list now (the secret works only then; removing an app from the list deletes its secrets) */
             trusted: boolean;
         };
         AppSecretCreated: components["schemas"]["AppSecret"] & {

@@ -79,7 +79,7 @@ describe("Admin › Settings › Trusted apps", () => {
     expect(within(table).queryByText("Notes")).toBeNull();
     await u.click(screen.getByRole("button", { name: "Save trusted apps" }));
     const ask = await screen.findByRole("alertdialog");
-    expect(ask).toHaveTextContent("Asks for approval again: Notes.");
+    expect(ask).toHaveTextContent("Asks for approval again, and its app secrets are deleted (trusting it again needs new ones): Notes.");
     await u.click(within(ask).getByRole("button", { name: "Save trusted apps" }));
     expect(await within(table).findByText(/The platform doesn't accept this ID/)).toBeInTheDocument();
   });

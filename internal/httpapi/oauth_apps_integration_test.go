@@ -303,8 +303,8 @@ func TestOAuthAppEventStream(t *testing.T) {
 func oauthSecretLike() string { return "pdpcs_" + strings.Repeat("A", 43) }
 
 // App secrets: platform admins issue at most two per trusted app; auditors
-// read them (never the secret); an app taken off the trusted list can't use
-// its secrets.
+// read them (never the secret); taking an app off the trusted list deletes
+// its secrets (audited), so trusting it again doesn't bring them back.
 func TestOAuthAppSecrets(t *testing.T) {
 	e := newTrustedAppEnv(t, 0)
 	app, admin, auditor := e.app, e.admin, e.app.signIn("auditor")
@@ -329,17 +329,42 @@ func TestOAuthAppSecrets(t *testing.T) {
 			t.Fatalf("a secret of a trusted app: %d", c)
 		}
 	}
-	// Off the trusted list: every secret stops working, and the list says why.
-	var trusted apitypes.TrustedClients
-	admin.get("/v1/admin/settings/oauth-clients", &trusted)
-	c, ec = admin.call("PUT", "/v1/admin/settings/oauth-clients", map[string]any{"clients": []any{}}, nil, ifMatch(trusted.Revision))
-	mustCode(t, "untrust", c, ec, 200, "")
-	if c, _ := appGet(t, app, second.Secret, "/v1/app/usage", nil); c != 401 {
-		t.Fatalf("a secret of an app no longer trusted: %d", c)
+	// Off the trusted list: every secret is deleted (audited), and trusting the app again doesn't revive them.
+	setTrusted := func(what string, ids ...string) {
+		t.Helper()
+		var trusted apitypes.TrustedClients
+		admin.get("/v1/admin/settings/oauth-clients", &trusted)
+		clients := []any{}
+		for _, id := range ids {
+			clients = append(clients, map[string]any{"clientId": id})
+		}
+		c, ec := admin.call("PUT", "/v1/admin/settings/oauth-clients", map[string]any{"clients": clients}, nil, ifMatch(trusted.Revision))
+		mustCode(t, what, c, ec, 200, "")
 	}
+	setTrusted("untrust")
 	var secrets []apitypes.AppSecret
-	if admin.get("/v1/admin/settings/oauth-clients/secrets", &secrets); len(secrets) != 2 || secrets[0].Trusted {
+	if admin.get("/v1/admin/settings/oauth-clients/secrets", &secrets); len(secrets) != 0 {
 		t.Fatalf("secrets after untrusting %+v", secrets)
+	}
+	if n := scalar(t, app, `SELECT count(*)::text FROM audit_log WHERE action = 'oauth.client_secret_delete'
+		AND target_type = 'oauth_client_secret' AND metadata->>'reason' = 'untrusted' AND metadata->>'clientId' = $1`, e.clientID); n != "2" {
+		t.Fatalf("secret deletions audited %s times", n)
+	}
+	setTrusted("trust again", e.clientID)
+	for _, s := range []string{e.secret, second.Secret} {
+		if c, _ := appGet(t, app, s, "/v1/app/usage", nil); c != 401 {
+			t.Fatalf("a secret of an app untrusted and trusted again: %d", c)
+		}
+	}
+	// A secret left from an app taken off the list before secrets were deleted with it
+	// doesn't come back either when the app is trusted again.
+	var old apitypes.AppSecretCreated
+	c, ec = admin.call("POST", "/v1/admin/settings/oauth-clients/secrets", map[string]any{"clientId": e.clientID}, &old, nil)
+	mustCode(t, "a new secret", c, ec, 201, "")
+	exec(t, app, `UPDATE oauth_settings SET trusted_clients = '[]'`)
+	setTrusted("trust again after an old untrusting", e.clientID)
+	if c, _ := appGet(t, app, old.Secret, "/v1/app/usage", nil); c != 401 {
+		t.Fatalf("an old secret of an app trusted again: %d", c)
 	}
 }
 

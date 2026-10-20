@@ -1625,7 +1625,7 @@ type AppSecret struct {
 	// Prefix The secret's first characters, to tell it apart
 	Prefix string `json:"prefix"`
 
-	// Trusted Its app is on the trusted list now (the secret works only then)
+	// Trusted Its app is on the trusted list now (the secret works only then; removing an app from the list deletes its secrets)
 	Trusted bool `json:"trusted"`
 }
 
@@ -1648,7 +1648,7 @@ type AppSecretCreated struct {
 	// Secret The secret (pdpcs_…), shown this once
 	Secret string `json:"secret"`
 
-	// Trusted Its app is on the trusted list now (the secret works only then)
+	// Trusted Its app is on the trusted list now (the secret works only then; removing an app from the list deletes its secrets)
 	Trusted bool `json:"trusted"`
 }
 

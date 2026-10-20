@@ -3,7 +3,8 @@
  * issue to trusted apps, so an app can call the app-level endpoints as
  * itself (one event stream for everyone who connected it, and their usage
  * by person) without holding anyone's token. A secret works only while its
- * app is on the trusted list; two at a time, to rotate. The secret is shown
+ * app is on the trusted list (removing the app deletes its secrets); two at a
+ * time, to rotate. The secret is shown
  * once, when issued; the list shows its first characters. Auditors read.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -33,7 +34,7 @@ import { useIsPlatformAdmin } from "../hooks";
 export const maxSecretsPerApp = 2;
 
 const description =
-  "A secret lets a trusted app call the platform as itself: one event stream for the conversations of everyone who connected it, and their usage by person, without holding anyone's token. It works only while the app is trusted. Two per app at most, so you can rotate: issue a new one, move the app to it, delete the old one.";
+  "A secret lets a trusted app call the platform as itself: one event stream for the conversations of everyone who connected it, and their usage by person, without holding anyone's token. It works only while the app is trusted: removing an app from the trusted apps deletes its secrets, and trusting it again needs new ones. Two per app at most, so you can rotate: issue a new one, move the app to it, delete the old one.";
 
 const appName = (clientId: string, trusted: TrustedClient[]) => trusted.find((c) => c.clientId === clientId)?.label || clientId;
 
