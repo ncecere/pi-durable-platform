@@ -2490,7 +2490,9 @@ type OAuthGrant struct {
 	CreatedAt  time.Time          `json:"createdAt"`
 	Id         openapi_types.UUID `json:"id"`
 	LastUsedAt *time.Time         `json:"lastUsedAt,omitempty"`
-	Scopes     []string           `json:"scopes"`
+
+	// Scopes What the person allowed (agents, or agents:read alone for a read-only connection)
+	Scopes []string `json:"scopes"`
 }
 
 // Ok defines model for Ok.
