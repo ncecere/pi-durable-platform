@@ -105,6 +105,7 @@ export function ChatMessages({ view, viewerId, participants, lastReplyAt }: Chat
                           label="Output so far"
                         />
                       ) : null}
+                      <ToolDetails source={result ?? live} />
                     </ToolContent>
                   </Tool>
                 );
@@ -134,6 +135,16 @@ export function ChatMessages({ view, viewerId, participants, lastReplyAt }: Chat
       ) : null}
     </>
   );
+}
+
+/**
+ * A tool's details: structured data it returned for apps (raw JSON; the tool
+ * card is collapsed until opened). Too large ones are left out by the runtime.
+ */
+function ToolDetails({ source }: { source?: { details?: unknown; detailsOmitted?: boolean } }) {
+  if (source?.detailsOmitted) return <p className={s.replyMeta}>Details too large to show</p>;
+  if (source?.details === undefined || source.details === null) return null;
+  return <ToolOutput output={source.details} label="Details" />;
 }
 
 /** Above a user message: who sent it (when shown), the app they used, and when. */

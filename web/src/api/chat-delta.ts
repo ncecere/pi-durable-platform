@@ -24,6 +24,7 @@ export const deltaEventTypes: ChatDeltaEvent["type"][] = [
   "tool.removed",
   "tools.set",
   "run",
+  "document.updated",
 ];
 
 /** The view after one event (undefined until the first snapshot). */
@@ -57,6 +58,10 @@ export function applyChatDelta(view: ChatView | undefined, e: ChatDeltaEvent): C
           if (e.output === null) delete next.output;
           else if (e.output !== undefined) next.output = e.output;
           if (e.outputAppended !== undefined) next.output = (next.output ?? "") + e.outputAppended;
+          if (e.details === null) delete next.details;
+          else if (e.details !== undefined) next.details = e.details;
+          if (e.detailsOmitted === true) next.detailsOmitted = true;
+          else if (e.detailsOmitted === false) delete next.detailsOmitted;
           return next;
         }),
       };
@@ -66,6 +71,10 @@ export function applyChatDelta(view: ChatView | undefined, e: ChatDeltaEvent): C
       return { ...view, tools: e.tools ?? [] };
     case "run":
       return { ...view, busy: Boolean(e.busy) };
+    case "document.updated":
+      return e.kind && e.revision
+        ? { ...view, documents: { ...(view.documents ?? {}), [e.kind]: { revision: e.revision } } }
+        : view;
   }
   return view;
 }

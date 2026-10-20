@@ -134,4 +134,27 @@ describe("agent status badge", () => {
     await showsStatus("Awake");
     expect(calls.filter((c) => c.method === "GET" && c.url === `/v1/agents/${agentId}`).length).toBeGreaterThan(before);
   });
+
+  it("says on the Overview why the agent's runtime was refused, and which version wrote its data", async () => {
+    mockApi({
+      ...shellRoutes("none", "owner"),
+      [`GET /v1/agents/${agentId}`]: () =>
+        agent({
+          storageVersion: "1.4.0",
+          runtimeRefused: {
+            runtimeVersion: "1.3.0",
+            storageVersion: "1.4.0",
+            at: new Date().toISOString(),
+            message: "This agent's data was written by a runtime with pi-durable 1.4.0; this runtime has pi-durable 1.3.0.",
+          },
+        }),
+      [`GET /v1/teams/${team.slug}/agents`]: () => [agent()],
+      [`GET /v1/agents/${agentId}/threads`]: () => [],
+    });
+    renderApp(`/teams/${team.slug}/agents/${agentId}`);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The agent can't start on its runtime");
+    expect(alert).toHaveTextContent("this runtime has pi-durable 1.3.0");
+    expect(screen.getByText(/Written by pi-durable 1\.4\.0/)).toBeInTheDocument();
+  });
 });

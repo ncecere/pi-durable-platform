@@ -43,6 +43,27 @@ describe("applyChatDelta", () => {
     });
   });
 
+  it("follows a tool's details and an exposed document's revisions", () => {
+    const events: ChatDeltaEvent[] = [
+      { type: "snapshot", seq: 1, v: 1, view: { busy: true, messages: [], tools: [{ callId: "c1", name: "t", status: "running" }] } },
+      { type: "tool.updated", seq: 2, callId: "c1", details: { step: 1 } },
+      { type: "tool.updated", seq: 3, callId: "c1", details: null, detailsOmitted: true },
+      { type: "tool.finished", seq: 4, callId: "c1", status: "done", details: { step: 2 }, detailsOmitted: false },
+      { type: "document.updated", seq: 5, kind: "acme.board", revision: "r1" },
+      { type: "document.updated", seq: 6, kind: "acme.board", revision: "r2" },
+    ];
+    let view: View | undefined;
+    const seen: View[] = [];
+    for (const e of events) {
+      view = applyChatDelta(view, e);
+      seen.push(view!);
+    }
+    expect(seen[1]!.tools[0]).toEqual({ callId: "c1", name: "t", status: "running", details: { step: 1 } });
+    expect(seen[2]!.tools[0]).toEqual({ callId: "c1", name: "t", status: "running", detailsOmitted: true });
+    expect(seen[3]!.tools[0]).toEqual({ callId: "c1", name: "t", status: "done", details: { step: 2 } });
+    expect(view!.documents).toEqual({ "acme.board": { revision: "r2" } });
+  });
+
   it("ignores changes before the first snapshot", () => {
     expect(applyChatDelta(undefined, { type: "run", seq: 1, busy: true })).toBeUndefined();
   });

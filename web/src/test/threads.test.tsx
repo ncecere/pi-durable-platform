@@ -152,6 +152,27 @@ describe("test chat: threads and messages", () => {
     expect(within(screen.getByRole("region", { name: "Helper" })).getByText("Private")).toBeInTheDocument();
   });
 
+  it("shows a tool's details in its collapsed card", async () => {
+    views.set("t1", {
+      busy: false,
+      tools: [],
+      messages: [
+        { id: "u1", role: "user", text: "Add a card", author: me, at: T },
+        { id: "a1", role: "assistant", at: T + 1000, toolCalls: [{ id: "c1", name: "add_card", arguments: { text: "milk" } }] },
+        { id: "r1", role: "tool", toolCallId: "c1", name: "add_card", text: "Added.", isError: false, details: { board: ["milk", "eggs"] } },
+        { id: "a2", role: "assistant", at: T + 2000, text: "Done." },
+      ],
+    });
+    mockApi(chatRoutes(() => [thread()]));
+    renderApp(`/teams/${team.slug}/agents/${agentId}?tab=test`);
+    const trigger = await screen.findByRole("button", { name: /add_card/ });
+    expect(screen.queryByText("Details")).not.toBeInTheDocument();
+    await userEvent.click(trigger);
+    const label = await screen.findByText("Details");
+    expect(label.closest("section")).toHaveTextContent(/"board"/);
+    expect(label.closest("section")).toHaveTextContent(/"eggs"/);
+  });
+
   it("names authors on a thread with several people and shows a quiet meta line under replies", async () => {
     views.set("t1", {
       busy: false,
