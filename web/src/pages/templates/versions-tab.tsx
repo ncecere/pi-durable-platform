@@ -83,6 +83,13 @@ export function VersionsTab({
                     </Badge>{" "}
                   </>
                 ) : null}
+                {v.approvals?.tools.length ? (
+                  <>
+                    <Badge size="sm" tone="warning" title={`A person approves these tools before they run: ${v.approvals.tools.join(", ")}`}>
+                      Asks before {v.approvals.tools.length === 1 ? v.approvals.tools[0] : `${v.approvals.tools.length} tools`}
+                    </Badge>{" "}
+                  </>
+                ) : null}
                 <span className={s.secondary}>
                   {v.notes || "No notes"} · <Time value={v.createdAt} />
                   {v.createdByName ? ` · ${v.createdByName}` : ""}

@@ -93,6 +93,10 @@ export const actionLabels: Record<string, string> = {
   "oauth.trusted_clients_update": "Changed trusted apps",
   "oauth.client_secret_create": "Issued app secret",
   "oauth.client_secret_delete": "Deleted app secret",
+  "tool_approval.request": "Agent asked to approve a tool call",
+  "tool_approval.decide": "Decided a tool call",
+  "tool_approval.timeout": "Tool call not approved in time",
+  "tool_approval.cancel": "Tool call approval cancelled",
 };
 
 /** A recorded metadata field, when it's a string. */
@@ -105,6 +109,11 @@ const meta = (e: Partial<Pick<AuditEntry, "metadata">> | undefined, key: string)
 export function actionLabel(action: string, entry?: Partial<Pick<AuditEntry, "after" | "metadata">>) {
   // A platform admin's read of a shared team conversation isn't a private one's.
   if (action === "thread.admin_read" && meta(entry, "visibility") === "shared" && entry?.metadata?.personal === false) return "Read a team conversation";
+  if (action === "tool_approval.decide") {
+    const decision = meta(entry, "decision");
+    if (decision === "approve") return "Approved a tool call";
+    if (decision === "deny") return "Denied a tool call";
+  }
   const known = actionLabels[action];
   if (known) return known;
   const [group = "", rest = ""] = action.split(".");
@@ -124,6 +133,7 @@ export const actionGroups: { prefix: string; label: string; platform?: boolean }
   { prefix: "trigger.", label: "Triggers and runs" },
   { prefix: "trigger_settings.", label: "Trigger limits" },
   { prefix: "agent_template.", label: "Templates" },
+  { prefix: "tool_approval.", label: "Tool approvals" },
   { prefix: "model_provider.", label: "Model providers" },
   { prefix: "model.", label: "Models" },
   { prefix: "mcp_server.", label: "MCP servers" },
@@ -203,6 +213,7 @@ export const targetTypeLabels: Record<string, string> = {
   trigger: "Trigger",
   trigger_run: "Triggered run",
   agent_template: "Template",
+  tool_approval: "Tool approval",
   model_provider: "Model provider",
   model: "Model",
   mcp_server: "MCP server",

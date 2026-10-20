@@ -28,7 +28,7 @@ export const serviceAccountTabs = ["overview", "keys", "settings"] as const;
 export type ServiceAccountTab = (typeof serviceAccountTabs)[number];
 
 /** A team's agent: Overview (status, how to call it) · Test (chat with it) · Conversations (platform staff) · Settings. */
-export const agentTabs = ["overview", "test", "triggers", "runs", "conversations", "settings"] as const;
+export const agentTabs = ["overview", "test", "approvals", "triggers", "runs", "conversations", "settings"] as const;
 export type AgentTab = (typeof agentTabs)[number];
 
 /** A template: Overview (current instructions) · Versions · Settings. */

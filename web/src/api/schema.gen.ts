@@ -3045,7 +3045,7 @@ export interface components {
             modelProviderName?: string | null;
             mcp?: components["schemas"]["McpAttached"][];
             clientMcp?: boolean;
-            approvals: components["schemas"]["ToolApprovalPolicy"];
+            approvals?: components["schemas"]["ToolApprovalPolicy"];
             /** Format: date-time */
             createdAt: string;
         };

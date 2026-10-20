@@ -68,3 +68,14 @@ describe("applyChatDelta", () => {
     expect(applyChatDelta(undefined, { type: "run", seq: 1, busy: true })).toBeUndefined();
   });
 });
+
+describe("approvals in the delta stream", () => {
+  it("sets the pending approvals, and clears them with an empty list", () => {
+    const pending = { id: "ap_1", callId: "c1", tool: "get_time", status: "pending" as const, requestedAt: 1, arguments: {} };
+    let view = applyChatDelta(undefined, { type: "snapshot", seq: 1, v: 1, view: { busy: true, tools: [], messages: [] } });
+    view = applyChatDelta(view, { type: "approvals.set", seq: 2, approvals: [pending] });
+    expect(view?.approvals).toEqual([pending]);
+    view = applyChatDelta(view, { type: "approvals.set", seq: 3, approvals: [] });
+    expect(view).toEqual({ busy: true, tools: [], messages: [] });
+  });
+});
