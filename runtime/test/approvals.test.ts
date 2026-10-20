@@ -79,7 +79,8 @@ describe("tool approvals", () => {
 		expect(callOf(waiting, "c1").approval).not.toHaveProperty("arguments");
 		// Nothing ran and the model wasn't asked again; the agent says it is waiting for a person.
 		expect(model.calls).toBe(1);
-		expect(await agent.status()).toMatchObject({ busyThreads: 1, waitingThreads: 1, pendingApprovals: 1 });
+		// A reply waiting only for a decision doesn't make its thread busy (contract 2): the agent may hibernate meanwhile.
+		expect(await agent.status()).toMatchObject({ busyThreads: 0, waitingThreads: 1, pendingApprovals: 1 });
 
 		expect(await agent.decide(request.id, "approve", { decidedBy: { kind: "user", id: "u-bo", name: "Bo" } })).toBe(200);
 		const { view, result } = await resultOf(agent, "t", "c1");
