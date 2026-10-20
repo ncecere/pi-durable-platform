@@ -56,6 +56,7 @@ Bugs are tracked separately: issues labelled `bug`, with the next fix release's 
 | v0.5 | R. Enforce budgets: monthly cost limits for personal workspaces and teams | M | [#18](https://github.com/ncecere/pi-durable-platform/issues/18) |
 | v0.5 | S. Limits for shared teams: maximum agents and maximum running | S | [#19](https://github.com/ncecere/pi-durable-platform/issues/19) |
 | v0.5 | Z3. An assistant with memory: notes that last across conversations | M | [#36](https://github.com/ncecere/pi-durable-platform/issues/36) |
+| v0.5 | Z5. MCP Apps: show MCP servers' interfaces in the console and in apps | L | [#51](https://github.com/ncecere/pi-durable-platform/issues/51) |
 | v0.5 | Y. Custom agents, step 2: platform admins register agent runtimes, and a template version picks one | M | [#29](https://github.com/ncecere/pi-durable-platform/issues/29) |
 | v0.6 | Z4. Workspaces: files and a shell for coding agents | L | [#37](https://github.com/ncecere/pi-durable-platform/issues/37) |
 | later | T. Run without Kubernetes: a Docker Compose deployment with a bundled identity provider | L | [#20](https://github.com/ncecere/pi-durable-platform/issues/20) |
@@ -393,6 +394,20 @@ A personal assistant is useful because it remembers preferences and facts. Memor
 - It works with schedules (#15), so an assistant can remind and check back.
 
 **Done when:** An assistant remembers a fact in one conversation and uses it in another, its owner can read and delete it, and nothing from a private thread reaches anyone else's memory.
+
+### Z5. MCP Apps: show MCP servers' interfaces in the console and in apps (L, [#51](https://github.com/ncecere/pi-durable-platform/issues/51))
+
+**Limitation:** An MCP server's app interface (the MCP Apps extension) is dropped: agents use its tools as plain tools.
+
+The MCP Apps extension (io.modelcontextprotocol/ui) lets a server attach an interactive interface to a tool's result, rendered by the host in a sandboxed frame that can call the server's tools back. It assumes the host is the client the person sees. Here the MCP connection is held by the agent's runtime, the platform sits in between with the access checks and the servers' credentials, and the screen is the console or an app, so the host's job has to be split across them. Since v0.3 app-only tools are kept from the model, as the extension requires; nothing else of an app is used.
+
+- Design note first: the split of the host's role, and the threat model (the interface is third-party HTML that can call tools with the team's server credentials).
+- The runtime keeps a tool call's `_meta.ui.resourceUri` and the result's structured content, and puts them on the tool call in the thread view as `details` (the channel #28 builds).
+- The platform serves the interface: `resources/read` through its MCP proxy for someone who may read the thread, with the resource's CSP, cached; never from the platform's own origin.
+- The console renders it the way the extension requires (a sandbox proxy on a separate origin, the server's CSP) and documents what an app must do to render it too.
+- What the interface sends back goes through the platform as the person: `tools/call` to the same server only, for tools whose visibility includes `app`, rate limited, audited and subject to approvals (#16); `ui/message` becomes a message in the thread; `ui/update-model-context` becomes context for the agent's next turn.
+
+**Done when:** A tool of an MCP server with an app shows its interface in the console's conversation, and the interface's tool calls run as the person who uses it, with the same access checks, audit and approvals as the agent's. Depends on #28 and #16.
 
 ### Y. Custom agents, step 2: platform admins register agent runtimes, and a template version picks one (M, [#29](https://github.com/ncecere/pi-durable-platform/issues/29))
 
