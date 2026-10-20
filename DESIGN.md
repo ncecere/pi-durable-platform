@@ -37,6 +37,7 @@ Later: teams build and upload their own agents (self-service). That requires str
 | 14 | **Platform replicas keep nothing another replica could contradict**: shared state is in PostgreSQL, an agent's activity is the runtime's own report (`/status`: work, open streams, last activity), starting an agent is serialised by a database lock, and one replica at a time reaps. See [Several replicas](#several-replicas) and [docs/replicas.md](docs/replicas.md). | Any number of replicas behind one Service, with no leader, sticky sessions or shared disk; a replica that has not seen an agent cannot hibernate it. |
 | 15 | **App-level access is a platform admin's decision per app**: a trusted app (metadata document, on the trusted list) gets a secret from a platform admin for one event stream and usage covering everyone who connected it, naming them by an app-stable pseudonymous subject. Not `private_key_jwt`. See [OAuth Connect](#oauth-connect). | It shows an app what every person who connected it does, more than any one person's token; a secret issued where trust is already decided fits the platform's other credentials, with no key fetching or assertion replay cache. |
 | 16 | **MCP servers learn who a call is for from a token the gateway signs from its own records** (v0.4): in proxy mode every forwarded request carries a short-lived ES256 JWT (`MCP-Gateway-Identity`, Open MCP Portal's header and claim style) naming the agent, its team, the thread's visibility and, for a personal workspace's agent or a private thread a person started, that person by OIDC issuer and subject. The runtime only names the thread. See [MCP servers](#mcp-servers) and [docs/mcp-identity.md](docs/mcp-identity.md). | Servers that act for a person (mail, memory, the portal's delegated credentials) need to know which person, and the agent's code, which runs model-influenced tools, must not be able to claim one. |
+| 17 | **Triggers run agents as no person** (v0.4): schedules and signed webhooks are platform records per agent; each fire's ID is its message's pi-durable `requestId` and its run's unique key; the trigger is the message's author, the team's credentials are the only ones used; owners and admins manage them in a browser session, under per-agent limits. See [Triggers](#triggers) and [docs/triggers.md](docs/triggers.md). | The control plane is always running and agents hibernate; idempotent fires make replicas and retries safe; an unattended run must never borrow a person's identity or tools. |
 
 ## Architecture
 
@@ -553,6 +554,33 @@ on `GET /v1/agents/events`.
   workspaces', so Admin › Teams › a team lists them and links to each agent's page. Read-only: they don't talk to,
   change or hibernate an agent of a team they aren't on (platform admins may delete one).
 
+## Triggers
+
+Schedules (cron in an IANA time zone) and webhooks (`POST /v1/hooks/{hookId}`, signed `X-PDP-Signature: t=…,v1=…`
+HMAC-SHA256 over `"<t>." + body`, 5 minutes' tolerance) start runs of an agent without a person (v0.4, #15); the
+design, threat model and limits are in [docs/triggers.md](docs/triggers.md).
+
+- **Records**: `agent_triggers` (a webhook's secret and a callback's secret sealed with `ENCRYPTION_KEY`, shown once),
+  `agent_trigger_settings` (the agent's limits), `trigger_runs` (one per fire). API: `/v1/agents/{agentId}/triggers`,
+  `…/trigger-settings`, `…/runs`, `/v1/teams/{team}/runs`; the console's agent page has Triggers and Runs tabs.
+- **Fires are idempotent**: a schedule's fire ID is its trigger and scheduled time, a webhook's derives from its
+  signature (a replay finds the first run), and it is the message's `requestId`, so neither a second replica nor a
+  retried delivery runs it twice. Every replica runs the trigger loop (`TRIGGERS_INTERVAL`); one pass at a time
+  (`pdp.trigger-loop`), due schedules locked `SKIP LOCKED`. Missed fires: `skip` or `run_once` per schedule.
+- **As no person**: the author is `{kind: "trigger", id, name}`; the thread is shared and started by nobody; a fixed
+  thread that is someone's (private, reserved) or has an app's MCP servers is refused; the run's sender is recorded
+  without a grant (MCP identity tokens, decision 16: a shared team's run names nobody, a personal workspace's names its
+  owner with `person_present: false`). Owners and admins manage triggers in a browser session (personal workspaces: their owner); members,
+  editors and service accounts read them; platform staff read them; service-managed agents take none; a move deletes
+  them.
+- **Limits**: runs at once, maximum run time (the thread is aborted), daily budgets per trigger and per agent (UTC day;
+  a run's cost is the agent's usage while it ran), pause switches per trigger and per agent, back-off after a failure
+  and an automatic pause after `TRIGGERS_PAUSE_AFTER_FAILURES` in a row.
+- **Results**: the thread is the record; an optional completion callback (signed with the callback secret, through
+  `internal/teamnet`, retried) carries the run's status, cost, a 500-character excerpt of the last reply and a link.
+- **Audit**: `trigger.create|update|delete|secret_rotate`, `trigger.run` (system) and `trigger.fire` (Run now),
+  `trigger.run_stop`, `trigger.auto_pause`, `trigger_settings.update`.
+
 ## Creating and moving agents
 
 The reasoning is in [docs/agent-keys-and-moves.md](docs/agent-keys-and-moves.md) (v0.3, #11 and #13).
@@ -794,7 +822,7 @@ not part of `api/openapi.yaml`, as the gateway isn't.
 | `group_recheck_people` | `state` (with_token, without_token) | Recently active people the group re-check applies to, by whether a refresh token is kept for them (set by the re-check loop; the same on every replica: use `max`) |
 | `rate_limit_rejections_total` | `limiter` (login, user, apikey, service-account, oauth, …) | Requests refused with 429 |
 | `thread_event_subscribers` | none | Open thread event streams on this replica |
-| `background_runs_total`, `background_run_duration_seconds`, `background_last_success_timestamp_seconds` | `loop` (reaper, cleanup, rate_cleanup, group_recheck, thread_events, agent_count), `result` | Background loops; `thread_events` counts only listeners that failed |
+| `background_runs_total`, `background_run_duration_seconds`, `background_last_success_timestamp_seconds` | `loop` (reaper, cleanup, rate_cleanup, group_recheck, thread_events, agent_count, triggers), `result` | Background loops; `thread_events` counts only listeners that failed |
 | `db_pool_*` | `pool` (platform, agents) | `acquired_connections`, `idle_connections`, `total_connections`, `max_connections` and the counters `acquires_total`, `acquires_waited_total`, `acquire_wait_seconds_total`, `canceled_acquires_total`, from pgx's pool statistics, read at scrape time |
 | `build_info` | `version`, `commit`, `go_version` | Always 1 |
 
@@ -923,7 +951,9 @@ event streams and steering since v0.3, see above). The design-level ones:
 - Commit latency is a network round trip; Pi's `settings.progress` intervals can be raised if needed.
 - pi-durable is experimental and pinned to 1.3.0; the SQL facade rejects SQLite constructs it does not translate, and
   the conformance suite guards every upgrade.
-- Scheduled work while an agent hibernates needs the platform to know the next wake time (not built yet).
+- Scheduled work: the platform's triggers wake agents (see Triggers); an agent can't yet set its own schedule (the
+  `schedule` tool waits for the runtime library, #28; its gateway API is designed in docs/triggers.md). A triggered
+  run's cost counts all the agent's usage while it ran (usage isn't tagged by thread).
 - Hostile-code isolation (gVisor/Kata on Talos) is required before self-service uploads.
 - Usage per connected app (OAuth Connect) is attributed by which app's person an agent is answering at the moment
   of each model or tool request, and only when that is unambiguous: an agent answering two apps (or an app and the

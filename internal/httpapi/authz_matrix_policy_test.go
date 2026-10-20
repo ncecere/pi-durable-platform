@@ -267,6 +267,42 @@ var matrixPolicies = map[string]policy{
 		return post(c.adminThread("/read"), map[string]any{"reason": "Checking a reported problem"})
 	}},
 
+	// Triggers: everyone who may use the agent reads its triggers, limits and
+	// runs, platform staff too; its team's owners and admins manage them (in a
+	// browser session: triggers_integration_test.go covers keys and apps).
+	// The webhook address takes no session or key: a delivery's signature is
+	// its only credential (internal/triggers tests it).
+	"listAgentTriggers": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.agent("/triggers", false)) }},
+	"createAgentTrigger": {scope: scopeTeam, own: admins, build: func(c *mctx) request {
+		return post(c.agent("/triggers", false), map[string]any{"kind": "schedule", "name": fmt.Sprintf("s-%d", c.e.next()),
+			"cron": "@daily", "messageTemplate": "Report"})
+	}},
+	"getAgentTrigger": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request {
+		return get(c.agent("/triggers/"+c.trigger(false), false))
+	}},
+	"updateAgentTrigger": {scope: scopeTeam, own: admins, build: func(c *mctx) request {
+		return patch(c.agent("/triggers/"+c.trigger(true), false), map[string]any{"paused": true}).h(rev1)
+	}},
+	"deleteAgentTrigger": {scope: scopeTeam, own: admins, build: func(c *mctx) request { return del(c.agent("/triggers/"+c.trigger(true), false)) }},
+	"rotateAgentTriggerSecret": {scope: scopeTeam, own: admins, build: func(c *mctx) request {
+		return post(c.agent("/triggers/"+c.trigger(true)+"/secret", false), map[string]any{"which": "webhook"})
+	}},
+	"fireAgentTrigger": {scope: scopeTeam, own: admins, build: func(c *mctx) request {
+		return post(c.agent("/triggers/"+c.trigger(true)+"/fire", false), nil)
+	}},
+	"getAgentTriggerSettings": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request {
+		return get(c.agent("/trigger-settings", false))
+	}},
+	"setAgentTriggerSettings": {scope: scopeTeam, own: admins, build: func(c *mctx) request {
+		return request{method: "PUT", path: c.agent("/trigger-settings", true), body: map[string]any{"paused": true}}.h(rev1)
+	}},
+	"listAgentRuns": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.agent("/runs", false)) }},
+	"getAgentRun": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request {
+		return get(c.agent("/runs/"+c.run(), false))
+	}},
+	"listTeamRuns":   {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.team("/runs")) }},
+	"deliverWebhook": {own: callers(0), build: func(c *mctx) request { return post("/v1/hooks/"+c.hook(), map[string]any{"title": "x"}) }},
+
 	// The model catalog: platform admins manage providers and models,
 	// auditors read them; a team's members (and platform staff) see the
 	// models it may use.

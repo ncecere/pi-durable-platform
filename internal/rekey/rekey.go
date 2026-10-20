@@ -87,6 +87,10 @@ var columns = []column{
 	{table: "model_providers", name: "headers_enc", ad: func(id uuid.UUID) []byte { return []byte("model_provider:" + id.String()) }},
 	{table: "mcp_servers", name: "headers_enc", ad: func(id uuid.UUID) []byte { return []byte("mcp_server:" + id.String()) }},
 	{table: "thread_mcp_servers", name: "headers_enc", ad: func(id uuid.UUID) []byte { return []byte("thread_mcp_server:" + id.String()) }},
+	// Triggers' secrets and runs' messages until delivered (internal/triggers).
+	{table: "agent_triggers", name: "webhook_secret_enc", ad: func(id uuid.UUID) []byte { return []byte("trigger_webhook:" + id.String()) }},
+	{table: "agent_triggers", name: "callback_secret_enc", ad: func(id uuid.UUID) []byte { return []byte("trigger_callback:" + id.String()) }},
+	{table: "trigger_runs", name: "message_enc", ad: func(id uuid.UUID) []byte { return []byte("trigger_run:" + id.String()) }},
 	// The refresh token of a person's last sign-in (group re-checks, internal/auth).
 	{table: "user_idp_tokens", name: "refresh_token_enc", key: "user_id", ad: func(id uuid.UUID) []byte { return []byte("idp_refresh_token:" + id.String()) }},
 	// The MCP identity token's signing keys (internal/mcpidentity).

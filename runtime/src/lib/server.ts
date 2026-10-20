@@ -5,7 +5,7 @@ import { type Harness, LiveDoc, type Conversation } from "@earendil-works/pi-dur
 import type { ThreadStore } from "./threads.ts";
 import { DELTA_VERSION, DeltaStream } from "./delta.ts";
 import { CONTRACT_VERSION, PI_DURABLE_VERSION } from "./version.ts";
-import { type Author, buildMessages, buildView, type ChatMessage, type ChatView, liveParts, type MessagePage, pageView, parsePage, USER_ENTRY, type UserEntryData } from "./view.ts";
+import { AUTHOR_KINDS, type Author, buildMessages, buildView, type ChatMessage, type ChatView, liveParts, type MessagePage, pageView, parsePage, USER_ENTRY, type UserEntryData } from "./view.ts";
 
 const ctx = BACKGROUND_CONTEXT;
 const MAX_BODY = 256 * 1024;
@@ -265,10 +265,10 @@ export function streamOptions(query: URLSearchParams, lastEventId: string | stri
 function parseAuthor(value: unknown): Author | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
 	const { kind, id, name, via } = value as Record<string, unknown>;
-	if ((kind !== "user" && kind !== "service_account") || typeof id !== "string" || typeof name !== "string") return undefined;
+	if (!AUTHOR_KINDS.has(kind as string) || typeof id !== "string" || typeof name !== "string") return undefined;
 	const clean = (s: string) => s.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 200);
 	return {
-		kind,
+		kind: kind as Author["kind"],
 		id: id.slice(0, 64),
 		name: clean(name),
 		...(typeof via === "string" && clean(via) !== "" ? { via: clean(via) } : {}),
@@ -278,6 +278,8 @@ function parseAuthor(value: unknown): Author | undefined {
 /** The line that tells the model who is speaking (shared threads, where several people talk to the agent). */
 export function speakerLine(author: Author): string {
 	const name = author.name === "" ? "someone" : author.name;
+	// A trigger's run (a schedule or a webhook): no person is speaking.
+	if (author.kind === "trigger") return `[Message from trigger ${name}]`;
 	return `[Message from ${name}${author.via === undefined ? "" : ` via ${author.via}`}]`;
 }
 

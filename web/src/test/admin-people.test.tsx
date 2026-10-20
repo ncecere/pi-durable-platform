@@ -241,7 +241,7 @@ describe("Admin › Teams › a team's agents (platform staff who aren't members
     expect(await screen.findByRole("heading", { level: 1, name: "Helper" })).toBeInTheDocument();
     expect(screen.getByText("You're viewing this agent as platform staff")).toBeInTheDocument();
     const tabs = screen.getByRole("tablist", { name: "Agent sections" });
-    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(conversations ? ["Overview", "Conversations", "Settings"] : ["Overview", "Settings"]);
+    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(conversations ? ["Overview", "Triggers", "Runs", "Conversations", "Settings"] : ["Overview", "Triggers", "Runs", "Settings"]);
     expect(screen.queryByRole("button", { name: /Hibernate/ })).toBeNull();
     if (conversations) expect(screen.getByText(/with a reason recorded in the team's audit log/)).toBeInTheDocument();
     expect(screen.queryByText("Only team members can see this.")).toBeNull();

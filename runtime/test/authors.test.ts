@@ -134,6 +134,28 @@ describe("message authors", () => {
 	});
 });
 
+describe("a trigger's message", () => {
+	it("shows the trigger as its author, tells the model, and runs a repeated requestId once", async () => {
+		const schema = uniqueSchema("agent_tr");
+		await withAdmin((admin) => admin.query(`CREATE SCHEMA "${schema}"`));
+		cleanup.push(() => dropSchema(schema));
+		const model = await recordingModel("Digest ready");
+		const { agent, base } = await runAgent(schema, modelEnv(model.baseUrl));
+		cleanup.push(() => agent.close());
+		const trigger = { kind: "trigger", id: "4c1a1f7e-0000-4000-8000-0000000000aa", name: "Daily digest" };
+		const body = { text: "Write the digest", author: trigger, announceAuthor: true, requestId: "sc_4c1a1f7e_1760000000" };
+		await send(base, "t_trig", body);
+		const view = await messages(base, "t_trig", 2);
+		// The platform's retry of the same fire (same requestId) runs nothing more.
+		await send(base, "t_trig", body);
+		await new Promise((r) => setTimeout(r, 500));
+		expect((await messages(base, "t_trig", 2)).length).toBe(2);
+		expect(model.requests).toHaveLength(1);
+		expect(userTexts(model.requests[0]!).at(-1)).toContain("[Message from trigger Daily digest]\nWrite the digest");
+		expect(view[0]).toMatchObject({ role: "user", text: "Write the digest", author: trigger });
+	});
+});
+
 describe("the chat view", () => {
 	it("renders entries without author data, and times tool calls", () => {
 		const entry = (id: number, kind: string, model: unknown[], data?: unknown) =>

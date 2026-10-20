@@ -31,6 +31,7 @@ import {
 import { errorMessage } from "../../../api/client";
 import { useCurrentUser } from "../../../session";
 import { useDebounced } from "../../admin/hooks";
+import { useSearchParams } from "@/lib/url-search";
 import { markAwake } from "./labels";
 import { ChatMessages } from "./messages";
 import { ThreadAudience, ThreadList } from "./thread-list";
@@ -86,7 +87,9 @@ export function TestChat({ agent, personal = false }: Props) {
     refetchInterval: 15_000,
   });
   const threadList = threads.data?.pages.flatMap((p) => p.threads);
-  const [threadId, setThreadId] = useState<string | undefined>(undefined);
+  // ?thread= opens that conversation (a run's, from Runs).
+  const [search] = useSearchParams();
+  const [threadId, setThreadId] = useState<string | undefined>(() => search.get("thread") ?? undefined);
   // A new thread exists in the agent only after its first message.
   const [draftThread, setDraftThread] = useState(() => newId());
   const [visibility, setVisibility] = useState<ThreadVisibility>("shared");

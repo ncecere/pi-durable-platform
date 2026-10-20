@@ -1976,10 +1976,415 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agentId}/triggers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        /** The agent's triggers (everyone who may use the agent, platform staff); never their secrets */
+        get: operations["listAgentTriggers"];
+        put?: never;
+        /**
+         * Add a schedule or a webhook to the agent (its team's owners and admins, in a browser session)
+         * @description A webhook gets its address (`webhookUrl`) and secret; a callback URL gets a callback secret. Secrets are in this answer only. At most 50 triggers per agent; service-managed agents take none.
+         */
+        post: operations["createAgentTrigger"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agentId}/triggers/{triggerId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                triggerId: components["parameters"]["TriggerIdParam"];
+            };
+            cookie?: never;
+        };
+        /** One of the agent's triggers */
+        get: operations["getAgentTrigger"];
+        put?: never;
+        post?: never;
+        /** Remove a trigger (owners and admins, in a browser session); its address stops working, its runs stay */
+        delete: operations["deleteAgentTrigger"];
+        options?: never;
+        head?: never;
+        /**
+         * Change, pause or resume a trigger (owners and admins, in a browser session)
+         * @description Fields left out are unchanged. `threadId` "" sends each fire to a new thread; `callbackUrl` "" removes the callback (one added now gets a secret, in this answer only); a `filter` with an empty `path` removes the filter; a negative `dailyBudgetUsd` removes the budget. Resuming starts a schedule from now and forgets the failures in a row.
+         */
+        patch: operations["updateAgentTrigger"];
+        trace?: never;
+    };
+    "/v1/agents/{agentId}/triggers/{triggerId}/secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                triggerId: components["parameters"]["TriggerIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replace a trigger's webhook or callback secret (owners and admins); the old one stops working at once */
+        post: operations["rotateAgentTriggerSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agentId}/triggers/{triggerId}/fire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                triggerId: components["parameters"]["TriggerIdParam"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run now (owners and admins, in a browser session)
+         * @description Fires the trigger at once, even while it is paused or backing off (a webhook's template gets no payload). The agent's pause, runs at once and budgets hold: the run may be skipped. Audited as trigger.fire.
+         */
+        post: operations["fireAgentTrigger"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agentId}/trigger-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        /** The agent's limits for its triggered runs, with the platform's ceilings */
+        get: operations["getAgentTriggerSettings"];
+        /**
+         * Set the agent's limits for its triggered runs, or pause all its triggers (owners and admins, in a browser session)
+         * @description A field left out (or null) is the platform's default. Values must be within the ceilings.
+         */
+        put: operations["setAgentTriggerSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agentId}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        /** The agent's triggered runs, newest first (everyone who may use the agent, platform staff) */
+        get: operations["listAgentRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agentId}/runs/{runId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                runId: string;
+            };
+            cookie?: never;
+        };
+        /** One of the agent's triggered runs */
+        get: operations["getAgentRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/teams/{team}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        /** The triggered runs of the team's agents the caller may use, newest first (platform staff - every agent's) */
+        get: operations["listTeamRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/hooks/{hookId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The webhook's address (h_ and 128 random bits) */
+                hookId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deliver to a webhook trigger (no session or key - the signature is the credential)
+         * @description Sign the raw body - `X-PDP-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>." + body)>`. A missing, malformed or wrong signature, or one more than 5 minutes from the platform's clock, is 401 invalid_signature. The body (at most 256 KiB, JSON or text) fills the trigger's template; a JSON body that doesn't meet the trigger's filter is answered `matched: false` and starts nothing. A replay of a delivery is answered with the first delivery's run (`replayed: true`). Each address takes at most 120 deliveries a minute (429).
+         */
+        post: operations["deliverWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {string} */
+        TriggerKind: "schedule" | "webhook";
+        /** @description A webhook's condition - the payload's field at `path` (names or array indexes joined by dots, at most 10) equals `equals` (a string field as is, other values by their JSON text such as 42, true or null) */
+        TriggerFilter: {
+            path: string;
+            equals: string;
+        };
+        TriggerSchedule: {
+            /** @description Five fields (minute hour day month weekday) or @hourly, @daily, @weekly, @monthly, @yearly */
+            cron: string;
+            /** @description IANA time zone */
+            timezone: string;
+            /**
+             * @description A fire missed while the platform wasn't running - skip it, or run once for the latest one
+             * @enum {string}
+             */
+            missedPolicy: "skip" | "run_once";
+            /** Format: date-time */
+            nextFireAt?: string | null;
+        };
+        Trigger: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            agentId: string;
+            kind: components["schemas"]["TriggerKind"];
+            name: string;
+            /**
+             * @description Who made it - a person, or (later) the agent itself
+             * @enum {string}
+             */
+            source: "person" | "agent";
+            paused: boolean;
+            /**
+             * @description Paused by a person, or by the platform after failed runs in a row
+             * @enum {string|null}
+             */
+            pausedReason?: "user" | "failures" | null;
+            /** @description The thread every fire sends to (null - a new thread at every fire) */
+            threadId: string | null;
+            /** @description The message, with placeholders {{payload}}, {{payload.<path>}} (webhooks), {{trigger.name}}, {{trigger.kind}}, {{fire.id}} and {{fire.time}} */
+            messageTemplate: string;
+            schedule?: components["schemas"]["TriggerSchedule"] | null;
+            /** @description Where a webhook's sender POSTs (webhooks) */
+            webhookUrl?: string | null;
+            /** @description The webhook secret's first characters, to tell it apart */
+            webhookSecretPrefix?: string | null;
+            filter?: components["schemas"]["TriggerFilter"] | null;
+            callbackUrl?: string | null;
+            callbackSecretPrefix?: string | null;
+            /**
+             * Format: double
+             * @description The most this trigger's runs may cost per UTC day
+             */
+            dailyBudgetUsd?: number | null;
+            /** Format: int32 */
+            consecutiveFailures: number;
+            /** Format: date-time */
+            backoffUntil?: string | null;
+            /** Format: date-time */
+            lastFiredAt?: string | null;
+            /** Format: uuid */
+            createdBy?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            revision: components["schemas"]["Revision"];
+        };
+        TriggerCreate: {
+            kind: components["schemas"]["TriggerKind"];
+            name: string;
+            paused?: boolean;
+            /** @description A thread for every fire (shared, or not used yet); omitted or "" - a new thread at every fire */
+            threadId?: string;
+            messageTemplate: string;
+            /** @description Schedules (required) */
+            cron?: string;
+            /** @description Schedules (default UTC) */
+            timezone?: string;
+            /**
+             * @description Schedules (default skip)
+             * @enum {string}
+             */
+            missedPolicy?: "skip" | "run_once";
+            filter?: components["schemas"]["TriggerFilter"];
+            /** @description An https URL called, signed, when each run ends */
+            callbackUrl?: string;
+            /** Format: double */
+            dailyBudgetUsd?: number;
+        };
+        TriggerUpdate: {
+            name?: string;
+            paused?: boolean;
+            threadId?: string;
+            messageTemplate?: string;
+            cron?: string;
+            timezone?: string;
+            /** @enum {string} */
+            missedPolicy?: "skip" | "run_once";
+            filter?: components["schemas"]["TriggerFilter"];
+            callbackUrl?: string;
+            /** Format: double */
+            dailyBudgetUsd?: number;
+        };
+        TriggerSaved: {
+            trigger: components["schemas"]["Trigger"];
+            /** @description The webhook secret (pdpwh_…), when this request made one - shown once */
+            webhookSecret?: string;
+            /** @description The callback secret (pdpcb_…), when this request made one - shown once */
+            callbackSecret?: string;
+        };
+        TriggerSecretRotate: {
+            /** @enum {string} */
+            which: "webhook" | "callback";
+        };
+        TriggerSettings: {
+            /** @description Every trigger of the agent is paused */
+            paused: boolean;
+            /**
+             * Format: int32
+             * @description Runs at once (pending and running); null - the default, 1
+             */
+            maxConcurrentRuns?: number | null;
+            /**
+             * Format: int32
+             * @description Null - the platform's ceiling
+             */
+            maxRunSeconds?: number | null;
+            /**
+             * Format: double
+             * @description The most the agent's triggered runs may cost per UTC day
+             */
+            dailyBudgetUsd?: number | null;
+            /** Format: int32 */
+            effectiveConcurrentRuns: number;
+            /** Format: int32 */
+            effectiveRunSeconds: number;
+            /** Format: int32 */
+            ceilingConcurrentRuns: number;
+            /** Format: int32 */
+            ceilingRunSeconds: number;
+            revision: components["schemas"]["Revision"];
+            /** Format: date-time */
+            updatedAt?: string | null;
+        };
+        TriggerSettingsUpdate: {
+            paused: boolean;
+            /** Format: int32 */
+            maxConcurrentRuns?: number | null;
+            /** Format: int32 */
+            maxRunSeconds?: number | null;
+            /** Format: double */
+            dailyBudgetUsd?: number | null;
+        };
+        /** @enum {string} */
+        TriggerRunStatus: "pending" | "running" | "succeeded" | "failed" | "stopped" | "skipped";
+        TriggerRun: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            agentId: string;
+            /** Format: uuid */
+            teamId?: string;
+            /**
+             * Format: uuid
+             * @description Null once the trigger was deleted (its name stays)
+             */
+            triggerId: string | null;
+            triggerName: string;
+            triggerKind: components["schemas"]["TriggerKind"];
+            /** @enum {string} */
+            firedBy: "schedule" | "webhook" | "manual";
+            /** @description The fire's ID, also the message's pi-durable requestId */
+            fireId: string;
+            threadId: string | null;
+            status: components["schemas"]["TriggerRunStatus"];
+            /** @description Why it was skipped (trigger_paused, agent_paused, team_archived, concurrency, budget, backoff, missed), stopped (max_run_time, budget) or failed (reply_error, delivery_failed, agent_disabled, thread_private, …) */
+            reason: string | null;
+            /** Format: date-time */
+            scheduledFor?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            startedAt?: string | null;
+            /** Format: date-time */
+            finishedAt?: string | null;
+            /**
+             * Format: double
+             * @description The agent's model usage while the run was in progress, at current prices (an upper bound when it did other work meanwhile)
+             */
+            costUsd: number;
+            /** Format: int64 */
+            requests: number;
+            /** @enum {string|null} */
+            callbackStatus?: "pending" | "delivered" | "failed" | null;
+            /** @description The console's path of the run's thread */
+            link?: string | null;
+        };
+        WebhookAccepted: {
+            /** @description False - the filter didn't match; nothing started */
+            matched: boolean;
+            /** @description True - a replay of an earlier delivery, answered with its run */
+            replayed: boolean;
+            /** Format: uuid */
+            runId?: string;
+            status?: components["schemas"]["TriggerRunStatus"];
+            reason?: string | null;
+        };
         PersonalWorkspaceSettings: {
             /** @description People get a personal workspace when they sign in */
             enabled: boolean;
@@ -2688,6 +3093,11 @@ export interface components {
              * @description MCP servers apps set on its threads, removed by the move
              */
             threadMcpServers: number;
+            /**
+             * Format: int64
+             * @description Its triggers (schedules and webhooks), deleted by the move
+             */
+            triggers?: number;
             /** @description Names of its template version's MCP servers that the target team may not use (they stop applying) */
             mcpServersDropped: string[];
             /** @description The model it would run on in the target team (absent - the platform's default model) */
@@ -2830,10 +3240,10 @@ export interface components {
              */
             endedAt?: number;
         };
-        /** @description Who sent a user message, as the platform recorded it */
+        /** @description Who sent a user message, as the platform recorded it (a trigger - an unattended run; id is the trigger's) */
         ChatAuthor: {
             /** @enum {string} */
-            kind: "user" | "service_account";
+            kind: "user" | "service_account" | "trigger";
             id: string;
             name: string;
             /** @description The app a person sent it through (OAuth Connect) */
@@ -3604,6 +4014,19 @@ export interface components {
         };
     };
     responses: {
+        /** @description Runs, newest first, and nextCursor when more follow */
+        RunPageReply: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    data: components["schemas"]["TriggerRun"][];
+                    /** @description Pass it back as cursor for the next page */
+                    nextCursor?: string;
+                };
+            };
+        };
         /** @description A page of audit entries, newest first */
         AuditPageReply: {
             headers: {
@@ -3648,6 +4071,8 @@ export interface components {
         };
     };
     parameters: {
+        TriggerIdParam: string;
+        RunStatusParam: components["schemas"]["TriggerRunStatus"];
         McpServerIdParam: string;
         ProviderIdParam: string;
         ModelIdParam: string;
@@ -7701,6 +8126,416 @@ export interface operations {
             412: components["responses"]["ErrorReply"];
             422: components["responses"]["ErrorReply"];
             428: components["responses"]["ErrorReply"];
+        };
+    };
+    listAgentTriggers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Triggers, oldest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Trigger"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    createAgentTrigger: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "kind": "schedule",
+                 *       "name": "Daily digest",
+                 *       "cron": "0 8 * * 1-5",
+                 *       "timezone": "Europe/Paris",
+                 *       "missedPolicy": "run_once",
+                 *       "messageTemplate": "Summarise yesterday's new issues for the team.",
+                 *       "callbackUrl": "https://hooks.example.com/pdp"
+                 *     }
+                 */
+                "application/json": components["schemas"]["TriggerCreate"];
+            };
+        };
+        responses: {
+            /** @description Created, with its secrets (shown once) */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["TriggerSaved"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
+        };
+    };
+    getAgentTrigger: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                triggerId: components["parameters"]["TriggerIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Trigger */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Trigger"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    deleteAgentTrigger: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                triggerId: components["parameters"]["TriggerIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["OkReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    updateAgentTrigger: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+                "If-Match": components["parameters"]["IfMatchHeader"];
+            };
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                triggerId: components["parameters"]["TriggerIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriggerUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["TriggerSaved"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            412: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
+            428: components["responses"]["ErrorReply"];
+        };
+    };
+    rotateAgentTriggerSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                triggerId: components["parameters"]["TriggerIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriggerSecretRotate"];
+            };
+        };
+        responses: {
+            /** @description The new secret, shown once */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["TriggerSaved"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    fireAgentTrigger: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                triggerId: components["parameters"]["TriggerIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The run */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["TriggerRun"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    getAgentTriggerSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Limits */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["TriggerSettings"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    setAgentTriggerSettings: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+                "If-Match": components["parameters"]["IfMatchHeader"];
+            };
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriggerSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["TriggerSettings"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+            412: components["responses"]["ErrorReply"];
+            428: components["responses"]["ErrorReply"];
+        };
+    };
+    listAgentRuns: {
+        parameters: {
+            query?: {
+                triggerId?: string;
+                status?: components["parameters"]["RunStatusParam"];
+                limit?: components["parameters"]["LimitParam"];
+                /** @description nextCursor from the previous page */
+                cursor?: components["parameters"]["CursorParam"];
+            };
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["RunPageReply"];
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    getAgentRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["TriggerRun"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    listTeamRuns: {
+        parameters: {
+            query?: {
+                status?: components["parameters"]["RunStatusParam"];
+                limit?: components["parameters"]["LimitParam"];
+                /** @description nextCursor from the previous page */
+                cursor?: components["parameters"]["CursorParam"];
+            };
+            header?: never;
+            path: {
+                /** @description Team slug or ID */
+                team: components["parameters"]["TeamParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["RunPageReply"];
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    deliverWebhook: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-PDP-Signature": string;
+            };
+            path: {
+                /** @description The webhook's address (h_ and 128 random bits) */
+                hookId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+                "text/plain": string;
+            };
+        };
+        responses: {
+            /** @description Accepted (a run, maybe skipped by a limit, or nothing when the filter didn't match) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": {
+                     *         "matched": true,
+                     *         "replayed": false,
+                     *         "runId": "5b0e7c1e-3f4a-4c55-9a8e-0b6f3c2d1e0f",
+                     *         "status": "pending"
+                     *       }
+                     *     }
+                     */
+                    "application/json": {
+                        data: components["schemas"]["WebhookAccepted"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            413: components["responses"]["ErrorReply"];
+            429: components["responses"]["ErrorReply"];
         };
     };
 }

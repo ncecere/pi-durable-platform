@@ -77,6 +77,9 @@ type Config struct {
 	ShutdownDelay   time.Duration
 	ShutdownTimeout time.Duration
 
+	// Triggers bounds the runs schedules and webhooks start (TRIGGERS_*;
+	// docs/triggers.md).
+	Triggers Triggers
 	// Agents configures where agents keep their state and how their
 	// runtimes are started.
 	Agents Agents
@@ -197,6 +200,22 @@ type OIDC struct {
 	GroupRecheckGrace time.Duration
 }
 
+// Triggers are the platform's ceilings for triggered runs.
+type Triggers struct {
+	// Interval is how often each replica's trigger loop runs (one replica at
+	// a time does the work): due schedules, deliveries, runs in progress and
+	// callbacks.
+	Interval time.Duration
+	// MaxRunTime is the longest an agent's triggered run may take (an
+	// agent's own limit may be lower); then it is stopped.
+	MaxRunTime time.Duration
+	// MaxConcurrentRuns is the most triggered runs an agent may have at once
+	// (an agent's own limit may be lower; its default is 1).
+	MaxConcurrentRuns int
+	// PauseAfterFailures pauses a trigger after this many failed runs in a row.
+	PauseAfterFailures int
+}
+
 // Enabled reports whether an OIDC provider is configured.
 func (o OIDC) Enabled() bool { return o.Issuer != "" }
 
@@ -224,6 +243,7 @@ func Defaults() Config {
 		LoginAttemptsPerMinute: 20,
 		ShutdownDelay:          5 * time.Second,
 		ShutdownTimeout:        60 * time.Second,
+		Triggers:               Triggers{Interval: 10 * time.Second, MaxRunTime: 30 * time.Minute, MaxConcurrentRuns: 5, PauseAfterFailures: 5},
 		Agents: Agents{
 			Launcher:      LauncherLocal,
 			RuntimeDir:    "runtime",

@@ -36,6 +36,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/teamnet"
 	"github.com/ncecere/pi-durable-platform/internal/teams"
 	"github.com/ncecere/pi-durable-platform/internal/tracing"
+	"github.com/ncecere/pi-durable-platform/internal/triggers"
 	"github.com/ncecere/pi-durable-platform/web"
 )
 
@@ -161,6 +162,13 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	go deps.Agents.ObserveAgents(loopCtx, 30*time.Second)
 	go deps.Agents.Host().ReapLoop(loopCtx, 30*time.Second)
 	go deps.Agents.RunThreadEvents(loopCtx, log.With("component", "thread-events"))
+	// Schedules, deliveries, runs in progress and callbacks: one replica at a
+	// time does a pass (a database lock), every fire is recorded once.
+	triggersDone := make(chan struct{})
+	go func() {
+		defer close(triggersDone)
+		deps.Triggers.Loop(loopCtx, func() func(error) { return deps.Metrics.Loop("triggers") })
+	}()
 	// MCP tool lists stored before the platform read MCP Apps' visibility
 	// are read again once (in the background; failures retried at the next
 	// start), so agents aren't offered tools an app keeps for itself.
@@ -174,6 +182,10 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	}
 	stopLoops()
 	err = shutdown(cfg, log, health, servers...)
+	// Deliveries a request started finish (a run that can't is delivered by
+	// any replica's loop later, with the same requestId).
+	<-triggersDone
+	deps.Triggers.Wait()
 	// A group re-check in flight finishes and records what the IdP said (it may
 	// have rotated a refresh token) before the database goes away.
 	select {
@@ -308,6 +320,11 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger, opts ...Op
 	agentSvc.Metrics = m
 	agentSvc.Host().Metrics = m
 	m.RegisterPool("agents", agentSvc.AgentsPool())
+	// Triggers run agents as no person; their callbacks go through the
+	// address guard, as teams' services do.
+	trig := triggers.New(pool, box, agentSvc, cfg.Triggers, cfg.AppURL, log.With("component", "triggers"))
+	trig.SetLocker(store.Locks{Pool: pool})
+	trig.SetTeamNetwork(teamnet.Config{DevAllowance: cfg.DevAuth && cfg.LoopbackAppURL()})
 	return httpapi.Deps{
 		Metrics:         m,
 		Config:          cfg,
@@ -323,6 +340,7 @@ func NewDeps(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger, opts ...Op
 		Models:          models,
 		MCP:             servers,
 		MCPIdentity:     identity,
+		Triggers:        trig,
 		Secrets:         box,
 		RateStore:       rates,
 	}, nil

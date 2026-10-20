@@ -235,7 +235,7 @@ func toAPIMovePlan(p agents.MovePlan) apitypes.AgentMovePlan {
 		PrivateThreadsUnreachable: p.Threads.PrivateUnreachable, TargetMembers: p.Access.TargetMembers,
 		TargetServiceAccounts: p.Access.TargetServiceAccounts, PeopleLosingAccess: p.Access.PeopleLosing,
 		ServiceAccountsLosingAccess: p.Access.ServiceAccountsLosing, ExternalKey: p.ExternalKey, ThreadMcpServers: p.ThreadMCPServers,
-		McpServersDropped: p.MCPServersDropped, Model: agentModel(p.Model)}
+		McpServersDropped: p.MCPServersDropped, Model: agentModel(p.Model), Triggers: &p.Triggers}
 	for i, b := range p.Blockers {
 		out.Blockers[i] = apitypes.AgentMoveBlocker{Code: b.Code, Message: b.Message}
 	}

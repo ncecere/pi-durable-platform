@@ -130,7 +130,7 @@ func New(info Info) *Metrics {
 	m.signIns = counterVec("signins_total", "Sign-ins by method (oidc, dev), result (success, failure) and, for failures, the reason (denied, invalid, unavailable, error; none for successes).", "method", "result", "reason")
 	m.rateLimited = counterVec("rate_limit_rejections_total", "Requests refused by a rate limit, by limiter (login, request, oauth, ...).", "limiter")
 	m.subscribers = gauge("thread_event_subscribers", "Open thread event streams on this replica.")
-	m.loopRuns = counterVec("background_runs_total", "Background loop runs by loop (reaper, cleanup, rate_cleanup, group_recheck, thread_events, agent_count) and result (ok, error).", "loop", "result")
+	m.loopRuns = counterVec("background_runs_total", "Background loop runs by loop (reaper, cleanup, rate_cleanup, group_recheck, thread_events, agent_count, triggers) and result (ok, error).", "loop", "result")
 	m.loopDuration = histogramVec("background_run_duration_seconds", "Background loop run duration by loop.", []float64{.01, .05, .1, .5, 1, 5, 15, 60, 300}, "loop")
 	m.loopLast = gaugeVec("background_last_success_timestamp_seconds", "Unix time of the last successful run of each background loop.", "loop")
 

@@ -22,6 +22,7 @@ the Kubernetes API, or in the runtime itself); what a replica keeps in memory is
 | Gateway and MCP proxy (model proxy, MCP gateway) | Stateless per request; `Mcp-Session-Id` is the upstream's | Safe |
 | Background loops: session, OAuth and thread clean-up; rate counter clean-up | Idempotent deletes | Safe to run on every replica |
 | Reading again MCP tool lists stored before v0.3, at start | Each replica that starts while such a list remains reads it again and stores the result | Safe: the same refresh as an admin's; replicas starting together may read a list twice |
+| Triggers: due schedules, deliveries, runs in progress, callbacks ([triggers.md](triggers.md)) | One replica's loop at a time (`pdp.trigger-loop`); schedules locked `SKIP LOCKED` and advanced with their run; runs keyed by a unique fire ID that is also the message's pi-durable `requestId`; deliveries and callbacks under leases | Safe: a fire is recorded and run once whichever replica (or several) handles it; a replica that dies mid-delivery leaves a pending run any replica delivers again, with the same `requestId` |
 | Group re-check | People are claimed with `FOR UPDATE SKIP LOCKED` and marked checked | Safe: each person is asked about once per interval |
 | Agent activity for the idle reaper: open streams, last request | **Was** this replica's memory | Made safe, below |
 | Waking an agent | **Was** one process's mutex (single flight) | Made safe, below |
