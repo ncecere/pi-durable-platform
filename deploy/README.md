@@ -107,8 +107,9 @@ session and no shared disk ([docs/replicas.md](../docs/replicas.md) has the inve
   up through node drains and rollouts. Updates then roll one pod at a time with none missing, and the pods are spread
   over nodes and zones (preferred, so a small cluster still schedules them). Set `affinity` or
   `topologySpreadConstraints` to choose differently.
-- **Add a PodDisruptionBudget** (`podDisruptionBudget.enabled`, `minAvailable: 1`; the Kustomize component
-  `components/pod-disruption-budget`), so a drain evicts one replica at a time.
+- **Add a PodDisruptionBudget** (the chart: `podDisruptionBudget.enabled`, `minAvailable: 1` by default; the Kustomize
+  component `components/pod-disruption-budget`, `maxUnavailable: 1`, which is the same with two replicas), so a drain
+  evicts one replica at a time.
 - Use the **`kubernetes` or `agent-sandbox` launcher** (the chart has no other). `AGENTS_LAUNCHER=local` runs agents as
   children of one process and cannot be shared.
 - **PostgreSQL connections** grow with the replicas: each holds a pool (at least four connections), one connection that
@@ -144,8 +145,9 @@ The platform exports Prometheus metrics on a port of its own and, if you ask, Op
 - **Dashboard.** `deploy/grafana/pi-durable-platform.json` (import it, or `metrics.dashboard.enabled=true` for a
   ConfigMap labelled `grafana_dashboard: "1"`, which Grafana's dashboard sidecar loads; `metrics.dashboard.annotations`
   can set the folder). Its data source is a variable: pick your Prometheus or Mimir.
-- **Alerts.** `deploy/grafana/alerts.yaml` is an example PrometheusRule (wake failures and slowness, 5xx ratio, model
-  proxy errors, database pool exhaustion, stalled loops, idle agents never reaped). For a Mimir or Prometheus rule file
+- **Alerts.** `deploy/grafana/alerts.yaml` is an example PrometheusRule (metrics missing, wake failures and slowness,
+  warm-pool misses, 5xx ratio, model proxy errors, database pool exhaustion, stalled loops, idle agents never reaped,
+  OAuth refresh-token reuse, rate limiting). For a Mimir or Prometheus rule file
   take `spec.groups`: `yq '{"groups": .spec.groups}' deploy/grafana/alerts.yaml`.
 - **Traces.** Set `tracing.otlpEndpoint` to an OTLP/HTTP collector's base URL (for example
   `http://tempo.observability.svc:4318`; HTTP only, not gRPC) and allow the egress in
