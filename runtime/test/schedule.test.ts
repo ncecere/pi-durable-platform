@@ -39,7 +39,7 @@ async function fakeGateway() {
 			res.writeHead(status, { "content-type": "application/json" });
 			res.end(JSON.stringify(value));
 		};
-		if (path.startsWith("/threads/")) return send(200, { data: { ok: true } });
+		if (path.startsWith("/threads/") || path.startsWith("/runtime/")) return send(200, { data: { ok: true } });
 		if (state.down) return void req.socket.destroy();
 		seen.push({ method: req.method ?? "", path, auth: req.headers.authorization, body });
 		if (req.method === "POST" && path === "/schedules") {
