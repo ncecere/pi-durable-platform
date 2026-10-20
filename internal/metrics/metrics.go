@@ -64,6 +64,8 @@ type Metrics struct {
 	agentsRun    prometheus.Gauge
 	agents       *prometheus.GaugeVec
 	hibernations *prometheus.CounterVec
+	awake        *prometheus.GaugeVec
+	bgAborts     *prometheus.CounterVec
 
 	modelRequests *prometheus.CounterVec
 	modelDuration *prometheus.HistogramVec
@@ -115,6 +117,8 @@ func New(info Info) *Metrics {
 	m.agentsRun = gauge("agents_running", "Agents with a live runtime, as last seen by the idle reaper.")
 	m.agents = gaugeVec("agents", "Agents that exist, by whether they are enabled (the same on every replica: use max, not sum).", "enabled")
 	m.hibernations = counterVec("agent_hibernations_total", "Runtimes stopped: idle (the reaper) or request (an explicit hibernate, or a change that restarts the agent).", "reason", "result")
+	m.awake = gaugeVec("agents_awake", "Running agents the idle reaper last found kept awake, by reason: reply (a thread replying), stream (an open event stream), background (background work under AGENTS_BACKGROUND_MAX), recent (activity within the idle timeout). An agent can count for several.", "reason")
+	m.bgAborts = counterVec("agent_background_aborts_total", "Background work past AGENTS_BACKGROUND_MAX that the reaper had a runtime abort before hibernating it, by result (ok, error).", "result")
 
 	m.modelRequests = counterVec("model_proxy_requests_total", "Model proxy requests by provider kind, model (the platform's models by name, a team's own as \"team\") and status class.", "provider_kind", "model", "code")
 	m.modelDuration = histogramVec("model_proxy_request_duration_seconds", "Model proxy request duration (the whole reply, streamed replies included) by provider kind and model.", proxyBuckets, "provider_kind", "model")
@@ -146,6 +150,12 @@ func New(info Info) *Metrics {
 	}
 	m.agents.WithLabelValues("true")
 	m.agents.WithLabelValues("false")
+	for _, reason := range AwakeReasons {
+		m.awake.WithLabelValues(reason)
+	}
+	for _, result := range []string{"ok", "error"} {
+		m.bgAborts.WithLabelValues(result)
+	}
 
 	buildInfo := prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: "pdp", Name: "build_info", Help: "The build: version and commit (always 1).",
@@ -158,7 +168,7 @@ func New(info Info) *Metrics {
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		buildInfo, m.pools,
 		m.httpRequests, m.httpDuration, m.httpInFlight,
-		m.wakes, m.wakeDuration, m.warmClaims, m.agentsRun, m.agents, m.hibernations,
+		m.wakes, m.wakeDuration, m.warmClaims, m.agentsRun, m.agents, m.hibernations, m.awake, m.bgAborts,
 		m.modelRequests, m.modelDuration, m.modelTokens,
 		m.mcpRequests, m.mcpDuration, m.mcpCalls,
 		m.oauthIssued, m.oauthErrors, m.oauthReuse, m.signIns, m.rateLimited, m.subscribers,
@@ -265,6 +275,30 @@ func (m *Metrics) Hibernation(reason string, err error) {
 		return
 	}
 	m.hibernations.WithLabelValues(reason, okOrError(err)).Inc()
+}
+
+// AwakeReasons are the values of agents_awake's reason label: why the reaper
+// left a running agent awake.
+var AwakeReasons = []string{"reply", "stream", "background", "recent"}
+
+// SetAgentsAwake sets, for each of AwakeReasons, how many running agents the
+// reaper found kept awake by it (missing reasons: none).
+func (m *Metrics) SetAgentsAwake(byReason map[string]int) {
+	if m == nil {
+		return
+	}
+	for _, reason := range AwakeReasons {
+		m.awake.WithLabelValues(reason).Set(float64(byReason[reason]))
+	}
+}
+
+// BackgroundAbort counts a reaper's request to abort background work past
+// the ceiling.
+func (m *Metrics) BackgroundAbort(err error) {
+	if m == nil {
+		return
+	}
+	m.bgAborts.WithLabelValues(okOrError(err)).Inc()
 }
 
 // --- Proxies ---

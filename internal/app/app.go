@@ -510,6 +510,9 @@ func newAgents(cfg config.Config, pool *pgxpool.Pool, box *secrets.Box, models *
 		l = launcher.NewLocal(dir, log.With("component", "launcher"))
 	}
 	host := agenthost.New(l, cfg.Agents.IdleTimeout, log.With("component", "agenthost"))
+	if cfg.Agents.BackgroundMax > 0 {
+		host.BackgroundMax = cfg.Agents.BackgroundMax
+	}
 	// Replicas agree through the database on who starts an agent and who
 	// reaps idle ones.
 	host.SetLocker(store.Locks{Pool: pool})

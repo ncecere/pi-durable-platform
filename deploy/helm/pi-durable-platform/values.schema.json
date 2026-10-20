@@ -86,6 +86,7 @@
         "podSecurity": { "type": "string", "enum": ["restricted", "baseline", "privileged"] },
         "launcher": { "type": "string", "enum": ["kubernetes", "agent-sandbox"] },
         "idleTimeout": { "type": "string", "pattern": "^[0-9]+(ns|us|ms|s|m|h)([0-9]+(ns|us|ms|s|m|h))*$" },
+        "backgroundMax": { "type": "string", "pattern": "^[0-9]+(ns|us|ms|s|m|h)([0-9]+(ns|us|ms|s|m|h))*$" },
         "runtimeClass": { "type": "string" },
         "imagePullSecret": { "type": "string" },
         "runtimeDatabaseHost": { "type": "string" },

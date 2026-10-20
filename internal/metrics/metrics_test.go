@@ -70,6 +70,8 @@ func TestNilMetricsDoNothing(t *testing.T) {
 	m.SetAgentsRunning(1)
 	m.SetAgents(1, 1)
 	m.Hibernation("idle", nil)
+	m.SetAgentsAwake(map[string]int{"background": 1})
+	m.BackgroundAbort(nil)
 	m.ModelRequest("openai", "gpt", 200, time.Second)
 	m.ModelTokens("openai", "gpt", 1, 1, 1, 1)
 	m.MCPRequest("x", 200, time.Second)
@@ -187,6 +189,8 @@ func exerciseAll(t *testing.T, m *metrics.Metrics) {
 	m.Hibernation("idle", nil)
 	m.SetAgents(1, 2)
 	m.SetAgentsRunning(1)
+	m.SetAgentsAwake(map[string]int{"reply": 1, "background": 2})
+	m.BackgroundAbort(nil)
 	m.ModelRequest("openai", "gpt-4o", 200, time.Millisecond)
 	m.ModelTokens("openai", "gpt-4o", 1, 1, 1, 1)
 	m.MCPRequest("echo", 200, time.Millisecond)
@@ -271,6 +275,9 @@ func TestRecordedValues(t *testing.T) {
 	m.Wake("kubernetes", "unknown", "timeout", time.Minute)
 	m.Hibernation("idle", nil)
 	m.Hibernation("request", errors.New("boom"))
+	m.SetAgentsAwake(map[string]int{"background": 2, "stream": 1, "bogus": 9})
+	m.BackgroundAbort(nil)
+	m.BackgroundAbort(errors.New("boom"))
 	m.ModelRequest("anthropic", "claude", 429, time.Second)
 	m.ModelTokens("anthropic", "claude", 100, 20, 0, 5)
 	m.Loop("reaper")(nil)
@@ -290,6 +297,12 @@ func TestRecordedValues(t *testing.T) {
 		{"pdp_agent_wakes_total", []string{"result", "timeout"}, 1},
 		{"pdp_agent_hibernations_total", []string{"reason", "idle", "result", "ok"}, 1},
 		{"pdp_agent_hibernations_total", []string{"reason", "request", "result", "error"}, 1},
+		{"pdp_agents_awake", []string{"reason", "background"}, 2},
+		{"pdp_agents_awake", []string{"reason", "stream"}, 1},
+		{"pdp_agents_awake", []string{"reason", "reply"}, 0},
+		{"pdp_agents_awake", nil, 3}, // an unknown reason is no series
+		{"pdp_agent_background_aborts_total", []string{"result", "ok"}, 1},
+		{"pdp_agent_background_aborts_total", []string{"result", "error"}, 1},
 		{"pdp_model_proxy_requests_total", []string{"provider_kind", "anthropic", "model", "claude", "code", "4xx"}, 1},
 		{"pdp_model_proxy_tokens_total", []string{"direction", "input"}, 100},
 		{"pdp_model_proxy_tokens_total", []string{"direction", "output"}, 20},

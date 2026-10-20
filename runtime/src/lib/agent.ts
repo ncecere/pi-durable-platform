@@ -3,6 +3,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
 import { AgentDoc, type Conversation, createRegistry, type Extension, Harness, type HarnessSettings, type ModelRef, type Storage } from "@earendil-works/pi-durable";
 import { assistantAgent } from "./assistant.ts";
+import { PLATFORM_PERSON_WAIT_KINDS } from "./background.ts";
 import {
 	type AgentContext,
 	type AgentDefinition,
@@ -100,6 +101,7 @@ export async function startAgent(config: AgentConfig, definition: AgentDefinitio
 
 	// The upgrade check, before anything reads the storage (upgrade.ts).
 	await checkUpgrade(config.modelEnv, log);
+	const personWaits = new Set([...PLATFORM_PERSON_WAIT_KINDS, ...(definition.waitsForPerson ?? [])]);
 
 	const created = options.models ? { ...options.models, source: "given", usage: undefined } : createAgentModels(config.modelEnv);
 	const { models, model, usage } = created;
@@ -190,6 +192,7 @@ export async function startAgent(config: AgentConfig, definition: AgentDefinitio
 		},
 		afterMessage: status ? (threadId, submissionId) => status.watch(threadId, submissionId) : undefined,
 		documents: exposed,
+		waitsForPerson: (kind) => personWaits.has(kind),
 	});
 	// A reply that just ended is recent work: the reaper waits a full idle period after it.
 	if (status) status.onReplyEnd = touch;

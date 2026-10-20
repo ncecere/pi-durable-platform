@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type RequestListener, type Server, type ServerResponse } from "node:http";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type Conversation, type ConversationDocToken, type ConversationId, type DocumentWatch, type Harness, type JsonObject, LiveDoc } from "@earendil-works/pi-durable";
+import { abortBackground, type LiveWork, liveWork, olderThan, reportBackground } from "./background.ts";
 import type { ThreadStore } from "./threads.ts";
 import { DELTA_VERSION, DeltaStream } from "./delta.ts";
 import { EXPOSED_KIND } from "./define.ts";
@@ -28,6 +29,10 @@ export type ExposedDocuments = ReadonlyMap<string, { document: ConversationDocTo
 const ctx = BACKGROUND_CONTEXT;
 const MAX_BODY = 256 * 1024;
 const THREAD_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** The longest `olderThanMs` POST /background/abort takes (ten years). */
+const MAX_OLDER_THAN_MS = 10 * 366 * 24 * 3600 * 1000;
+/** How long POST /background/abort waits for the aborted work to end. */
+const ABORT_WAIT_MS = 5_000;
 
 export type RuntimeOptions = {
 	harness: Harness;
@@ -41,6 +46,11 @@ export type RuntimeOptions = {
 	afterMessage?: (threadId: string, submissionId: number) => void;
 	/** The conversation documents apps may read (none by default). */
 	documents?: ExposedDocuments;
+	/**
+	 * Whether a task of this kind stands for a wait on a person's answer (an approval, a question): such a task, and the
+	 * work only waiting on it, keeps the agent awake neither as a busy thread nor as background work. Default: none.
+	 */
+	waitsForPerson?: (kind: string) => boolean;
 };
 
 /**
@@ -70,13 +80,27 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		return header.length === expected.length && timingSafeEqual(header, expected);
 	};
 
-	const busyThreads = async () => {
-		let busy = 0;
-		for (const thread of await threads.list()) {
-			const live = await harness.snapshot(LiveDoc, thread.conversationId as never, ctx);
-			if (live?.run !== undefined) busy++;
-		}
-		return busy;
+	// Live work from pi-durable's task graph (background.ts): busy threads and background work.
+	const firstSeen = new Map<number, number>();
+	const waitsForPerson = options.waitsForPerson ?? (() => false);
+	const currentWork = async () =>
+		liveWork(
+			harness,
+			(await threads.list()).map((thread) => thread.conversationId),
+			{ waitsForPerson, firstSeen },
+		);
+	// Background work ending counts as activity (the idle clock starts then), unless the platform aborted it for its
+	// age (POST /background/abort): the reaper hibernates the agent right after that. Work running doesn't touch: the
+	// platform sees it in backgroundWork, and must be able to tell it from requests when it is past its ceiling.
+	let activeUnits = new Set<number>();
+	const abortedForAge = new Set<number>();
+	const observe = (work: LiveWork) => {
+		const active = new Set(work.units.filter((unit) => !unit.idle).map((unit) => unit.taskId as number));
+		let ended = false;
+		for (const id of activeUnits) if (!active.has(id) && !abortedForAge.delete(id)) ended = true;
+		for (const id of abortedForAge) if (!active.has(id)) abortedForAge.delete(id);
+		activeUnits = active;
+		if (ended) touch();
 	};
 
 	const viewOf = async (threadId: string): Promise<ChatView | undefined> => {
@@ -112,16 +136,33 @@ export function createRuntimeServer(options: RuntimeOptions): {
 		if (!authorized(request)) return fail(response, 401, "unauthorized", "Unauthorized");
 
 		if (method === "GET" && url.pathname === "/status") {
-			const busy = await busyThreads();
-			if (busy > 0) touch();
+			const work = await currentWork();
+			observe(work);
+			if (work.busyThreads > 0) touch();
 			return json(response, 200, {
 				...options.info,
-				busyThreads: busy,
+				busyThreads: work.busyThreads,
 				openStreams,
 				lastActivityAt: lastActivity,
+				backgroundWork: reportBackground(work),
 				contractVersion: CONTRACT_VERSION,
 				piDurableVersion: PI_DURABLE_VERSION,
 			});
+		}
+		if (method === "POST" && url.pathname === "/background/abort") {
+			// The platform's ceiling (docs/hibernation.md): background work older than this no longer keeps the agent awake.
+			const body = (await readJson(request)) as { olderThanMs?: unknown };
+			const age = body.olderThanMs;
+			if (typeof age !== "number" || !Number.isInteger(age) || age < 0 || age > MAX_OLDER_THAN_MS) {
+				return fail(response, 400, "invalid_older_than", "olderThanMs is a whole number of milliseconds, at least 0");
+			}
+			const work = await currentWork();
+			observe(work);
+			const old = olderThan(work, Date.now() - age);
+			for (const unit of old) abortedForAge.add(unit.taskId as number);
+			const { aborted, settled } = await abortBackground(harness, old, ABORT_WAIT_MS);
+			observe(await currentWork());
+			return json(response, 200, { aborted: aborted.length, settled });
 		}
 		if (method === "GET" && url.pathname === "/threads") return json(response, 200, await threads.list());
 

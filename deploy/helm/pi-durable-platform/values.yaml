@@ -125,6 +125,9 @@ agents:
   launcher: kubernetes
   # Idle agents hibernate after this long; the next request wakes them.
   idleTimeout: 10m
+  # Background work keeps an agent awake for at most this long; older work is
+  # aborted and the agent may hibernate (docs/hibernation.md).
+  backgroundMax: 2h
   # An optional sandboxing RuntimeClass (gVisor, Kata) and registry Secret (in
   # the agents namespace) for agent pods.
   runtimeClass: ""

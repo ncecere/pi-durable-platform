@@ -59,6 +59,13 @@ export type AgentDefinition = {
 	readonly conversationCreated?: (tx: Tx, conversation: ConversationRecord) => void | Promise<void>;
 	/** Run policy (retry, compaction, progress, tool execution, queue modes, ...); read at every use. */
 	readonly settings?: AgentSettings | ((context: AgentContext) => AgentSettings);
+	/**
+	 * Task kinds (`defineTask` names) whose live tasks stand for a wait on a person's answer: a question the agent asked,
+	 * an approval of its own. Such a task, and the work that only waits on it, doesn't keep the agent awake: the agent
+	 * may hibernate while the person thinks, and its work resumes when it wakes (docs/hibernation.md says what the task
+	 * must do for that).
+	 */
+	readonly waitsForPerson?: readonly string[];
 };
 
 /** Extension names the platform's runtime installs itself. */
@@ -83,6 +90,12 @@ export function defineAgent(definition: AgentDefinition): AgentDefinition {
 	for (const doc of definition.documents ?? []) checkDocument(doc);
 	exposedDocuments(definition);
 	if (Array.isArray(definition.extensions)) checkExtensions(definition.extensions as readonly Extension[]);
+	if (definition.waitsForPerson !== undefined) {
+		const kinds: unknown = definition.waitsForPerson;
+		if (!Array.isArray(kinds) || !kinds.every((kind) => typeof kind === "string" && kind !== "")) {
+			throw new AgentDefinitionError("waitsForPerson lists task kinds (non-empty strings)");
+		}
+	}
 	if (typeof definition.settings === "object" && definition.settings !== null && "extensions" in definition.settings) {
 		throw new AgentDefinitionError("settings.extensions is the library's: list extensions in the definition's extensions");
 	}

@@ -33,7 +33,8 @@ the Kubernetes API, or in the runtime itself); what a replica keeps in memory is
 
 ## The reaper
 
-The reaper hibernates an agent idle for `AGENTS_IDLE_TIMEOUT`: no thread busy, no event stream open, no request.
+The reaper hibernates an agent idle for `AGENTS_IDLE_TIMEOUT`: no thread busy, no event stream open, no request, and
+(since v0.4) no background work younger than `AGENTS_BACKGROUND_MAX` ([hibernation.md](hibernation.md)).
 
 *Considered:* recording activity in PostgreSQL (a row per agent with the last request and, for each open stream, a
 replica ID and a heartbeat). It adds a write to every request (or a coalescing layer), a heartbeat that must outlive a
@@ -54,7 +55,10 @@ when its connection fails (it writes a keep-alive every 15 seconds).
   the runtime, and a replica remembers when an agent can first be idle (its `lastActivityAt` plus the timeout) and does
   not ask before. A single replica asks no more often than before.
 - A runtime that predates `openStreams` (an agent started before the platform was upgraded) reports none: the reaper
-  then goes by its own replica's streams, as v0.1 did, until that agent next restarts.
+  then goes by its own replica's streams, as v0.1 did, until that agent next restarts. One that predates
+  `backgroundWork` (contract version 1) is judged without it, as v0.3 did.
+- Background work is the runtime's report too (`backgroundWork`), and so is a ceiling abort: whichever replica reaps
+  asks the runtime to abort work past the ceiling and writes the audit entry; a second abort finds nothing old left.
 - As with one replica, a request that reaches the runtime in the moment between the reaper's `/status` and its stop
   finds a runtime shutting down; the client retries and wakes it again. Work in flight stays in storage.
 

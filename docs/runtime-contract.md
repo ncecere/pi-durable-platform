@@ -1,4 +1,4 @@
-# The runtime contract (version 1)
+# The runtime contract (version 2)
 
 What a process must do for the platform to run it as an agent. The platform's own runtime (`runtime/`, the library
 `@pdp/runtime`) implements it, and so does any custom agent built with the library ([custom-agents.md](custom-agents.md)).
@@ -106,6 +106,7 @@ Thread IDs and request IDs are 1-64 of `[A-Za-z0-9_-]`.
 | `GET /threads/{thread}/events` | Server-sent events, coalesced to at most 10 a second: `view` events (the whole view) by default; with `format=delta` (`v=1`) a `snapshot` and then changes, each with an `id` (its sequence; `Last-Event-ID` continues it). `once=true` sends the current state and ends; `limit` keeps the latest messages. A change to an exposed document is a view with its new revision, or a `document.updated` event. `400 invalid_format`, `unsupported_version`. |
 | `POST /threads/{thread}/stop` | Aborts the reply in progress and withdraws queued input: `202 {"ok": true}`. |
 | `DELETE /threads/{thread}` | Stops and forgets the thread: `200 {"ok": true}`. |
+| `POST /background/abort` | Body `{olderThanMs}` (a whole number of milliseconds, at least 0). Aborts the [background work](#status) that keeps the agent awake and started at least that long ago, with everything it owns, never a thread's reply in progress nor work waiting for a person; waits up to 5 seconds for it to end: `200 {"aborted", "settled"}` (how many units were aborted; whether they ended in time). Not activity. `400 invalid_older_than`. The platform calls it when background work passes its ceiling ([hibernation.md](hibernation.md)). |
 
 A thread the runtime doesn't have is `404 thread_not_found` on every thread route; any other path is
 `404 not_found`.
@@ -125,23 +126,31 @@ fields the same way.
 
 ### Status
 
-`GET /status` is how every platform replica learns whether an agent is idle (the reaper hibernates it when all three
-activity fields say so for `AGENTS_IDLE_TIMEOUT`):
+`GET /status` is how every platform replica learns whether an agent is idle (the reaper hibernates it when the activity
+fields say so for `AGENTS_IDLE_TIMEOUT`; [hibernation.md](hibernation.md) has the rule):
 
 | Field | Meaning |
 |---|---|
 | `agentId`, `name`, `model` | Who the runtime is, and its model (`provider/id`). |
-| `busyThreads` | Threads with a reply in progress. |
+| `busyThreads` | Threads with a reply in progress, except one that only waits for a person (version 2). |
 | `openStreams` | Event streams open now (through any platform replica). |
-| `lastActivityAt` | Unix ms of the last request, stream or reply end. |
-| `contractVersion` | The contract version the runtime implements: `1`. |
+| `lastActivityAt` | Unix ms of the last request, stream, reply end or end of background work (not one the platform aborted). |
+| `backgroundWork` | Version 2: `{tasks, oldestStartedAt, waitingForPerson}`. `tasks`: units of live background work that keep the agent awake, from pi-durable's task graph (background tasks, background subagents' runs, tool calls still running after their reply ended; not a thread's reply in progress, not work only waiting for a person), at most 1000. `oldestStartedAt`: Unix ms when the oldest of them started, `null` with none. `waitingForPerson`: live tasks waiting for a person's answer (at most 1000), counted nowhere else. |
+| `contractVersion` | The contract version the runtime implements: `2`. |
 | `piDurableVersion` | The pi-durable version it runs on (`1.3.0`). |
 | `refused` | Only on a runtime the platform refused ([Starting](#starting-the-upgrade-check)): `{code, message}`. |
 
-The platform reads at most 64 KiB, requires the activity fields to be well-formed, and accepts the versions only within
-bounds (a contract version from 1 to 1000; a pi-durable version that is a semantic version with an optional short
-pre-release), dropping anything else (`internal/agenthost`). After a start it checks `piDurableVersion` against the
-version recorded for the agent (the upgrade check); it stores nothing from `contractVersion` yet.
+The platform reads at most 64 KiB, requires `busyThreads`, `openStreams` and `lastActivityAt` to be well-formed, and
+accepts the versions only within bounds (a contract version from 1 to 1000; a pi-durable version that is a semantic
+version with an optional short pre-release) and `backgroundWork` only when its counts are whole numbers from 0 (clamped
+to 1000) and `oldestStartedAt` is a plausible Unix ms time whenever `tasks` is above 0, dropping anything else
+(`internal/agenthost`). After a start it checks `piDurableVersion` against the version recorded for the agent (the
+upgrade check); it stores nothing from `contractVersion` or `backgroundWork`. A runtime without `backgroundWork` is judged
+by the version 1 rule.
+
+**Waiting for a person.** A task of a kind the agent declares (`AgentDefinition.waitsForPerson`, and the platform's own
+kinds) stands for a wait on a person's answer: it, and work that only waits on it, keeps the agent awake neither as a
+busy thread nor as background work. Such a wait must survive hibernation ([hibernation.md](hibernation.md#waiting-for-a-person)).
 
 ## Standby and activation
 
@@ -186,6 +195,7 @@ Best effort: each is retried a few times, and the next start reconciles what was
 | Version | Change |
 |---|---|
 | 1 | First written version: what runtimes of platform 0.1 to 0.3 did, plus `contractVersion` and `piDurableVersion` at `/status`. Additions since (both sides may ignore them): the upgrade check at start (`/runtime/start`, `refused` at `/status`), tool `details` and exposed `documents` in the view, `document.updated`, and `GET /threads/{thread}/documents/{kind}`. |
+| 2 | `backgroundWork` at `/status`, `POST /background/abort`, and `busyThreads` no longer counts a reply that only waits for a person (platform 0.4). A platform reads a version 1 runtime as before. |
 
 The version goes up when a runtime and a platform of different versions can't work together (a route or field one side
 needs and the other lacks, a changed meaning). Additions both sides may ignore keep it.

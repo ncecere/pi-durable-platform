@@ -92,6 +92,7 @@ export function registerRuntimeConformance(runner: ConformanceRunner, name: stri
 				["GET", "/threads/x/events"],
 				["GET", "/threads/x/documents/acme.notes"],
 				["DELETE", "/threads/x"],
+				["POST", "/background/abort"],
 			] as const) {
 				for (const authorization of [undefined, "Bearer wrong-token", `Bearer ${rt.token}x`]) {
 					const res = await fetch(rt.baseUrl + path, { method, headers: authorization ? { authorization } : {} });
@@ -112,6 +113,25 @@ export function registerRuntimeConformance(runner: ConformanceRunner, name: stri
 			expect(s.lastActivityAt).toBeLessThanOrEqual(Date.now() + 1000);
 			expect(s.contractVersion).toBe(CONTRACT_VERSION);
 			expect(s.piDurableVersion).toMatch(/^\d+\.\d+\.\d+/);
+			// Contract 2: live background work (none here: nothing runs outside a thread's reply).
+			const bg = s.backgroundWork;
+			expect(typeof bg).toBe("object");
+			for (const field of ["tasks", "waitingForPerson"]) {
+				expect(Number.isInteger(bg[field])).toBe(true);
+				expect(bg[field]).toBeGreaterThanOrEqual(0);
+				expect(bg[field]).toBeLessThanOrEqual(1000);
+			}
+			expect(bg.tasks === 0 ? bg.oldestStartedAt === null : Number.isInteger(bg.oldestStartedAt)).toBe(true);
+		});
+
+		it("aborts background work older than an age on request, and nothing else", async () => {
+			const done = await call("POST", "/background/abort", { olderThanMs: 0 });
+			expect(done.status).toBe(200);
+			expect(Number.isInteger(done.json.data.aborted)).toBe(true);
+			expect(typeof done.json.data.settled).toBe("boolean");
+			for (const body of [{}, { olderThanMs: -1 }, { olderThanMs: 1.5 }, { olderThanMs: "1h" }]) {
+				expectError(await call("POST", "/background/abort", body), 400, "invalid_older_than");
+			}
 		});
 
 		it("starts a thread with a message, lists it and answers it", async () => {

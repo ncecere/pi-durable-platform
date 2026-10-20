@@ -95,6 +95,7 @@ func New(pool, agentsPool *pgxpool.Pool, box *secrets.Box, host *agenthost.Manag
 		}
 		return s.AdmitRuntime(ctx, id, version)
 	}
+	host.BackgroundAborted = s.auditBackgroundAbort
 	return s
 }
 
@@ -121,6 +122,9 @@ type View struct {
 	// available when it is above the agent's TemplateVersion).
 	TemplateCurrentVersion int32
 	Running                bool
+	// Awake says why it isn't hibernating (Get only, while it runs and its
+	// runtime answers).
+	Awake *agenthost.AwakeReport
 	// Model is the model it runs on (nil: the platform's default model).
 	Model *ModelRef
 	// Runtime is the upgrade check's record: the pi-durable version that has
@@ -265,7 +269,11 @@ func (s *Service) Get(ctx context.Context, a authz.Actor, id uuid.UUID) (View, e
 	if err := authz.CheckAgentSee(sub); err != nil {
 		return View{}, err
 	}
-	return s.view(ctx, s.q, ag)
+	v, err := s.view(ctx, s.q, ag)
+	if err == nil && v.Running {
+		v.Awake = s.host.Awake(ctx, ag.ID.String())
+	}
+	return v, err
 }
 
 // CreateInput is a new team agent: its template by ID, or a platform

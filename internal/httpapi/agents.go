@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ncecere/pi-durable-platform/internal/agenthost"
 	"github.com/ncecere/pi-durable-platform/internal/agents"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
@@ -67,6 +68,7 @@ func toAPIAgent(v agents.View) apitypes.Agent {
 		Enabled: ag.Enabled, Running: v.Running, LastUsedAt: ag.LastUsedAt, Revision: ag.Revision,
 		CreatedAt: ag.CreatedAt, UpdatedAt: ag.UpdatedAt, ExternalKey: ag.ExternalKey, ServiceManaged: ag.ServiceManaged,
 		Model: agentModel(v.Model), StorageVersion: nonEmpty(v.Runtime.StorageVersion), RuntimeRefused: runtimeRefusal(v.Runtime.Refused),
+		Awake: agentAwake(v.Awake),
 	}
 }
 
@@ -75,6 +77,18 @@ func runtimeRefusal(r *agents.Refusal) *apitypes.AgentRuntimeRefusal {
 		return nil
 	}
 	return &apitypes.AgentRuntimeRefusal{RuntimeVersion: r.RuntimeVersion, StorageVersion: r.StorageVersion, At: r.At, Message: r.Message}
+}
+
+func agentAwake(r *agenthost.AwakeReport) *apitypes.AgentAwake {
+	if r == nil {
+		return nil
+	}
+	out := &apitypes.AgentAwake{Reasons: []apitypes.AgentAwakeReasons{}, BackgroundTasks: int32(r.BackgroundTasks),
+		BackgroundSince: r.BackgroundSince, WaitingForPerson: int32(r.WaitingForPerson), OverCeiling: r.OverCeiling}
+	for _, reason := range r.Reasons {
+		out.Reasons = append(out.Reasons, apitypes.AgentAwakeReasons(reason))
+	}
+	return out
 }
 
 func agentModel(m *agents.ModelRef) *apitypes.AgentModel {

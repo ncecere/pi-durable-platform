@@ -6718,6 +6718,13 @@ components:
         running:
           type: boolean
           description: Whether its runtime is up now (it hibernates when idle and wakes on the next request)
+        awake:
+          nullable: true
+          allOf:
+          - $ref: '#/components/schemas/AgentAwake'
+          description: >-
+            Why it isn't hibernating, from its runtime's own report: only on GET /v1/agents/{agentId}, while it runs and
+            its runtime answers (absent otherwise, and in lists)
         model:
           nullable: true
           allOf:
@@ -6766,6 +6773,36 @@ components:
           description: When the latest start was refused
         message:
           type: string
+    AgentAwake:
+      type: object
+      description: What keeps a running agent from hibernating (docs/hibernation.md)
+      required: [reasons, backgroundTasks, waitingForPerson, overCeiling]
+      properties:
+        reasons:
+          type: array
+          description: >-
+            reply - a thread is replying; stream - someone is watching a thread; background - background work (tasks,
+            background subagents) younger than the platform's ceiling; recent - it was used within the idle timeout.
+            Empty: it hibernates at the idle reaper's next pass.
+          items:
+            type: string
+            enum: [reply, stream, background, recent]
+        backgroundTasks:
+          type: integer
+          format: int32
+          description: Units of background work keeping it awake (at most 1000)
+        backgroundSince:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the oldest of them started
+        waitingForPerson:
+          type: integer
+          format: int32
+          description: Its tasks waiting for a person's answer (an approval, a question); they don't keep it awake
+        overCeiling:
+          type: boolean
+          description: Background work older than the platform's ceiling, which the reaper aborts at its next pass
     AgentCreate:
       type: object
       required: [name]

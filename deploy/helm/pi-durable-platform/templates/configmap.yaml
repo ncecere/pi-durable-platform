@@ -97,6 +97,7 @@ data:
   {{- end }}
   AGENTS_CLIENT_MCP_MODE: {{ $a.clientMcpMode | quote }}
   AGENTS_IDLE_TIMEOUT: {{ $a.idleTimeout | quote }}
+  AGENTS_BACKGROUND_MAX: {{ $a.backgroundMax | quote }}
   AGENTS_MODEL_PROVIDER: {{ $a.model.provider | quote }}
   {{- with $a.model.baseUrl }}
   AGENTS_MODEL_BASE_URL: {{ . | quote }}

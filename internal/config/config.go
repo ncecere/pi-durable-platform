@@ -147,6 +147,10 @@ type Agents struct {
 	ClientMCPHosts string
 	ClientMCPMode  string
 	IdleTimeout    time.Duration
+	// BackgroundMax is how long an agent's background work may keep it
+	// awake: older work is aborted and the agent may hibernate
+	// (docs/hibernation.md).
+	BackgroundMax time.Duration
 	// The platform's default model, for agents whose template version and
 	// team choose none from the model catalog: demo (scripted, no key) or
 	// openai-compatible. ModelReasoning marks the latter as a reasoning model.
@@ -248,6 +252,7 @@ func Defaults() Config {
 			Launcher:      LauncherLocal,
 			RuntimeDir:    "runtime",
 			IdleTimeout:   10 * time.Minute,
+			BackgroundMax: 2 * time.Hour,
 			ModelProvider: "demo",
 			GatewayAddr:   "127.0.0.1:8099",
 			GatewayURL:    "http://127.0.0.1:8099",

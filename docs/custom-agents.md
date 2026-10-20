@@ -123,7 +123,7 @@ await runAgentProcess(
 
 | Export | What it is |
 |---|---|
-| `defineAgent(definition)` | Checks and returns an agent definition: `name`, `extensions` (an array, or a function of the agent's context: `agentId`, `name`, the template's `instructions`, `env`), `documents`, `expose` (the documents apps may read, see [Custom state for apps](#custom-state-for-apps)), `conversationCreated`, `settings` (pi-durable's settings without `extensions`, or a function of the context). |
+| `defineAgent(definition)` | Checks and returns an agent definition: `name`, `extensions` (an array, or a function of the agent's context: `agentId`, `name`, the template's `instructions`, `env`), `documents`, `expose` (the documents apps may read, see [Custom state for apps](#custom-state-for-apps)), `conversationCreated`, `settings` (pi-durable's settings without `extensions`, or a function of the context), `waitsForPerson` (task kinds that stand for a wait on a person's answer: they keep the agent awake neither as a busy thread nor as background work, see [hibernation.md](hibernation.md#waiting-for-a-person)). |
 | `runAgentProcess(definition)` | Runs the definition as an agent process: from environment variables or in standby, with the exit codes and signals of the [contract](runtime-contract.md). A custom agent's entry point. |
 | `startAgent(config, definition, options)` | Starts one agent in this process and returns its HTTP handler, harness and thread store. `options` replaces storage, models or the fatal-error handler (for tests). |
 | `assistantExtension(instructions)`, `assistantAgent` | The platform's own agent: the template's instructions as the prompt's preamble and `get_time`. `assistantAgent` is `defineAgent({ extensions: ({ instructions }) => [assistantExtension(instructions)] })`, what `src/main.ts` runs. |
@@ -190,6 +190,9 @@ that apply to agents built with the library:
 - **Keep prompt sections stable**: a section that renders the time or a counter adds system entries and misses the
   provider's prompt cache on every request.
 - **Honour the abort signal** (`context.abortSignal`) in tools and hooks: hibernation waits for running code to return.
+- **Background work keeps the agent awake, up to a ceiling** (`AGENTS_BACKGROUND_MAX`, 2 hours by default): past it
+  the platform aborts it (abort handlers run) and the agent may hibernate. Split long jobs into tasks that each finish,
+  and declare tasks that wait for a person in `waitsForPerson` ([hibernation.md](hibernation.md)).
 - **Never log secrets** from the agent's context (`env` holds the model key, the gateway credential and MCP headers),
   and never send them anywhere but where the platform meant them to go.
 - **Import the library, not pi-durable.** What the facade leaves out is not covered by the library's promise.
@@ -258,7 +261,7 @@ to `runtime/`, until the library is published; CI builds and tests it.
 ## Versioning
 
 - **The library's version** is the runtime's (`runtime/package.json`, the platform's release version).
-- **The contract version** (`CONTRACT_VERSION`, 1) is separate and reported at `/status`. It goes up only when a
+- **The contract version** (`CONTRACT_VERSION`, 2 since background work at `/status`) is separate and reported at `/status`. It goes up only when a
   runtime and a platform of different contract versions can't work together; additions both sides may ignore keep it.
   The platform accepts the field (bounded) and stores nothing from it yet.
 - **pi-durable is pinned** (`1.3.0`, exact in `package.json`; `PI_DURABLE_VERSION` at `/status`, checked against the

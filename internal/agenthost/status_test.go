@@ -2,6 +2,7 @@ package agenthost
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -125,5 +126,89 @@ func TestStatusReadsBoundedVersions(t *testing.T) {
 	defer rt.Close()
 	if _, err := statusManager(rt.URL).status(context.Background(), launcher.Endpoint{BaseURL: rt.URL, Token: "tok"}); err == nil {
 		t.Fatal("a string busyThreads was accepted")
+	}
+}
+
+// Contract version 2's backgroundWork is read bounded: whole counts from 0
+// (clamped to 1000), a plausible start time whenever there is work; anything
+// else drops the field (the reaper then judges the runtime as before), never
+// the report.
+func TestStatusReadsBoundedBackgroundWork(t *testing.T) {
+	const at = 1760000000000
+	cases := []struct {
+		name           string
+		field          string // backgroundWork's JSON ("": absent)
+		ok             bool
+		tasks, waiting int
+		oldest         int64
+	}{
+		{"absent", "", false, 0, 0, 0},
+		{"none", `{"tasks":0,"oldestStartedAt":null,"waitingForPerson":0}`, true, 0, 0, 0},
+		{"some", `{"tasks":2,"oldestStartedAt":1760000000000,"waitingForPerson":1}`, true, 2, 1, at},
+		{"without waitingForPerson", `{"tasks":1,"oldestStartedAt":1760000000000}`, true, 1, 0, at},
+		{"clamped", `{"tasks":99999999,"oldestStartedAt":1760000000000,"waitingForPerson":5000}`, true, 1000, 1000, at},
+		{"a start time of another type", `{"tasks":0,"oldestStartedAt":"soon"}`, false, 0, 0, 0},
+		{"null", `null`, false, 0, 0, 0},
+		{"an array", `[1]`, false, 0, 0, 0},
+		{"no tasks", `{"oldestStartedAt":1760000000000}`, false, 0, 0, 0},
+		{"negative tasks", `{"tasks":-1}`, false, 0, 0, 0},
+		{"fractional tasks", `{"tasks":0.5}`, false, 0, 0, 0},
+		{"tasks as a string", `{"tasks":"2","oldestStartedAt":1760000000000}`, false, 0, 0, 0},
+		{"huge tasks", `{"tasks":1e30,"oldestStartedAt":1760000000000}`, false, 0, 0, 0},
+		{"work without a start", `{"tasks":3}`, false, 0, 0, 0},
+		{"a start in seconds", `{"tasks":3,"oldestStartedAt":1760000000}`, false, 0, 0, 0},
+		{"a start in the year 5000", `{"tasks":3,"oldestStartedAt":95617584000000}`, false, 0, 0, 0},
+		{"negative waiting", `{"tasks":0,"waitingForPerson":-2}`, false, 0, 0, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := `{"data":{"busyThreads":1,"openStreams":0,"lastActivityAt":42`
+			if tc.field != "" {
+				body += `,"backgroundWork":` + tc.field
+			}
+			body += `}}`
+			var wrapped struct{ Data runtimeStatus }
+			if err := json.Unmarshal([]byte(body), &wrapped); err != nil {
+				t.Fatalf("the report was refused: %v", err)
+			}
+			st, bg := wrapped.Data, wrapped.Data.Background
+			if st.BusyThreads != 1 || st.LastActivityAt != 42 {
+				t.Fatalf("activity fields: %+v", st)
+			}
+			if (bg != nil) != tc.ok {
+				t.Fatalf("background = %+v, want read %v", bg, tc.ok)
+			}
+			if bg == nil {
+				return
+			}
+			var oldest int64
+			if !bg.OldestStartedAt.IsZero() {
+				oldest = bg.OldestStartedAt.UnixMilli()
+			}
+			if bg.Tasks != tc.tasks || bg.WaitingForPerson != tc.waiting || oldest != tc.oldest {
+				t.Fatalf("background = %+v (oldest %d)", bg, oldest)
+			}
+		})
+	}
+}
+
+// While background work keeps an agent awake, the reaper asks again after
+// half an idle timeout, or when the oldest work reaches the ceiling if that
+// comes sooner.
+func TestRecheckWaitsNoLongerThanTheCeiling(t *testing.T) {
+	m := statusManager("http://unused")
+	m.idle, m.BackgroundMax = 10*time.Minute, time.Hour
+	now := time.Now()
+	st := runtimeStatus{LastActivityAt: now.Add(-time.Hour).UnixMilli(), Background: &backgroundWork{Tasks: 1, OldestStartedAt: now.Add(-59 * time.Minute)}}
+	reasons, over := m.judge(st, 0, now)
+	if reasons != awakeBackground || over {
+		t.Fatalf("reasons %v, over %v", reasons.names(), over)
+	}
+	if wait := m.recheckIn(st, reasons, now); wait != time.Minute {
+		t.Fatalf("wait %v, want 1m (the ceiling)", wait)
+	}
+	st.Background.OldestStartedAt = now.Add(-time.Minute)
+	if wait := m.recheckIn(st, reasons, now); wait != 5*time.Minute {
+		t.Fatalf("wait %v, want 5m (half the idle timeout)", wait)
 	}
 }

@@ -16,6 +16,7 @@ import { TextLink } from "@/components/ui/text-link/text-link";
 import { Time } from "@/components/ui/time/time";
 import { toast } from "@/components/ui/toast/toast";
 import s from "../../shared.module.css";
+import { AwakeValue } from "./agent-awake";
 import { AgentModelValue } from "./agent-model";
 import { AgentToolsValue } from "./agent-tools";
 import { AgentUsageCard } from "./agent-usage";
@@ -47,7 +48,7 @@ export function OverviewTab({ agent, abilities }: Props) {
         <DescriptionList
           dividers
           items={[
-            { label: "Status", value: status.label },
+            { label: "Status", value: <AwakeValue agent={agent} label={status.label} /> },
             {
               label: "Template",
               value: (

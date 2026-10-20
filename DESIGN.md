@@ -38,6 +38,7 @@ Later: teams build and upload their own agents (self-service). That requires str
 | 15 | **App-level access is a platform admin's decision per app**: a trusted app (metadata document, on the trusted list) gets a secret from a platform admin for one event stream and usage covering everyone who connected it, naming them by an app-stable pseudonymous subject. Not `private_key_jwt`. See [OAuth Connect](#oauth-connect). | It shows an app what every person who connected it does, more than any one person's token; a secret issued where trust is already decided fits the platform's other credentials, with no key fetching or assertion replay cache. |
 | 16 | **MCP servers learn who a call is for from a token the gateway signs from its own records** (v0.4): in proxy mode every forwarded request carries a short-lived ES256 JWT (`MCP-Gateway-Identity`, Open MCP Portal's header and claim style) naming the agent, its team, the thread's visibility and, for a personal workspace's agent or a private thread a person started, that person by OIDC issuer and subject. The runtime only names the thread. See [MCP servers](#mcp-servers) and [docs/mcp-identity.md](docs/mcp-identity.md). | Servers that act for a person (mail, memory, the portal's delegated credentials) need to know which person, and the agent's code, which runs model-influenced tools, must not be able to claim one. |
 | 17 | **Triggers run agents as no person** (v0.4): schedules and signed webhooks are platform records per agent; each fire's ID is its message's pi-durable `requestId` and its run's unique key; the trigger is the message's author, the team's credentials are the only ones used; owners and admins manage them in a browser session, under per-agent limits. See [Triggers](#triggers) and [docs/triggers.md](docs/triggers.md). | The control plane is always running and agents hibernate; idempotent fires make replicas and retries safe; an unattended run must never borrow a person's identity or tools. |
+| 18 | **Background work keeps an agent awake, up to a ceiling; waiting for a person doesn't** (v0.4): the runtime reports live background work from pi-durable's task graph at `/status` (background tasks, background subagents' runs, tool calls still running after their reply), the reaper treats it as busy, and work older than `AGENTS_BACKGROUND_MAX` (2 h) is aborted through the runtime, audited, before the agent hibernates. A task of a kind that waits for a person's answer, and work only waiting on it, counts as idle. See [docs/hibernation.md](docs/hibernation.md). | An agent must not be hibernated in the middle of work nobody is watching, a stuck task must not hold a runtime forever, and an approval can take a day without costing a pod. |
 
 ## Architecture
 
@@ -820,6 +821,8 @@ not part of `api/openapi.yaml`, as the gateway isn't.
 | `agents_running` | none | Agents with a live runtime, as the reaper last saw them (every 30 s) |
 | `agents` | `enabled` | Agents that exist (a query every 30 s; the same on every replica: use `max`) |
 | `agent_hibernations_total` | `reason` (idle, request), `result` | `idle`: the reaper; `request`: an explicit hibernate, or a change that restarts the agent |
+| `agents_awake` | `reason` (reply, stream, background, recent) | Running agents the reaper last found kept awake by each reason (an agent can count for several): a reply, an open event stream, background work under `AGENTS_BACKGROUND_MAX`, use within the idle timeout ([docs/hibernation.md](docs/hibernation.md)) |
+| `agent_background_aborts_total` | `result` | Background work past `AGENTS_BACKGROUND_MAX` the reaper had a runtime abort before hibernating it |
 | `model_proxy_requests_total`, `model_proxy_request_duration_seconds` | `provider_kind`, `model`, `code` | The model proxy. Duration is the whole reply, streams included |
 | `model_proxy_tokens_total` | `provider_kind`, `model`, `direction` (input, output, cache_read, cache_write) | Tokens the replies report |
 | `mcp_proxy_requests_total`, `mcp_proxy_request_duration_seconds` | `server`, `code` | The MCP proxy |
@@ -911,8 +914,10 @@ with the inventory of what each replica keeps). In short:
 - Sessions, sign-in state, OAuth Connect state, rate limits, the thread record and its change notifications
   (`LISTEN/NOTIFY`, heard by every replica) are in PostgreSQL. The clean-up loops delete idempotently and the group
   re-check claims people with `SKIP LOCKED`, so every replica runs them.
-- **The runtime is the authority on whether an agent is idle.** `/status` reports `busyThreads`, `openStreams` and
-  `lastActivityAt`; the reaper hibernates an agent only when all three say idle for `AGENTS_IDLE_TIMEOUT`. Any replica's
+- **The runtime is the authority on whether an agent is idle.** `/status` reports `busyThreads`, `openStreams`,
+  `lastActivityAt` and (contract version 2) `backgroundWork`; the reaper hibernates an agent only when they all say idle
+  for `AGENTS_IDLE_TIMEOUT`, background work past `AGENTS_BACKGROUND_MAX` aside, which it has the runtime abort first
+  ([docs/hibernation.md](docs/hibernation.md)). Any replica's
   requests and streams count, because they all go through the runtime. One replica at a time reaps (a PostgreSQL
   advisory lock per pass), to avoid duplicate status calls; correctness does not depend on it. An agent whose runtime
   predates `openStreams` is judged by its own replica's streams until it restarts.
@@ -964,6 +969,9 @@ event streams and steering since v0.3, see above). The design-level ones:
 - Scheduled work: the platform's triggers wake agents (see Triggers); an agent can't yet set its own schedule (the
   `schedule` tool waits for the runtime library, #28; its gateway API is designed in docs/triggers.md). A triggered
   run's cost counts all the agent's usage while it ran (usage isn't tagged by thread).
+- An agent can't yet ask to be woken at a time it chooses: pi-durable's coming wake-up API is the way (see
+  [docs/hibernation.md](docs/hibernation.md#when-pi-durable-ships-a-wake-up-api)). Background work that runs keeps an
+  agent awake, up to `AGENTS_BACKGROUND_MAX`.
 - Hostile-code isolation (gVisor/Kata on Talos) is required before self-service uploads.
 - Usage per connected app (OAuth Connect) is attributed by which app's person an agent is answering at the moment
   of each model or tool request, and only when that is unambiguous: an agent answering two apps (or an app and the
