@@ -42,7 +42,9 @@ import (
 //     within one team, and in a shared team it would make the agent
 //     service-managed), the MCP servers apps set on its threads (removed:
 //     their headers are credentials the old team's callers gave, which the
-//     new team's people must not get to use), and the old team's own models
+//     new team's people must not get to use), its triggers (deleted: the
+//     old team set them up, with its limits, secrets and callbacks; runs
+//     already recorded stay the old team's), and the old team's own models
 //     and MCP servers, and platform ones published to the old team only
 //     (the runtime takes its servers and model from the team it belongs to;
 //     a model the target team may not use is a blocker, servers are dropped).
@@ -72,6 +74,9 @@ type MovePlan struct {
 	ExternalKey *string
 	// ThreadMCPServers is how many servers apps set on its threads (removed).
 	ThreadMCPServers int64
+	// Triggers is how many triggers it has (deleted: they were the old
+	// team's, docs/triggers.md).
+	Triggers int64
 	// MCPServersDropped names the template version's servers that apply in
 	// the current team and not in the target team.
 	MCPServersDropped []string
@@ -154,6 +159,10 @@ func (s *Service) Move(ctx context.Context, a authz.Actor, id uuid.UUID, targetR
 		if err != nil {
 			return err
 		}
+		triggersRemoved, err := q.DeleteAgentTriggers(ctx, id)
+		if err != nil {
+			return err
+		}
 		// One entry in each team's log, so both teams' owners see it.
 		for _, teamID := range []uuid.UUID{from.ID, to.ID} {
 			e := a.Audit("agent.move", "agent", id.String())
@@ -165,7 +174,7 @@ func (s *Service) Move(ctx context.Context, a authz.Actor, id uuid.UUID, targetR
 			}
 			meta["fromTeam"], meta["toTeam"] = from.Slug, to.Slug
 			meta["sharedThreads"], meta["privateThreads"] = plan.Threads.Shared, plan.Threads.Private
-			meta["threadMcpServersRemoved"] = removed
+			meta["threadMcpServersRemoved"], meta["triggersRemoved"] = removed, triggersRemoved
 			if ag.ExternalKey != nil {
 				meta["externalKeyDropped"] = *ag.ExternalKey
 			}
@@ -294,6 +303,9 @@ func (s *Service) planMove(ctx context.Context, q *dbgen.Queries, a authz.Actor,
 		return MovePlan{}, err
 	}
 	if p.ThreadMCPServers, err = q.CountAgentThreadMCPServers(ctx, ag.ID); err != nil {
+		return MovePlan{}, err
+	}
+	if p.Triggers, err = q.CountAgentTriggers(ctx, ag.ID); err != nil {
 		return MovePlan{}, err
 	}
 	servers, err := q.ListTemplateVersionMCP(ctx, dbgen.ListTemplateVersionMCPParams{TemplateID: ag.TemplateID, Version: ag.TemplateVersion})

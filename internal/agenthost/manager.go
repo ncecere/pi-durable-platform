@@ -7,6 +7,7 @@
 package agenthost
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -386,6 +388,48 @@ func (m *Manager) Proxy(w http.ResponseWriter, r *http.Request, spec launcher.Sp
 		},
 	}
 	rp.ServeHTTP(w, r)
+}
+
+// maxCallBytes bounds what Call reads of a runtime's reply (a thread's last
+// messages, a status).
+const maxCallBytes = 4 << 20
+
+// Call wakes the agent if needed and sends one request to path on its
+// runtime (body, if any, as JSON), for the platform's own work (triggered
+// runs), not a client's. It returns the status and at most 4 MiB of the
+// reply; an error means the agent could not be started or did not answer.
+func (m *Manager) Call(ctx context.Context, spec launcher.Spec, method, path string, body []byte) (int, []byte, error) {
+	ep, err := m.Wake(ctx, spec)
+	if err != nil {
+		return 0, nil, err
+	}
+	ctx, span := tracing.Start(ctx, "agent.runtime_request", trace.SpanKindClient,
+		attribute.String("http.request.method", metrics.Method(method)), attribute.String("pdp.agent.id", spec.AgentID))
+	defer span.End()
+	var rdr io.Reader
+	if body != nil {
+		rdr = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(ep.BaseURL, "/")+path, rdr)
+	if err != nil {
+		return 0, nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("Authorization", "Bearer "+ep.Token)
+	tracing.Inject(ctx, req.Header)
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		tracing.Fail(span, "runtime unreachable")
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	tracing.Status(span, resp.StatusCode, false)
+	m.touch(spec.AgentID)
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxCallBytes))
+	return resp.StatusCode, raw, err
 }
 
 func isEventStream(path string) bool {
