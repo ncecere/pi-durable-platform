@@ -54,6 +54,9 @@ export const dayColumn: DataTableColumn<UsageRow> = {
   cell: (r) => <span className={s.nowrap}>{dayLabel(r.day)}</span>,
 };
 
+/** The day column after the agent's, when grouped by agent and day. */
+export const secondDayColumn: DataTableColumn<UsageRow> = { ...dayColumn, rowHeader: false };
+
 /** The model, with its provider; the platform's default model has neither. */
 export const modelColumn: DataTableColumn<UsageRow> = {
   id: "model",

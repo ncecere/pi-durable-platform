@@ -1,6 +1,6 @@
 /*
  * Team › Usage (/teams/$team/usage): the team's model requests and tokens per
- * day, model or agent, with a cost estimate from the models' current prices.
+ * day, model, agent, or agent and day, with a cost estimate from the models' current prices.
  * The period (?range=), grouping (?groupBy=) and one agent (?agentId=, from
  * an agent's Overview) live in the URL.
  */
@@ -9,7 +9,7 @@ import { Link } from "@tanstack/react-router";
 import { agentQuery } from "@/api/agents";
 import { type TeamUsageGroup, teamUsageQuery, type UsageRow } from "@/api/usage";
 import { agentName, costEstimate, dayLabel, type GroupOption, modelName, useGroupByParam, useUsageRange } from "@/components/usage/labels";
-import { dayColumn, modelColumn } from "@/components/usage/columns";
+import { dayColumn, modelColumn, secondDayColumn } from "@/components/usage/columns";
 import { UsageReportPage } from "@/components/usage/usage-report";
 import { Alert } from "@/components/ui/alert/alert";
 import { Button } from "@/components/ui/button/button";
@@ -25,6 +25,7 @@ const groups: GroupOption<TeamUsageGroup>[] = [
   { value: "day", label: "Day" },
   { value: "model", label: "Model" },
   { value: "agent", label: "Agent" },
+  { value: "agent,day", label: "Agent by day" },
 ];
 
 function agentColumn(team: string, linkable: boolean): DataTableColumn<UsageRow> {
@@ -88,7 +89,8 @@ export function TeamUsagePage() {
       out.delete(AGENT_PARAM);
       return out;
     });
-  const first = groupBy === "model" ? modelColumn : groupBy === "agent" ? agentColumn(slug, Boolean(role)) : dayColumn;
+  const byAgent = groupBy === "agent" || groupBy === "agent,day";
+  const first = groupBy === "model" ? modelColumn : byAgent ? agentColumn(slug, Boolean(role)) : dayColumn;
   return (
     <UsageReportPage
       id="team-usage"
@@ -101,7 +103,10 @@ export function TeamUsagePage() {
       onGroupBy={setGroupBy}
       report={report}
       firstColumn={first}
-      rowLabel={(r) => (groupBy === "model" ? modelName(r) : groupBy === "agent" ? agentName(r) : dayLabel(r.day))}
+      secondColumn={groupBy === "agent,day" ? secondDayColumn : undefined}
+      rowLabel={(r) =>
+        groupBy === "model" ? modelName(r) : groupBy === "agent" ? agentName(r) : groupBy === "agent,day" ? `${agentName(r)}, ${dayLabel(r.day)}` : dayLabel(r.day)
+      }
     />
   );
 }
