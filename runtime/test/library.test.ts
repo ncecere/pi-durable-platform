@@ -47,6 +47,8 @@ describe("defineAgent", () => {
 		["a pdp. document", { documents: [defineDoc({ kind: "pdp.threads", version: 1, scope: "session", initial: () => ({}) })] }, /reserved/],
 		["a task document", { documents: [defineDoc({ kind: "acme.t", version: 1, scope: "task", initial: () => ({}) }) as never] }, /only session and conversation/],
 		["an extension selection in settings", { settings: { extensions: [] } as never }, /library's/],
+		["an empty kind in waitsForPerson", { waitsForPerson: [""] }, /waitsForPerson/],
+		["waitsForPerson that is not a list", { waitsForPerson: "acme.ask" as never }, /waitsForPerson/],
 	])("refuses %s", (_what, definition, message) => {
 		expect(() => defineAgent(definition as never)).toThrow(AgentDefinitionError);
 		expect(() => defineAgent(definition as never)).toThrow(message);
@@ -78,9 +80,9 @@ describe("versions", () => {
 		const ours = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { dependencies: Record<string, string> };
 		expect(PI_DURABLE_VERSION).toBe(installed.version);
 		expect(PI_DURABLE_VERSION).toBe(ours.dependencies["@earendil-works/pi-durable"]);
-		expect(CONTRACT_VERSION).toBe(1);
+		expect(CONTRACT_VERSION).toBe(2);
 		const agent = await start();
-		expect(await agent.status()).toMatchObject({ contractVersion: 1, piDurableVersion: PI_DURABLE_VERSION });
+		expect(await agent.status()).toMatchObject({ contractVersion: 2, piDurableVersion: PI_DURABLE_VERSION });
 	});
 });
 

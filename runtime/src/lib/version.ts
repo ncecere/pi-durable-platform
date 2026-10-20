@@ -4,7 +4,7 @@
  * runtime built on an older contract would no longer work with the platform, or the other way round; additions that
  * both sides may ignore keep it.
  */
-export const CONTRACT_VERSION = 1;
+export const CONTRACT_VERSION = 2;
 
 /**
  * The pi-durable version the library is built and tested on (pinned in package.json; a test checks that both and the
