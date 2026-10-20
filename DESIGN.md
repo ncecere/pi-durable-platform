@@ -546,7 +546,9 @@ The reasoning is in [docs/agent-keys-and-moves.md](docs/agent-keys-and-moves.md)
 - **Keys in a personal workspace.** `PUT …/agents/by-key/{key}` is editor service accounts' in shared teams (the
   agent is service-managed, `agents.service_managed`), and the owner's in their personal workspace by any of their
   credentials, apps included (the agent is the workspace's, not service-managed). Anyone else: 403 in a shared team,
-  404 in someone else's workspace.
+  404 in someone else's workspace. The database keeps the rule itself (a trigger, migration 00020): a keyed agent in a
+  team that isn't a personal workspace is service-managed whoever writes the row, so one a v0.2 replica creates during
+  a rolling upgrade (its insert doesn't name the column) is too.
 - **Moving.** `POST /v1/agents/{id}/move {team, modelId?}` (If-Match) and its dry run `GET …/move?team=` (the same
   authorization; counts of shared and private threads and who gains and loses access, the key dropped, servers that
   stop applying, and blockers with their error codes). People who are owners or admins of both teams; a personal

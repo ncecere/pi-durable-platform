@@ -91,3 +91,52 @@ func TestUpgradeFromV016KeepsData(t *testing.T) {
 		t.Fatalf("second migrate: %v", err)
 	}
 }
+
+// Keyed agents a v0.2 replica created during a rolling upgrade to v0.3, between migration 00018 (service_managed,
+// default false) and 00020, are made service-managed by 00020 when they are in a shared team; keyed agents of personal
+// workspaces and agents without a key are left as they are.
+func TestUpgradeMakesOlderReplicasKeyedAgentsServiceManaged(t *testing.T) {
+	ctx := context.Background()
+	pool, _ := testutil.NewDB(t)
+	db := stdlib.OpenDBFromPool(pool)
+	defer db.Close()
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.DownTo(ctx, 19); err != nil {
+		t.Fatalf("roll back to before 00020: %v", err)
+	}
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	shared, personal, owner := uuid.New(), uuid.New(), uuid.New()
+	exec(`INSERT INTO users (id, oidc_issuer, oidc_subject, email) VALUES ($1, 'https://idp.example.com', 's', 'p@example.com')`, owner)
+	exec(`INSERT INTO teams (id, slug, name) VALUES ($1, 'shared', 'Shared')`, shared)
+	exec(`INSERT INTO teams (id, slug, name, kind, personal_owner) VALUES ($1, 'p-owner', 'Owner', 'personal', $2)`, personal, owner)
+	agent := func(team uuid.UUID, name string, key *string) uuid.UUID {
+		id := uuid.New()
+		// v0.2's InsertAgent: no service_managed.
+		exec(`INSERT INTO agents (id, team_id, template_id, template_version, name, description, db_password_enc, runtime_token_enc, created_by, external_key, model_id)
+			SELECT $1, $2, id, 1, $3, '', '\x00', '\x00', NULL, $4, NULL FROM agent_templates WHERE slug = 'assistant'`, id, team, name, key)
+		return id
+	}
+	k1, k2 := "user-1", "notes"
+	byApp, inWorkspace, plain := agent(shared, "a", &k1), agent(personal, "b", &k2), agent(shared, "c", nil)
+
+	if err := store.Migrate(ctx, pool, testutil.Logger()); err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	for id, want := range map[uuid.UUID]bool{byApp: true, inWorkspace: false, plain: false} {
+		var got bool
+		if err := pool.QueryRow(ctx, `SELECT service_managed FROM agents WHERE id = $1`, id).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("agent %s: service_managed %v, want %v", id, got, want)
+		}
+	}
+}
