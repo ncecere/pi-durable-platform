@@ -270,6 +270,16 @@ var matrixPolicies = map[string]policy{
 	}},
 	// Platform admins (not auditors) list every thread of any agent, and read
 	// any conversation with a reason (audited in the agent's team's log).
+	// Tool approvals: whoever may use the agent sees them; an unattended run's
+	// are decided by the team's owners and admins, never by platform staff.
+	"listAgentApprovals": {scope: scopeTeam, own: members, build: func(c *mctx) request { return get(c.agent("/approvals", false)) }},
+	"getAgentApproval": {scope: scopeTeam, own: members, build: func(c *mctx) request {
+		return get(c.agent("/approvals/"+c.tf.approval, false))
+	}},
+	"decideAgentApproval": {scope: scopeTeam, own: admins, build: func(c *mctx) request {
+		return post(c.approval(), map[string]any{"decision": "deny", "reason": "matrix"})
+	}},
+	"listMyApprovals": {own: signedIn, build: func(*mctx) request { return get("/v1/me/approvals") }},
 	"adminListAgentThreads": {scope: scopeTeam, foreign: padmin, build: func(c *mctx) request {
 		return get("/v1/admin/agents/" + c.tf.agent + "/threads")
 	}},

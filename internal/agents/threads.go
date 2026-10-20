@@ -596,6 +596,9 @@ func (s *Service) ThreadRemoved(ctx context.Context, id uuid.UUID, threadID stri
 	if len(rows) == 1 {
 		t = rows[0]
 	}
+	if err := s.q.DeleteThreadToolApprovals(ctx, dbgen.DeleteThreadToolApprovalsParams{AgentID: id, ThreadID: threadID}); err != nil {
+		slog.Warn("forget thread approvals", "agent", id, "err", err)
+	}
 	s.announce(ctx, t)
 }
 

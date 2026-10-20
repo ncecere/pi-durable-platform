@@ -213,6 +213,8 @@ type TemplateInput struct {
 	// their own for a thread.
 	MCP       []mcp.Attach
 	ClientMCP bool
+	// Approvals: tools that ask a person first (nil: none).
+	Approvals *ApprovalPolicyInput
 }
 
 // checkTemplateModel checks a template version's model: a team template's
@@ -364,9 +366,14 @@ func (s *Service) CreateTemplate(ctx context.Context, a authz.Actor, teamRef str
 		if err := mcp.CheckAttach(ctx, q, tpl.TeamID, in.MCP); err != nil {
 			return err
 		}
+		policy, err := in.Approvals.apply(DefaultApprovalPolicy())
+		if err != nil {
+			return err
+		}
 		if _, err := q.InsertTemplateVersion(ctx, dbgen.InsertTemplateVersionParams{TemplateID: tpl.ID, Version: 1,
 			Instructions: strings.TrimSpace(in.Instructions), Notes: in.Notes, CreatedBy: p.CreatedBy, ModelID: nullID(in.ModelID),
-			ClientMcp: in.ClientMCP}); err != nil {
+			ClientMcp: in.ClientMCP, ApprovalTools: policy.Tools, ApprovalRole: policy.Role,
+			ApprovalTimeoutSeconds: policy.TimeoutSeconds}); err != nil {
 			return err
 		}
 		if err := mcp.SaveAttach(ctx, q, tpl.ID, 1, in.MCP); err != nil {
@@ -425,6 +432,8 @@ type VersionInput struct {
 	// MCP and ClientMCP: nil keeps the current version's.
 	MCP       *[]mcp.Attach
 	ClientMCP *bool
+	// Approvals: nil keeps the current version's; so does each nil field.
+	Approvals *ApprovalPolicyInput
 }
 
 // AddVersion adds a version, which becomes the one new agents get. Existing
@@ -462,6 +471,10 @@ func (s *Service) AddVersion(ctx context.Context, a authz.Actor, id uuid.UUID, i
 			if in.ClientMCP != nil {
 				clientMCP = *in.ClientMCP
 			}
+			policy, err := in.Approvals.apply(PolicyOf(cur))
+			if err != nil {
+				return t, err
+			}
 			var attach []mcp.Attach
 			if in.MCP == nil {
 				rows, err := q.ListTemplateVersionMCP(ctx, dbgen.ListTemplateVersionMCPParams{TemplateID: id, Version: t.CurrentVersion})
@@ -488,6 +501,7 @@ func (s *Service) AddVersion(ctx context.Context, a authz.Actor, id uuid.UUID, i
 			}
 			if _, err = q.InsertTemplateVersion(ctx, dbgen.InsertTemplateVersionParams{TemplateID: id, Version: bumped.CurrentVersion,
 				Instructions: strings.TrimSpace(in.Instructions), Notes: in.Notes, ModelID: modelID, ClientMcp: clientMCP,
+				ApprovalTools: policy.Tools, ApprovalRole: policy.Role, ApprovalTimeoutSeconds: policy.TimeoutSeconds,
 				CreatedBy: uuid.NullUUID{UUID: a.UserID, Valid: a.UserID != uuid.Nil && a.Service == nil}}); err != nil {
 				return t, err
 			}

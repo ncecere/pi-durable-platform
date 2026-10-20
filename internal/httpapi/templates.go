@@ -60,8 +60,13 @@ func toAPITemplateVersion(vv agents.VersionView) apitypes.AgentTemplateVersion {
 		}
 	}
 	clientMCP := v.ClientMcp
+	policy := agents.ApprovalPolicy{Tools: v.ApprovalTools, Role: v.ApprovalRole, TimeoutSeconds: v.ApprovalTimeoutSeconds}
+	if policy.Tools == nil {
+		policy.Tools = []string{}
+	}
 	out := apitypes.AgentTemplateVersion{Mcp: &attached, ClientMcp: &clientMCP, Version: v.Version, Instructions: v.Instructions, Notes: v.Notes, CreatedByName: v.CreatedByName,
-		CreatedAt: v.CreatedAt, ModelName: v.ModelName, ModelProviderName: v.ModelProviderName}
+		CreatedAt: v.CreatedAt, ModelName: v.ModelName, ModelProviderName: v.ModelProviderName,
+		Approvals: apitypes.ToolApprovalPolicy{Tools: policy.Tools, Role: apitypes.ToolApprovalPolicyRole(policy.Role), TimeoutSeconds: policy.TimeoutSeconds}}
 	if v.ModelID.Valid {
 		id := v.ModelID.UUID
 		out.ModelId = &id
@@ -100,6 +105,7 @@ func decodeTemplateCreate(w http.ResponseWriter, r *http.Request) (agents.Templa
 	}
 	ti := agents.TemplateInput{Slug: in.Slug, Name: in.Name, Instructions: in.Instructions, ModelID: in.ModelId, MCP: attachments(in.Mcp)}
 	setIf(&ti.ClientMCP, in.ClientMcp)
+	ti.Approvals = approvalPolicyInput(in.Approvals)
 	setIf(&ti.Description, in.Description)
 	setIf(&ti.Notes, in.Notes)
 	return ti, true
@@ -169,6 +175,7 @@ func (a *api) createTemplateVersion(w http.ResponseWriter, r *http.Request) {
 		vi.MCP = &attach
 	}
 	setIf(&vi.Notes, in.Notes)
+	vi.Approvals = approvalPolicyInput(in.Approvals)
 	v, err := a.Agents.AddVersion(r.Context(), a.actor(r), id, vi)
 	a.writeTemplate(w, r, http.StatusCreated, v, err)
 }
@@ -202,8 +209,21 @@ func (a *api) reviewTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	note := ""
 	setIf(&note, in.Note)
-	v, err := a.Agents.Review(r.Context(), a.actor(r), id, in.Decision == apitypes.Approve, note)
+	v, err := a.Agents.Review(r.Context(), a.actor(r), id, in.Decision == apitypes.AgentTemplateReviewDecisionApprove, note)
 	a.writeTemplate(w, r, http.StatusOK, v, err)
+}
+
+// approvalPolicyInput is a template version's approvals as sent (nil: omitted).
+func approvalPolicyInput(in *apitypes.ToolApprovalPolicyInput) *agents.ApprovalPolicyInput {
+	if in == nil {
+		return nil
+	}
+	out := &agents.ApprovalPolicyInput{Tools: in.Tools, TimeoutSeconds: in.TimeoutSeconds}
+	if in.Role != nil {
+		role := string(*in.Role)
+		out.Role = &role
+	}
+	return out
 }
 
 func attachments(in *[]apitypes.McpAttach) []mcp.Attach {

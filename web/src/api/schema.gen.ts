@@ -1383,6 +1383,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agentId}/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The agent's tool approvals the caller may see, newest first
+         * @description Requests to approve a tool call (docs/approvals.md) in the agent's threads the caller may read: shared threads, and their own private ones. Anyone who may use the agent sees them; `canDecide` says whether the caller may decide one.
+         */
+        get: operations["listAgentApprovals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agentId}/approvals/{approvalId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                approvalId: components["parameters"]["ApprovalIdParam"];
+            };
+            cookie?: never;
+        };
+        /** One tool approval */
+        get: operations["getAgentApproval"];
+        put?: never;
+        /**
+         * Approve or deny a pending tool call
+         * @description Records the decision (audited) and delivers it to the agent, waking it if it is hibernated: an approved call runs, a denied one isn't run and the model is told, with the reason. Who may decide: the thread's creator for a private thread; for a shared thread, the person (or service account) whose message started the run, the team's owners and admins, and members whose role is at least the version's approval role; for an unattended run, the team's owners and admins. Platform staff can't. 403 approval_forbidden for someone who may see but not decide; 409 approval_decided once decided, timed out or cancelled.
+         */
+        post: operations["decideAgentApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The inbox: pending tool approvals the caller may decide, across agents */
+        get: operations["listMyApprovals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/events": {
         parameters: {
             query?: never;
@@ -2959,6 +3022,8 @@ export interface components {
             mcp?: components["schemas"]["McpAttach"][];
             /** @description Let apps give its agents MCP servers for a thread */
             clientMcp?: boolean;
+            /** @description Tools that ask a person first (version 1; default none) */
+            approvals?: components["schemas"]["ToolApprovalPolicyInput"];
         };
         AgentTemplateUpdate: {
             name?: string;
@@ -2980,6 +3045,7 @@ export interface components {
             modelProviderName?: string | null;
             mcp?: components["schemas"]["McpAttached"][];
             clientMcp?: boolean;
+            approvals: components["schemas"]["ToolApprovalPolicy"];
             /** Format: date-time */
             createdAt: string;
         };
@@ -2993,6 +3059,8 @@ export interface components {
             mcp?: components["schemas"]["McpAttach"][];
             /** @description Let apps give its agents MCP servers for a thread (omitted keeps the current version's) */
             clientMcp?: boolean;
+            /** @description Tools that ask a person first (omitted keeps the current version's, and so does a field omitted inside) */
+            approvals?: components["schemas"]["ToolApprovalPolicyInput"];
         };
         AgentTemplateReview: {
             /** @enum {string} */
@@ -3333,6 +3401,93 @@ export interface components {
              * @description When its result arrived (Unix milliseconds; absent while it runs)
              */
             endedAt?: number;
+            approval?: components["schemas"]["ChatApproval"];
+        };
+        /** @description A request to approve a tool call, as the thread's view shows it: on the call (without arguments) and in the view's pending list (with a redacted view of the arguments) */
+        ChatApproval: {
+            id: string;
+            callId: string;
+            tool: string;
+            status: components["schemas"]["ToolApprovalStatus"];
+            /** Format: int64 */
+            requestedAt: number;
+            /** Format: int64 */
+            expiresAt?: number;
+            /** @description Why approval is asked (from the agent's own hook) */
+            summary?: string;
+            requestedFor?: components["schemas"]["ChatAuthor"];
+            /** Format: int64 */
+            decidedAt?: number;
+            decidedBy?: components["schemas"]["ApprovalDecider"];
+            reason?: string;
+            arguments?: {
+                [key: string]: unknown;
+            };
+        };
+        ApprovalDecider: {
+            /** @enum {string} */
+            kind: "user" | "service_account" | "system";
+            id?: string;
+            name: string;
+        };
+        /** @enum {string} */
+        ToolApprovalStatus: "pending" | "approved" | "denied" | "timed_out" | "cancelled";
+        /** @description Which tools of a template version ask a person before they run (docs/approvals.md) */
+        ToolApprovalPolicy: {
+            /** @description Tool names, or patterns where * stands for any characters (mcp__github__*); [] for none */
+            tools: string[];
+            /**
+             * @description The lowest team role that may decide calls in shared threads besides the person the run is for (admin: owners and admins only, the default)
+             * @enum {string}
+             */
+            role: "admin" | "editor" | "member";
+            /**
+             * Format: int32
+             * @description How long a request waits before it is denied (default 86400)
+             */
+            timeoutSeconds: number;
+        };
+        ToolApprovalPolicyInput: {
+            tools?: string[];
+            /** @enum {string} */
+            role?: "admin" | "editor" | "member";
+            /** Format: int32 */
+            timeoutSeconds?: number;
+        };
+        ToolApproval: {
+            id: string;
+            /** Format: uuid */
+            agentId: string;
+            agentName: string;
+            threadId: string;
+            threadTitle?: string | null;
+            tool: string;
+            callId: string;
+            /** @description A bounded, redacted view: values under credential-like keys read [redacted], strings are cut at 2,000 characters, the whole at 16 KiB */
+            arguments: {
+                [key: string]: unknown;
+            };
+            /** @description Why approval is asked (from the agent's own hook) */
+            summary?: string;
+            requestedFor?: components["schemas"]["ApprovalDecider"];
+            status: components["schemas"]["ToolApprovalStatus"];
+            /** Format: date-time */
+            requestedAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: date-time */
+            decidedAt?: string | null;
+            decidedBy?: components["schemas"]["ApprovalDecider"];
+            /** @description The decider's reason, given to the model on denial */
+            reason?: string;
+            /** @description The caller may decide it (it is pending and they are allowed) */
+            canDecide: boolean;
+        };
+        ToolApprovalDecision: {
+            /** @enum {string} */
+            decision: "approve" | "deny";
+            /** @description Given to the model on denial */
+            reason?: string;
         };
         /** @description Who sent a user message, as the platform recorded it (a trigger - an unattended run; id is the trigger's) */
         ChatAuthor: {
@@ -3429,11 +3584,13 @@ export interface components {
             documents?: {
                 [key: string]: components["schemas"]["ChatDocumentRef"];
             };
+            /** @description The thread's tool calls waiting for a person's approval (absent when there are none) */
+            approvals?: components["schemas"]["ChatApproval"][];
         };
         /** @description One event of a thread's delta stream (`format=delta`, version 1). Which fields are set depends on `type`; see the stream's description. */
         ChatDeltaEvent: {
             /** @enum {string} */
-            type: "snapshot" | "message.added" | "message.updated" | "partial.set" | "partial.appended" | "partial.cleared" | "tool.started" | "tool.updated" | "tool.finished" | "tool.removed" | "tools.set" | "run" | "document.updated";
+            type: "snapshot" | "message.added" | "message.updated" | "partial.set" | "partial.appended" | "partial.cleared" | "tool.started" | "tool.updated" | "tool.finished" | "tool.removed" | "tools.set" | "run" | "document.updated" | "approvals.set";
             /** Format: int64 */
             seq: number;
             /** @description The format's version (snapshot) */
@@ -3473,6 +3630,8 @@ export interface components {
             kind?: string;
             /** @description document.updated - its new revision */
             revision?: string;
+            /** @description approvals.set: the thread's pending approvals now ([] none) */
+            approvals?: components["schemas"]["ChatApproval"][];
         };
         /** @description Who made the change, resolved when the log is read */
         AuditActor: {
@@ -4208,6 +4367,7 @@ export interface components {
         ModelIdParam: string;
         TemplateIdParam: string;
         AgentIdParam: string;
+        ApprovalIdParam: string;
         /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
         ThreadIdParam: string;
         /** @description An exposed document's kind (as the agent's author defined it, e.g. acme.board) */
@@ -7087,6 +7247,124 @@ export interface operations {
             403: components["responses"]["ErrorReply"];
             404: components["responses"]["ErrorReply"];
             409: components["responses"]["ErrorReply"];
+        };
+    };
+    listAgentApprovals: {
+        parameters: {
+            query?: {
+                /** @description One thread's only */
+                thread?: string;
+                /** @description pending (default), decided (approved, denied, timed out or cancelled) or all */
+                status?: "pending" | "decided" | "all";
+                /** @description At most this many (1-200, default 100) */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Approvals */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ToolApproval"][];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    getAgentApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                approvalId: components["parameters"]["ApprovalIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The approval */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ToolApproval"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+        };
+    };
+    decideAgentApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agentId: components["parameters"]["AgentIdParam"];
+                approvalId: components["parameters"]["ApprovalIdParam"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToolApprovalDecision"];
+            };
+        };
+        responses: {
+            /** @description The decided approval */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ToolApproval"];
+                    };
+                };
+            };
+            400: components["responses"]["ErrorReply"];
+            401: components["responses"]["ErrorReply"];
+            403: components["responses"]["ErrorReply"];
+            404: components["responses"]["ErrorReply"];
+            409: components["responses"]["ErrorReply"];
+        };
+    };
+    listMyApprovals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Approvals, newest first (at most 200) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ToolApproval"][];
+                    };
+                };
+            };
+            401: components["responses"]["ErrorReply"];
         };
     };
     streamAgentEvents: {

@@ -43,6 +43,9 @@ type teamFix struct {
 	// owner is an owner of the team; agent a team agent with a thread;
 	// template a private team template.
 	owner, agent, thread, template string
+	// approval is a pending tool approval in the agent's thread, of an
+	// unattended run (its team's owners and admins decide).
+	approval string
 	// provider is a model provider of the team's own, and model one of its
 	// models; mcpServer an MCP server of the team's own.
 	provider, model, mcpServer string
@@ -170,6 +173,7 @@ func newMatrixEnv(t *testing.T) *matrixEnv {
 	for _, tf := range []*teamFix{&e.a, &e.b} {
 		tf.agent = e.newAgent(*tf)
 		tf.thread = e.newThread(*tf, tf.agent)
+		tf.approval = e.newApproval(*tf)
 		tf.template = e.newTemplate(*tf, "private")
 	}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -325,6 +329,14 @@ func (e *matrixEnv) newAgent(tf teamFix) string {
 
 // newThread starts a conversation with a team agent, as the team's owner
 // (this starts the agent's runtime).
+// newApproval inserts a pending tool approval in the team agent's thread, as
+// its runtime would report one for an unattended run.
+func (e *matrixEnv) newApproval(tf teamFix) string {
+	id := fmt.Sprintf("ap_matrix%d", e.next())
+	return e.exec(`INSERT INTO tool_approvals (agent_id, id, thread_id, tool, call_id, expires_at)
+		VALUES ($1, $2, $3, 'get_time', 'c1', now() + interval '1 day') RETURNING id`, tf.agent, id, tf.thread)
+}
+
 func (e *matrixEnv) newThread(tf teamFix, agentID string) string {
 	e.t.Helper()
 	thread := fmt.Sprintf("t-%d", e.next())
@@ -378,6 +390,16 @@ func (c *mctx) thread(suffix string, fresh bool) string {
 // adminThread is the team agent's thread under the platform admins' routes
 // (the thread is shared; private threads are covered by
 // private_threads_integration_test.go).
+// approval is the team agent's pending approval, or a fresh one for a
+// decision expected to succeed (a decided one can't be decided again).
+func (c *mctx) approval() string {
+	id := c.tf.approval
+	if c.allowed {
+		id = c.e.newApproval(*c.tf)
+	}
+	return "/v1/agents/" + c.tf.agent + "/approvals/" + id
+}
+
 func (c *mctx) adminThread(suffix string) string {
 	return "/v1/admin/agents/" + c.tf.agent + "/threads/" + c.tf.thread + suffix
 }

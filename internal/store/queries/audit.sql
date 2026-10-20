@@ -55,6 +55,11 @@ CROSS JOIN LATERAL (
                                   JOIN agent_threads th ON th.agent_id = ag.id AND th.thread_id = split_part(a.target_id, '/', 2)
                                   WHERE ag.id = CASE WHEN a.target_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/'
                                                      THEN split_part(a.target_id, '/', 1)::uuid END)
+        -- "<agentId>/<approvalId>": the agent's name and the tool.
+        WHEN 'tool_approval' THEN (SELECT ag.name || ' · ' || ta.tool FROM agents ag
+                                   JOIN tool_approvals ta ON ta.agent_id = ag.id AND ta.id = split_part(a.target_id, '/', 2)
+                                   WHERE ag.id = CASE WHEN a.target_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/'
+                                                      THEN split_part(a.target_id, '/', 1)::uuid END)
         WHEN 'agent_template' THEN (SELECT tpl.name FROM agent_templates tpl WHERE tpl.id = ids.target_uuid)
         WHEN 'model_provider' THEN (SELECT p.name FROM model_providers p WHERE p.id = ids.target_uuid)
         WHEN 'model' THEN (SELECT m.name FROM models m WHERE m.id = ids.target_uuid)

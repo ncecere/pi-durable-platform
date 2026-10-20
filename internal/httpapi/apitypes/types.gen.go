@@ -110,16 +110,16 @@ func (e AgentTemplateStatus) Valid() bool {
 
 // Defines values for AgentTemplateReviewDecision.
 const (
-	Approve AgentTemplateReviewDecision = "approve"
-	Reject  AgentTemplateReviewDecision = "reject"
+	AgentTemplateReviewDecisionApprove AgentTemplateReviewDecision = "approve"
+	AgentTemplateReviewDecisionReject  AgentTemplateReviewDecision = "reject"
 )
 
 // Valid indicates whether the value is a known member of the AgentTemplateReviewDecision enum.
 func (e AgentTemplateReviewDecision) Valid() bool {
 	switch e {
-	case Approve:
+	case AgentTemplateReviewDecisionApprove:
 		return true
-	case Reject:
+	case AgentTemplateReviewDecisionReject:
 		return true
 	default:
 		return false
@@ -177,6 +177,27 @@ func (e AppThreadPersonKind) Valid() bool {
 	case AppThreadPersonKindServiceAccount:
 		return true
 	case AppThreadPersonKindUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ApprovalDeciderKind.
+const (
+	ApprovalDeciderKindServiceAccount ApprovalDeciderKind = "service_account"
+	ApprovalDeciderKindSystem         ApprovalDeciderKind = "system"
+	ApprovalDeciderKindUser           ApprovalDeciderKind = "user"
+)
+
+// Valid indicates whether the value is a known member of the ApprovalDeciderKind enum.
+func (e ApprovalDeciderKind) Valid() bool {
+	switch e {
+	case ApprovalDeciderKindServiceAccount:
+		return true
+	case ApprovalDeciderKindSystem:
+		return true
+	case ApprovalDeciderKindUser:
 		return true
 	default:
 		return false
@@ -278,6 +299,7 @@ func (e ChatAuthorKind) Valid() bool {
 
 // Defines values for ChatDeltaEventType.
 const (
+	ApprovalsSet    ChatDeltaEventType = "approvals.set"
 	DocumentUpdated ChatDeltaEventType = "document.updated"
 	MessageAdded    ChatDeltaEventType = "message.added"
 	MessageUpdated  ChatDeltaEventType = "message.updated"
@@ -296,6 +318,8 @@ const (
 // Valid indicates whether the value is a known member of the ChatDeltaEventType enum.
 func (e ChatDeltaEventType) Valid() bool {
 	switch e {
+	case ApprovalsSet:
+		return true
 	case DocumentUpdated:
 		return true
 	case MessageAdded:
@@ -764,16 +788,16 @@ func (e OAuthClientInfoKind) Valid() bool {
 
 // Defines values for OAuthConsentDecisionDecision.
 const (
-	Allow OAuthConsentDecisionDecision = "allow"
-	Deny  OAuthConsentDecisionDecision = "deny"
+	OAuthConsentDecisionDecisionAllow OAuthConsentDecisionDecision = "allow"
+	OAuthConsentDecisionDecisionDeny  OAuthConsentDecisionDecision = "deny"
 )
 
 // Valid indicates whether the value is a known member of the OAuthConsentDecisionDecision enum.
 func (e OAuthConsentDecisionDecision) Valid() bool {
 	switch e {
-	case Allow:
+	case OAuthConsentDecisionDecisionAllow:
 		return true
-	case Deny:
+	case OAuthConsentDecisionDecisionDeny:
 		return true
 	default:
 		return false
@@ -993,6 +1017,93 @@ func (e ThreadVisibility) Valid() bool {
 	case ThreadVisibilityPrivate:
 		return true
 	case ThreadVisibilityShared:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ToolApprovalDecisionDecision.
+const (
+	ToolApprovalDecisionDecisionApprove ToolApprovalDecisionDecision = "approve"
+	ToolApprovalDecisionDecisionDeny    ToolApprovalDecisionDecision = "deny"
+)
+
+// Valid indicates whether the value is a known member of the ToolApprovalDecisionDecision enum.
+func (e ToolApprovalDecisionDecision) Valid() bool {
+	switch e {
+	case ToolApprovalDecisionDecisionApprove:
+		return true
+	case ToolApprovalDecisionDecisionDeny:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ToolApprovalPolicyRole.
+const (
+	ToolApprovalPolicyRoleAdmin  ToolApprovalPolicyRole = "admin"
+	ToolApprovalPolicyRoleEditor ToolApprovalPolicyRole = "editor"
+	ToolApprovalPolicyRoleMember ToolApprovalPolicyRole = "member"
+)
+
+// Valid indicates whether the value is a known member of the ToolApprovalPolicyRole enum.
+func (e ToolApprovalPolicyRole) Valid() bool {
+	switch e {
+	case ToolApprovalPolicyRoleAdmin:
+		return true
+	case ToolApprovalPolicyRoleEditor:
+		return true
+	case ToolApprovalPolicyRoleMember:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ToolApprovalPolicyInputRole.
+const (
+	ToolApprovalPolicyInputRoleAdmin  ToolApprovalPolicyInputRole = "admin"
+	ToolApprovalPolicyInputRoleEditor ToolApprovalPolicyInputRole = "editor"
+	ToolApprovalPolicyInputRoleMember ToolApprovalPolicyInputRole = "member"
+)
+
+// Valid indicates whether the value is a known member of the ToolApprovalPolicyInputRole enum.
+func (e ToolApprovalPolicyInputRole) Valid() bool {
+	switch e {
+	case ToolApprovalPolicyInputRoleAdmin:
+		return true
+	case ToolApprovalPolicyInputRoleEditor:
+		return true
+	case ToolApprovalPolicyInputRoleMember:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ToolApprovalStatus.
+const (
+	ToolApprovalStatusApproved  ToolApprovalStatus = "approved"
+	ToolApprovalStatusCancelled ToolApprovalStatus = "cancelled"
+	ToolApprovalStatusDenied    ToolApprovalStatus = "denied"
+	ToolApprovalStatusPending   ToolApprovalStatus = "pending"
+	ToolApprovalStatusTimedOut  ToolApprovalStatus = "timed_out"
+)
+
+// Valid indicates whether the value is a known member of the ToolApprovalStatus enum.
+func (e ToolApprovalStatus) Valid() bool {
+	switch e {
+	case ToolApprovalStatusApproved:
+		return true
+	case ToolApprovalStatusCancelled:
+		return true
+	case ToolApprovalStatusDenied:
+		return true
+	case ToolApprovalStatusPending:
+		return true
+	case ToolApprovalStatusTimedOut:
 		return true
 	default:
 		return false
@@ -1371,6 +1482,27 @@ func (e AdminGetUsageParamsGroupBy) Valid() bool {
 	}
 }
 
+// Defines values for ListAgentApprovalsParamsStatus.
+const (
+	ListAgentApprovalsParamsStatusAll     ListAgentApprovalsParamsStatus = "all"
+	ListAgentApprovalsParamsStatusDecided ListAgentApprovalsParamsStatus = "decided"
+	ListAgentApprovalsParamsStatusPending ListAgentApprovalsParamsStatus = "pending"
+)
+
+// Valid indicates whether the value is a known member of the ListAgentApprovalsParamsStatus enum.
+func (e ListAgentApprovalsParamsStatus) Valid() bool {
+	switch e {
+	case ListAgentApprovalsParamsStatusAll:
+		return true
+	case ListAgentApprovalsParamsStatusDecided:
+		return true
+	case ListAgentApprovalsParamsStatusPending:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for StreamAgentThreadParamsFormat.
 const (
 	Delta StreamAgentThreadParamsFormat = "delta"
@@ -1722,6 +1854,9 @@ type AgentTemplateStatus string
 
 // AgentTemplateCreate defines model for AgentTemplateCreate.
 type AgentTemplateCreate struct {
+	// Approvals Tools that ask a person first (version 1; default none)
+	Approvals *ToolApprovalPolicyInput `json:"approvals,omitempty"`
+
 	// ClientMcp Let apps give its agents MCP servers for a thread
 	ClientMcp   *bool   `json:"clientMcp,omitempty"`
 	Description *string `json:"description,omitempty"`
@@ -1759,11 +1894,13 @@ type AgentTemplateUpdate struct {
 
 // AgentTemplateVersion defines model for AgentTemplateVersion.
 type AgentTemplateVersion struct {
-	ClientMcp     *bool          `json:"clientMcp,omitempty"`
-	CreatedAt     time.Time      `json:"createdAt"`
-	CreatedByName *string        `json:"createdByName,omitempty"`
-	Instructions  string         `json:"instructions"`
-	Mcp           *[]McpAttached `json:"mcp,omitempty"`
+	// Approvals Which tools of a template version ask a person before they run (docs/approvals.md)
+	Approvals     ToolApprovalPolicy `json:"approvals"`
+	ClientMcp     *bool              `json:"clientMcp,omitempty"`
+	CreatedAt     time.Time          `json:"createdAt"`
+	CreatedByName *string            `json:"createdByName,omitempty"`
+	Instructions  string             `json:"instructions"`
+	Mcp           *[]McpAttached     `json:"mcp,omitempty"`
 
 	// ModelId Its model (absent - the platform's default)
 	ModelId           *openapi_types.UUID `json:"modelId,omitempty"`
@@ -1775,6 +1912,9 @@ type AgentTemplateVersion struct {
 
 // AgentTemplateVersionCreate defines model for AgentTemplateVersionCreate.
 type AgentTemplateVersionCreate struct {
+	// Approvals Tools that ask a person first (omitted keeps the current version's, and so does a field omitted inside)
+	Approvals *ToolApprovalPolicyInput `json:"approvals,omitempty"`
+
 	// ClientMcp Let apps give its agents MCP servers for a thread (omitted keeps the current version's)
 	ClientMcp    *bool  `json:"clientMcp,omitempty"`
 	Instructions string `json:"instructions"`
@@ -2026,6 +2166,16 @@ type AppUsageRow struct {
 	UnpricedRequests int64 `json:"unpricedRequests"`
 }
 
+// ApprovalDecider defines model for ApprovalDecider.
+type ApprovalDecider struct {
+	Id   *string             `json:"id,omitempty"`
+	Kind ApprovalDeciderKind `json:"kind"`
+	Name string              `json:"name"`
+}
+
+// ApprovalDeciderKind defines model for ApprovalDecider.Kind.
+type ApprovalDeciderKind string
+
 // AuditActor Who made the change, resolved when the log is read
 type AuditActor struct {
 	// ApiKeyName The API key used (api_key actors)
@@ -2127,6 +2277,26 @@ type Capabilities struct {
 	PlatformAuditor bool `json:"platformAuditor"`
 }
 
+// ChatApproval A request to approve a tool call, as the thread's view shows it: on the call (without arguments) and in the view's pending list (with a redacted view of the arguments)
+type ChatApproval struct {
+	Arguments   *map[string]interface{} `json:"arguments,omitempty"`
+	CallId      string                  `json:"callId"`
+	DecidedAt   *int64                  `json:"decidedAt,omitempty"`
+	DecidedBy   *ApprovalDecider        `json:"decidedBy,omitempty"`
+	ExpiresAt   *int64                  `json:"expiresAt,omitempty"`
+	Id          string                  `json:"id"`
+	Reason      *string                 `json:"reason,omitempty"`
+	RequestedAt int64                   `json:"requestedAt"`
+
+	// RequestedFor Who sent a user message, as the platform recorded it (a trigger - an unattended run; id is the trigger's)
+	RequestedFor *ChatAuthor        `json:"requestedFor,omitempty"`
+	Status       ToolApprovalStatus `json:"status"`
+
+	// Summary Why approval is asked (from the agent's own hook)
+	Summary *string `json:"summary,omitempty"`
+	Tool    string  `json:"tool"`
+}
+
 // ChatAuthor Who sent a user message, as the platform recorded it (a trigger - an unattended run; id is the trigger's)
 type ChatAuthor struct {
 	Id   string         `json:"id"`
@@ -2142,8 +2312,10 @@ type ChatAuthorKind string
 
 // ChatDeltaEvent One event of a thread's delta stream (`format=delta`, version 1). Which fields are set depends on `type`; see the stream's description.
 type ChatDeltaEvent struct {
-	Busy   *bool   `json:"busy,omitempty"`
-	CallId *string `json:"callId,omitempty"`
+	// Approvals approvals.set: the thread's pending approvals now ([] none)
+	Approvals *[]ChatApproval `json:"approvals,omitempty"`
+	Busy      *bool           `json:"busy,omitempty"`
+	CallId    *string         `json:"callId,omitempty"`
 
 	// Details tool.updated and tool.finished - the tool's new details (null - none)
 	Details interface{} `json:"details,omitempty"`
@@ -2241,6 +2413,8 @@ type ChatModel struct {
 
 // ChatToolCall defines model for ChatToolCall.
 type ChatToolCall struct {
+	// Approval A request to approve a tool call, as the thread's view shows it: on the call (without arguments) and in the view's pending list (with a redacted view of the arguments)
+	Approval  *ChatApproval          `json:"approval,omitempty"`
 	Arguments map[string]interface{} `json:"arguments"`
 
 	// EndedAt When its result arrived (Unix milliseconds; absent while it runs)
@@ -2277,7 +2451,9 @@ type ChatUsage struct {
 
 // ChatView defines model for ChatView.
 type ChatView struct {
-	Busy bool `json:"busy"`
+	// Approvals The thread's tool calls waiting for a person's approval (absent when there are none)
+	Approvals *[]ChatApproval `json:"approvals,omitempty"`
+	Busy      bool            `json:"busy"`
 
 	// Documents The documents the agent exposes that the conversation has, by kind, with their revisions (absent when it has none). Read one with getAgentThreadDocument.
 	Documents *map[string]ChatDocumentRef `json:"documents,omitempty"`
@@ -3203,6 +3379,74 @@ type ThreadPrincipalKind string
 // ThreadVisibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen when the thread starts (createAgentThread, its first message, or its MCP servers being set); it never changes.
 type ThreadVisibility string
 
+// ToolApproval defines model for ToolApproval.
+type ToolApproval struct {
+	AgentId   openapi_types.UUID `json:"agentId"`
+	AgentName string             `json:"agentName"`
+
+	// Arguments A bounded, redacted view: values under credential-like keys read [redacted], strings are cut at 2,000 characters, the whole at 16 KiB
+	Arguments map[string]interface{} `json:"arguments"`
+	CallId    string                 `json:"callId"`
+
+	// CanDecide The caller may decide it (it is pending and they are allowed)
+	CanDecide bool             `json:"canDecide"`
+	DecidedAt *time.Time       `json:"decidedAt,omitempty"`
+	DecidedBy *ApprovalDecider `json:"decidedBy,omitempty"`
+	ExpiresAt time.Time        `json:"expiresAt"`
+	Id        string           `json:"id"`
+
+	// Reason The decider's reason, given to the model on denial
+	Reason       *string            `json:"reason,omitempty"`
+	RequestedAt  time.Time          `json:"requestedAt"`
+	RequestedFor *ApprovalDecider   `json:"requestedFor,omitempty"`
+	Status       ToolApprovalStatus `json:"status"`
+
+	// Summary Why approval is asked (from the agent's own hook)
+	Summary     *string `json:"summary,omitempty"`
+	ThreadId    string  `json:"threadId"`
+	ThreadTitle *string `json:"threadTitle,omitempty"`
+	Tool        string  `json:"tool"`
+}
+
+// ToolApprovalDecision defines model for ToolApprovalDecision.
+type ToolApprovalDecision struct {
+	Decision ToolApprovalDecisionDecision `json:"decision"`
+
+	// Reason Given to the model on denial
+	Reason *string `json:"reason,omitempty"`
+}
+
+// ToolApprovalDecisionDecision defines model for ToolApprovalDecision.Decision.
+type ToolApprovalDecisionDecision string
+
+// ToolApprovalPolicy Which tools of a template version ask a person before they run (docs/approvals.md)
+type ToolApprovalPolicy struct {
+	// Role The lowest team role that may decide calls in shared threads besides the person the run is for (admin: owners and admins only, the default)
+	Role ToolApprovalPolicyRole `json:"role"`
+
+	// TimeoutSeconds How long a request waits before it is denied (default 86400)
+	TimeoutSeconds int32 `json:"timeoutSeconds"`
+
+	// Tools Tool names, or patterns where * stands for any characters (mcp__github__*); [] for none
+	Tools []string `json:"tools"`
+}
+
+// ToolApprovalPolicyRole The lowest team role that may decide calls in shared threads besides the person the run is for (admin: owners and admins only, the default)
+type ToolApprovalPolicyRole string
+
+// ToolApprovalPolicyInput defines model for ToolApprovalPolicyInput.
+type ToolApprovalPolicyInput struct {
+	Role           *ToolApprovalPolicyInputRole `json:"role,omitempty"`
+	TimeoutSeconds *int32                       `json:"timeoutSeconds,omitempty"`
+	Tools          *[]string                    `json:"tools,omitempty"`
+}
+
+// ToolApprovalPolicyInputRole defines model for ToolApprovalPolicyInput.Role.
+type ToolApprovalPolicyInputRole string
+
+// ToolApprovalStatus defines model for ToolApprovalStatus.
+type ToolApprovalStatus string
+
 // Trigger defines model for Trigger.
 type Trigger struct {
 	AgentId              openapi_types.UUID  `json:"agentId"`
@@ -3568,6 +3812,9 @@ type WorkspaceLimitsUpdate struct {
 // AgentIdParam defines model for AgentIdParam.
 type AgentIdParam = openapi_types.UUID
 
+// ApprovalIdParam defines model for ApprovalIdParam.
+type ApprovalIdParam = string
+
 // AuditActionParam Example: team.
 type AuditActionParam = string
 
@@ -3868,6 +4115,21 @@ type UpdateAgentParams struct {
 	// IfMatch The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412.
 	IfMatch IfMatchHeader `json:"If-Match"`
 }
+
+// ListAgentApprovalsParams defines parameters for ListAgentApprovals.
+type ListAgentApprovalsParams struct {
+	// Thread One thread's only
+	Thread *string `form:"thread,omitempty" json:"thread,omitempty"`
+
+	// Status pending (default), decided (approved, denied, timed out or cancelled) or all
+	Status *ListAgentApprovalsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+
+	// Limit At most this many (1-200, default 100)
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListAgentApprovalsParamsStatus defines parameters for ListAgentApprovals.
+type ListAgentApprovalsParamsStatus string
 
 // PlanAgentMoveParams defines parameters for PlanAgentMove.
 type PlanAgentMoveParams struct {
@@ -4175,6 +4437,9 @@ type CreateTemplateVersionJSONRequestBody = AgentTemplateVersionCreate
 
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = AgentUpdate
+
+// DecideAgentApprovalJSONRequestBody defines body for DecideAgentApproval for application/json ContentType.
+type DecideAgentApprovalJSONRequestBody = ToolApprovalDecision
 
 // MoveAgentJSONRequestBody defines body for MoveAgent for application/json ContentType.
 type MoveAgentJSONRequestBody = AgentMove
