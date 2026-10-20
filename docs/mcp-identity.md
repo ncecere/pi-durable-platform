@@ -126,8 +126,11 @@ unknown bearer tokens would stop working on upgrade. Platform admins and teams c
 
 **Which requests.** Every request the gateway forwards to a server whose *Send identity* is on: the handshake, lists,
 calls, notifications and session `GET`/`DELETE`. Each carries a fresh token. The runtime sends `PDP-Thread` with tool
-calls only; the handshake and the lists name nobody (`thread_visibility: none`), like Open MCP Portal's refresh and
-discovery. The platform's own reads of a server's tools (create, refresh) carry no token.
+calls only, so the handshake and the lists belong to no thread (`thread_visibility: none`): they name a personal
+workspace's owner with `person_present: false`, and nobody otherwise. The platform's own reads of a server's tools
+(create, refresh) carry no token. When the gateway can't sign (no usable key, for example after `ENCRYPTION_KEY`
+changed without `ENCRYPTION_KEY_PREVIOUS`), it refuses the request (503 `identity_unavailable`) rather than send it
+without the token, and logs why (never a token or a key).
 
 ## Keys and rotation
 
@@ -138,8 +141,8 @@ discovery. The platform's own reads of a server's tools (create, refresh) carry 
 - **Which key signs.** Each key has `signs_from`. The key that signs is the one with the latest `signs_from` that has
   passed; every replica chooses by time from the same rows (cached for a minute), so they switch together.
 - **The JWKS** lists the key that signs now, keys that will sign (published before they are used) and keys that
-  stopped signing in the last hour (tokens last five minutes). `Cache-Control: public, max-age=300`. Servers fetch it
-  again when a token has a `kid` they haven't seen.
+  stopped signing in the last hour (tokens last five minutes), as `application/jwk-set+json` with
+  `Cache-Control: public, max-age=300`. Servers fetch it again when a token has a `kid` they haven't seen.
 - **Rotating.** `pi-durable-platform rotate-mcp-identity-key` adds a key that starts signing after `--prepublish`
   (default 24h, at least 10 minutes), so servers' cached sets already hold it; the previous key stays published for an
   hour after it stops. `--now` signs with the new key at once (a server meets an unknown `kid` and fetches the set
@@ -147,7 +150,8 @@ discovery. The platform's own reads of a server's tools (create, refresh) carry 
   that stopped signing more than a day ago are deleted by the next rotation. Each rotation is audited
   (`platform.mcp_identity_key_rotate`); the first key is too (`platform.mcp_identity_key_create`).
 - **doctor** (`keys mcp-identity`) says which key signs and since when, warns when there is none yet (serve creates it)
-  or it is older than 90 days, and lists keys waiting to sign.
+  or it is older than 90 days (information only once its successor is published), fails when keys exist but none
+  signs now, and counts keys waiting to sign.
 
 ## Per server
 

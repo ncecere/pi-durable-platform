@@ -91,7 +91,11 @@ kubectl -n pi-durable-platform exec deploy/pi-durable-platform -- /pi-durable-pl
 ```
 
 `doctor` checks the configuration, both databases, migrations and the agents provisioning role, and warns when PUBLIC may
-still connect to the platform database (see step 2 above). Then sign in at your
+still connect to the platform database (see step 2 above). The platform creates the key that signs the identity tokens MCP
+servers receive when it first starts; servers verify them with `<appUrl>/.well-known/mcp-identity-jwks.json`, so MCP
+servers that check the token must reach `appUrl`. Rotate the key with
+`kubectl -n pi-durable-platform exec deploy/pi-durable-platform -- /pi-durable-platform rotate-mcp-identity-key`
+(`doctor` warns after 90 days; see [docs/mcp-identity.md](../docs/mcp-identity.md)). Then sign in at your
 `appUrl`: the person whose OIDC subject is `BOOTSTRAP_ADMIN_SUBJECT` becomes platform admin on their first sign-in
 (once). Teams, agents, models and MCP servers are managed from the console, not from the deployment.
 
