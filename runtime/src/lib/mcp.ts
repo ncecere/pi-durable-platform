@@ -1,8 +1,9 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { Context } from "@earendil-works/chord/context";
 import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
 import { createToolSearchExtension } from "@earendil-works/pi-durable/tool-search";
-import { McpClient, StreamableHttpTransport, toLlmContent } from "@earendil-works/pi-mcp";
+import { McpClient, type McpFetch, StreamableHttpTransport, toLlmContent } from "@earendil-works/pi-mcp";
 
 /** How the runtime reaches one MCP server (the platform's RuntimeServer). */
 export type McpServerConfig = {
@@ -15,7 +16,23 @@ export type McpServerConfig = {
 	tools?: { name: string; title?: string; description?: string; inputSchema?: Record<string, unknown> }[];
 	thread?: string;
 	client?: boolean;
+	/** The platform's MCP proxy: name each tool call's thread (PDP-Thread), so the platform can say who the call is for. */
+	sendThread?: boolean;
 };
+
+/** The thread of the tool call in progress, for PDP-Thread. */
+const callThread = new AsyncLocalStorage<string>();
+
+/** fetch that adds PDP-Thread to a tool call's requests (only to the platform's proxy: servers marked sendThread). */
+export function threadFetch(base: McpFetch): McpFetch {
+	return (input, init) => {
+		const thread = callThread.getStore();
+		if (thread === undefined) return base(input, init);
+		const headers = new Headers(init?.headers);
+		headers.set("PDP-Thread", thread);
+		return base(input, { ...init, headers });
+	};
+}
 
 /** Above this many MCP tools, they are deferred: the model finds them with tool_search. */
 const DEFER_ABOVE = 20;
@@ -43,12 +60,16 @@ export function toolName(prefix: string, slug: string, tool: string): string {
 /** One lazily connected MCP session per server; reconnects after a failure. */
 class Connection {
 	private client: Promise<McpClient> | undefined;
-	constructor(private readonly server: McpServerConfig) {}
+	constructor(
+		private readonly server: McpServerConfig,
+		private readonly fetchImpl?: McpFetch,
+	) {}
 
 	get(): Promise<McpClient> {
 		this.client ??= (async () => {
 			const client = new McpClient({ name: "pi-durable-platform-agent", version: "1", requestTimeoutMs: 120_000 });
-			await client.connect(new StreamableHttpTransport({ url: this.server.url, headers: this.server.headers, openGetStream: false }));
+			const fetch = this.fetchImpl ? { fetch: this.server.sendThread ? threadFetch(this.fetchImpl) : this.fetchImpl } : {};
+			await client.connect(new StreamableHttpTransport({ url: this.server.url, headers: this.server.headers, openGetStream: false, ...fetch }));
 			return client;
 		})().catch((error: unknown) => {
 			this.client = undefined;
@@ -64,17 +85,29 @@ class Connection {
 	}
 }
 
-function toolsFor(prefix: string, server: McpServerConfig, tools: NonNullable<McpServerConfig["tools"]>, conn: Connection, deferred: boolean): ToolRegistration[] {
+type ThreadOf = (conversationId: number) => Promise<string | undefined>;
+
+function toolsFor(
+	prefix: string,
+	server: McpServerConfig,
+	tools: NonNullable<McpServerConfig["tools"]>,
+	conn: Connection,
+	deferred: boolean,
+	threadOf?: ThreadOf,
+): ToolRegistration[] {
 	return tools.map((tool) =>
 		defineTool({
 			name: toolName(prefix, server.slug, tool.name),
 			description: `${tool.description ?? tool.title ?? tool.name} (MCP server ${server.name})`.slice(0, 4000),
 			parameters: Type.Unsafe<Record<string, unknown>>({ ...(tool.inputSchema ?? {}), type: "object", properties: (tool.inputSchema?.properties as object) ?? {} }),
 			...(deferred ? { deferred: true as const } : {}),
-			execute: async (args, _api, context: Context) => {
+			execute: async (args, api, context: Context) => {
 				const client = await conn.get();
+				// The handshake above names no thread; the call does (the platform looks it up among this agent's threads).
+				const thread = server.sendThread ? await threadOf?.(api.conversationId as unknown as number) : undefined;
+				const call = () => client.callTool(tool.name, args as Record<string, unknown>, context.abortSignal ? { signal: context.abortSignal } : {});
 				try {
-					const result = await client.callTool(tool.name, args as Record<string, unknown>, context.abortSignal ? { signal: context.abortSignal } : {});
+					const result = await (thread === undefined ? call() : callThread.run(thread, call));
 					return { output: toLlmContent(result), isError: result.isError === true };
 				} catch (error) {
 					await conn.close(); // a fresh session next time
@@ -95,6 +128,8 @@ export class AgentMcp {
 	private readonly connections: Connection[] = [];
 	private readonly threadExts = new Map<string, { key: string; extension: Extension; connections: Connection[] }>();
 	private toolSearch: Extension | undefined;
+	/** The thread a conversation belongs to (set once the threads are known); the template's proxied tool calls name it. */
+	threadOf: ThreadOf = async () => undefined;
 
 	constructor(
 		private readonly env: Record<string, string | undefined>,
@@ -106,9 +141,9 @@ export class AgentMcp {
 		const deferred = count > DEFER_ABOVE;
 		const tools: ToolRegistration[] = [];
 		for (const server of servers) {
-			const conn = new Connection(server);
+			const conn = new Connection(server, (input, init) => this.fetchImpl(input, init));
 			this.connections.push(conn);
-			tools.push(...toolsFor("mcp", server, server.tools ?? [], conn, deferred));
+			tools.push(...toolsFor("mcp", server, server.tools ?? [], conn, deferred, (id) => this.threadOf(id)));
 		}
 		if (tools.length > 0) this.extensions.push(defineExtension({ name: "mcp", tools }));
 		if (deferred) this.extensions.push(this.searchExtension());

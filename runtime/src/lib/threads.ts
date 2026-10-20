@@ -67,6 +67,12 @@ export class ThreadStore {
 		}, ctx);
 	}
 
+	/** The thread a conversation belongs to (undefined: none, such as a task's own conversation). */
+	async threadOf(conversationId: number): Promise<string | undefined> {
+		const state = await this.harness.snapshot(ThreadsDoc, ctx);
+		return Object.entries(state?.threads ?? {}).find(([, record]) => record.conversationId === conversationId)?.[0];
+	}
+
 	async list(): Promise<ThreadRecord[]> {
 		const state = await this.harness.snapshot(ThreadsDoc, ctx);
 		return Object.entries(state?.threads ?? {})
