@@ -186,3 +186,19 @@ export function gatewayPost(baseUrl: string, key: string, fetchImpl: typeof fetc
 		if (!res.ok) throw new Error(`status ${res.status}`);
 	};
 }
+
+/** Posts JSON to the platform's gateway with the agent's credential and returns the reply's `data`. */
+export function gatewayCall(baseUrl: string, key: string, fetchImpl: typeof fetch = fetch): (path: string, body: unknown) => Promise<unknown> {
+	return async (path, body) => {
+		const res = await fetchImpl(baseUrl.replace(/\/$/, "") + path, {
+			method: "POST",
+			headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+			body: JSON.stringify(body),
+			signal: AbortSignal.timeout(10_000),
+		});
+		if (!res.ok) throw new Error(`status ${res.status}`);
+		const text = await res.text();
+		if (text.length > 1 << 20) throw new Error("reply too large");
+		return text === "" ? undefined : (JSON.parse(text) as { data?: unknown }).data;
+	};
+}

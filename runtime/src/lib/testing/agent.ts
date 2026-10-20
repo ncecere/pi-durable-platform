@@ -4,6 +4,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Harness } from "@earendil-works/pi-durable";
 import { type AgentConfig, type RunningAgent, startAgent } from "../agent.ts";
 import { assistantAgent, DEFAULT_INSTRUCTIONS } from "../assistant.ts";
+import type { ApprovalRecord } from "../approvals.ts";
 import type { AgentDefinition } from "../define.ts";
 import type { ChatView } from "../view.ts";
 import { type FakeModel, fakeModel } from "./model.ts";
@@ -44,13 +45,22 @@ export type TestAgent = {
 	settled(threadId: string, options?: { timeoutMs?: number; messages?: number }): Promise<ChatView>;
 	/** The agent's `/status`. */
 	status(): Promise<Record<string, unknown>>;
+	/** The agent's approval requests (pending first), or one thread's (`GET /approvals`). */
+	approvals(threadId?: string): Promise<ApprovalRecord[]>;
+	/** Waits until a request is pending (in the thread, when given) and returns it (at most `timeoutMs`, default 10 s). */
+	pendingApproval(threadId?: string, options?: { timeoutMs?: number }): Promise<ApprovalRecord>;
+	/** Decides a request as the platform would (`POST /approvals/{id}`); returns the HTTP status. */
+	decide(id: string, decision: "approve" | "deny" | "timeout" | "cancel", body?: Record<string, unknown>): Promise<number>;
 	/**
 	 * The process dies now, wherever it is (in a model request, a tool call, a subagent): nothing reaches storage any
 	 * more, its HTTP server stops and its running code is aborted.
 	 */
 	crash(): void;
-	/** Crashes (unless already crashed or closed) and starts the agent again on the same storage, as its supervisor would. */
-	restart(changes?: { definition?: AgentDefinition; model?: FakeModel; env?: Record<string, string> }): Promise<TestAgent>;
+	/**
+	 * Crashes (unless already crashed or closed) and starts the agent again on the same storage, as its supervisor would.
+	 * `graceful: true` stops it as hibernation does instead (running code is aborted, nothing in flight is written).
+	 */
+	restart(changes?: { definition?: AgentDefinition; model?: FakeModel; env?: Record<string, string>; graceful?: boolean }): Promise<TestAgent>;
 	/** A graceful stop (hibernation). */
 	close(): Promise<void>;
 };
@@ -129,6 +139,17 @@ export async function startTestAgent(definition: AgentDefinition = assistantAgen
 			throw new Error(`thread ${threadId} did not settle within ${timeoutMs} ms: ${JSON.stringify(last?.messages.at(-1) ?? null)}`);
 		},
 		status: async () => (await call("/status")).body.data as Record<string, unknown>,
+		approvals: async (threadId) => (await call(`/approvals${threadId === undefined ? "" : `?thread=${encodeURIComponent(threadId)}`}`)).body.data as ApprovalRecord[],
+		pendingApproval: async (threadId, { timeoutMs = 10_000 } = {}) => {
+			const deadline = Date.now() + timeoutMs;
+			while (Date.now() < deadline) {
+				const found = (await self.approvals(threadId)).find((r) => r.status === "pending");
+				if (found !== undefined) return found;
+				await new Promise((r) => setTimeout(r, 20));
+			}
+			throw new Error(`no pending approval${threadId === undefined ? "" : ` in thread ${threadId}`} within ${timeoutMs} ms`);
+		},
+		decide: async (id, decision, body = {}) => (await call(`/approvals/${id}`, { method: "POST", body: JSON.stringify({ decision, ...body }) })).status,
 		crash: () => {
 			if (ended) return;
 			ended = true;
@@ -139,7 +160,8 @@ export async function startTestAgent(definition: AgentDefinition = assistantAgen
 			void agent.harness.close(BACKGROUND_CONTEXT).catch(() => {});
 		},
 		restart: async (changes = {}) => {
-			self.crash();
+			if (changes.graceful === true) await self.close();
+			else self.crash();
 			return startTestAgent(changes.definition ?? definition, {
 				...options,
 				model: changes.model ?? model,

@@ -36,6 +36,11 @@ export type ChatView = {
 	 * `GET /threads/{thread}/documents/{kind}`). Absent when the agent exposes none.
 	 */
 	documents?: Record<string, ChatDocumentRef>;
+	/**
+	 * Tool calls of this thread waiting for a person's approval (docs/approvals.md), with a redacted view of their
+	 * arguments; calls in a subagent's conversation too. Absent when there are none.
+	 */
+	approvals?: ChatApproval[];
 };
 
 /** An exposed document in the view: its revision (a hash of its content; equal content, equal revision). */
@@ -68,7 +73,29 @@ export function boundedDetails(value: unknown): ChatDetails {
 	return { details: value };
 }
 
-export type ChatToolCall = { id: string; name: string; arguments: unknown; startedAt?: number; endedAt?: number };
+export type ChatToolCall = { id: string; name: string; arguments: unknown; startedAt?: number; endedAt?: number; approval?: ChatApproval };
+
+/**
+ * A request to approve a tool call: pending, or how it was decided. On a transcript's tool call (without `arguments`,
+ * which the call has) and in the view's pending list.
+ */
+export type ChatApproval = {
+	id: string;
+	callId: string;
+	tool: string;
+	status: "pending" | "approved" | "denied" | "timed_out" | "cancelled";
+	requestedAt: number;
+	expiresAt?: number;
+	summary?: string;
+	requestedFor?: Author;
+	decidedAt?: number;
+	decidedBy?: { kind: "user" | "service_account" | "system"; id?: string; name: string };
+	reason?: string;
+	arguments?: unknown;
+};
+
+/** A thread's approvals as the view shows them: on the transcript's calls (by call ID), and the pending ones. */
+export type ViewApprovals = { byCall: ReadonlyMap<string, ChatApproval>; pending: ChatApproval[] };
 export type ChatUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
 
 /** `at`: Unix milliseconds (a user message's sending, an assistant reply's start). */
@@ -92,12 +119,22 @@ export function buildView(
 	entries: readonly EntryRecord[],
 	live: Readonly<LiveState> | undefined,
 	documents?: Record<string, ChatDocumentRef>,
+	approvals?: ViewApprovals,
 ): ChatView {
-	return { busy: live?.run !== undefined, messages: buildMessages(entries), ...liveParts(live), ...(documents === undefined ? {} : { documents }) };
+	return {
+		busy: live?.run !== undefined,
+		messages: buildMessages(entries, approvals?.byCall),
+		...liveParts(live),
+		...(documents === undefined ? {} : { documents }),
+		...(approvals === undefined || approvals.pending.length === 0 ? {} : { approvals: approvals.pending }),
+	};
 }
 
-/** The transcript part of the view: it changes only when entries do (the delta stream reuses it otherwise). */
-export function buildMessages(entries: readonly EntryRecord[]): ChatMessage[] {
+/**
+ * The transcript part of the view: it changes only when entries (or the approvals on its calls) do; the delta stream
+ * reuses it otherwise.
+ */
+export function buildMessages(entries: readonly EntryRecord[], approvals?: ReadonlyMap<string, ChatApproval>): ChatMessage[] {
 	// When each tool call's result arrived, for the calls' endedAt.
 	const resultAt = new Map<string, number>();
 	for (const entry of entries) {
@@ -111,7 +148,7 @@ export function buildMessages(entries: readonly EntryRecord[]): ChatMessage[] {
 		const data = entry.kind === USER_ENTRY ? userData(entry.data) : undefined;
 		(entry.model ?? []).forEach((message, index) => {
 			const id = index === 0 ? `e${entry.id}` : `e${entry.id}:${index}`;
-			const converted = convert(id, message as Message, resultAt);
+			const converted = convert(id, message as Message, resultAt, approvals);
 			if (converted === undefined) return;
 			if (converted.role === "user" && data !== undefined) {
 				// The text as sent: the model's copy may start with a line naming the speaker.
@@ -160,7 +197,7 @@ function userData(value: unknown): Partial<UserEntryData> | undefined {
 
 const timeOf = (message: { timestamp?: unknown }) => (typeof message.timestamp === "number" && message.timestamp > 0 ? message.timestamp : undefined);
 
-function convert(id: string, message: Message, resultAt: ReadonlyMap<string, number>): ChatMessage | undefined {
+function convert(id: string, message: Message, resultAt: ReadonlyMap<string, number>, approvals?: ReadonlyMap<string, ChatApproval>): ChatMessage | undefined {
 	const at = timeOf(message as { timestamp?: unknown });
 	switch (message.role) {
 		case "user":
@@ -176,6 +213,7 @@ function convert(id: string, message: Message, resultAt: ReadonlyMap<string, num
 			const toolCalls = message.content.flatMap((block): ChatToolCall[] => {
 				if (block.type !== "toolCall") return [];
 				const endedAt = resultAt.get(block.id);
+				const approval = approvals?.get(block.id);
 				return [
 					{
 						id: block.id,
@@ -183,6 +221,7 @@ function convert(id: string, message: Message, resultAt: ReadonlyMap<string, num
 						arguments: block.arguments ?? {},
 						...(calledAt === undefined ? {} : { startedAt: calledAt }),
 						...(endedAt === undefined ? {} : { endedAt }),
+						...(approval === undefined ? {} : { approval }),
 					},
 				];
 			});

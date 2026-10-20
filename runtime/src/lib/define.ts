@@ -1,3 +1,4 @@
+import type { ApprovalRequester } from "./approvals.ts";
 import type { ConversationDocToken, ConversationRecord, Extension, HarnessSettings, JsonObject, SessionDocToken, Tx } from "./facade.ts";
 
 /** What the platform tells an agent about itself when it starts. */
@@ -11,6 +12,11 @@ export type AgentContext = {
 	 * send them anywhere but where the platform meant them to go.
 	 */
 	readonly env: Readonly<Record<string, string | undefined>>;
+	/**
+	 * Asks a person to approve a tool call, from a `beforeTool` hook (docs/approvals.md): `approvals.request(call, api,
+	 * context, {summary})`, or `approvalHook(approvals, decide)`. Usable once the agent has started.
+	 */
+	readonly approvals: ApprovalRequester;
 };
 
 /** A document an agent declares: created in every new conversation (conversation scope) or once (session scope). */

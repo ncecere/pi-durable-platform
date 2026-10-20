@@ -2,6 +2,7 @@ import type { RequestListener } from "node:http";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
 import { AgentDoc, type Conversation, createRegistry, type Extension, Harness, type HarnessSettings, type ModelRef, type Storage } from "@earendil-works/pi-durable";
+import { Approvals, parseApprovalPolicy } from "./approvals.ts";
 import { assistantAgent } from "./assistant.ts";
 import { PLATFORM_PERSON_WAIT_KINDS } from "./background.ts";
 import {
@@ -18,7 +19,7 @@ import { AgentMcp } from "./mcp.ts";
 import { createAgentModels } from "./models.ts";
 import { createRuntimeServer } from "./server.ts";
 import { AgentOwnedElsewhereError, openPostgresAgentStorage } from "./storage/postgres.ts";
-import { gatewayPost, ThreadStatusReporter } from "./thread-status.ts";
+import { gatewayCall, gatewayPost, ThreadStatusReporter } from "./thread-status.ts";
 import { ThreadStore } from "./threads.ts";
 import { checkUpgrade, RuntimeRefusedError } from "./upgrade.ts";
 
@@ -93,7 +94,10 @@ export async function startAgent(config: AgentConfig, definition: AgentDefinitio
 	};
 
 	defineAgent(definition);
-	const context: AgentContext = { agentId: config.agentId, name: config.name, instructions: config.instructions, env: config.modelEnv };
+	// Tool approvals: the template's (TOOL_APPROVALS) through the library's own extension, and authors' hooks through
+	// the context. Bound to the harness once it is open.
+	const approvals = new Approvals(parseApprovalPolicy(config.modelEnv.TOOL_APPROVALS));
+	const context: AgentContext = { agentId: config.agentId, name: config.name, instructions: config.instructions, env: config.modelEnv, approvals };
 	const extensions = resolveExtensions(definition, context);
 	const settings = resolveSettings(definition, context);
 	const documents = definition.documents ?? [];
@@ -120,6 +124,10 @@ export async function startAgent(config: AgentConfig, definition: AgentDefinitio
 
 	const registry = createRegistry();
 	for (const extension of extensions) registry.install(extension);
+	// Asks before the template's marked tools; selected last, so it sees the arguments other hooks settled on and a
+	// call another hook blocks is never put to a person. Selected when the template marks tools, or while a request it
+	// made is pending (a new version that marks nothing restarts the agent; a request already asked stays asked).
+	let asking: Extension[] = [];
 	// MCP servers: the template's, and those apps gave threads (installed before resuming, so resumed runs find their tools).
 	const mcp = new AgentMcp(config.modelEnv, (ext) => registry.install(ext));
 	for (const ext of mcp.extensions) registry.install(ext);
@@ -127,7 +135,7 @@ export async function startAgent(config: AgentConfig, definition: AgentDefinitio
 
 	// The default selection is what a conversation gets when nothing chose for it (one a tool creates, for instance):
 	// the agent's extensions and the template's MCP servers, never another thread's servers.
-	const base = (): Extension[] => [...extensions, ...mcp.extensions];
+	const base = (): Extension[] => [...extensions, ...mcp.extensions, ...asking];
 	const harnessSettings: HarnessSettings = Object.defineProperties({}, {
 		...Object.getOwnPropertyDescriptors(settings),
 		extensions: { get: base, enumerable: true },
@@ -152,6 +160,13 @@ export async function startAgent(config: AgentConfig, definition: AgentDefinitio
 	const threads = new ThreadStore(harness, () => ({ model: current, extensions: base() }));
 	// Calls to the template's MCP servers through the platform name their thread, so the platform can say who they are for.
 	mcp.threadOf = (conversationId) => threads.threadOf(conversationId);
+	const env = config.modelEnv;
+	const gateway = env.PLATFORM_GATEWAY_URL && env.PLATFORM_KEY ? gatewayCall(env.PLATFORM_GATEWAY_URL, env.PLATFORM_KEY) : undefined;
+	await approvals.bind(harness, threads, gateway);
+	if (approvals.policy.tools.length > 0 || approvals.pending().length > 0) {
+		asking = [approvals.extension()];
+		registry.install(asking[0]!);
+	}
 	// pi keeps the model and extensions a conversation was created with (pi.agent). A thread begun before the agent's
 	// model changed would keep asking for the old one, which this runtime no longer has (its turns would end unanswered,
 	// no_model), and one begun before an extension was added would run without it (a guard, say). So the runtime moves
@@ -159,7 +174,7 @@ export async function startAgent(config: AgentConfig, definition: AgentDefinitio
 	// unfinished, and before every message (an equal value writes nothing).
 	const align = (conversation: Conversation, selection: readonly Extension[]) => conversation.configure({ model: current, extensions: [...selection] }, ctx);
 	for (const record of await threads.list()) {
-		const selection = [...extensions, ...mcp.installed(record.threadId)];
+		const selection = [...extensions, ...mcp.installed(record.threadId), ...asking];
 		const stored = await harness.snapshot(AgentDoc, record.conversationId as never, ctx);
 		if (sameSelection(stored, current, selection)) continue;
 		const conversation = await threads.get(record.threadId);
@@ -167,12 +182,12 @@ export async function startAgent(config: AgentConfig, definition: AgentDefinitio
 	}
 	// Continue runs, tool calls and queued input left by a previous process.
 	harness.resume();
+	void approvals.sync().catch((error: unknown) => logError("approvals sync:", (error as Error).message));
 	harness.closed.then((end) => {
 		if (end.reason === "failed") onFatal(end.error);
 	});
 
 	// The platform keeps a record of every thread and its status (so listing doesn't wake the agent).
-	const env = config.modelEnv;
 	const status =
 		env.PLATFORM_GATEWAY_URL && env.PLATFORM_KEY
 			? new ThreadStatusReporter(harness, threads, gatewayPost(env.PLATFORM_GATEWAY_URL, env.PLATFORM_KEY))
@@ -188,8 +203,9 @@ export async function startAgent(config: AgentConfig, definition: AgentDefinitio
 				logError(`MCP servers of thread ${threadId}:`, (error as Error).message);
 				return mcp.extensions;
 			});
-			await align(conversation, [...extensions, ...servers]);
+			await align(conversation, [...extensions, ...servers, ...asking]);
 		},
+		approvals,
 		afterMessage: status ? (threadId, submissionId) => status.watch(threadId, submissionId) : undefined,
 		documents: exposed,
 		waitsForPerson: (kind) => personWaits.has(kind),
@@ -202,6 +218,7 @@ export async function startAgent(config: AgentConfig, definition: AgentDefinitio
 		threads,
 		close: async () => {
 			closing = true;
+			approvals.close();
 			await harness.close(ctx).catch(() => {});
 			await usage?.flush();
 			await mcp.close();
