@@ -130,7 +130,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 -- Prices are the models' current ones (USD per million tokens).
 SELECT (u.created_at AT TIME ZONE 'UTC')::date AS day,
        u.team_id, t.slug AS team_slug, t.name AS team_name,
-       u.agent_id, a.name AS agent_name, (a.external_key IS NOT NULL)::boolean AS agent_managed,
+       u.agent_id, a.name AS agent_name, COALESCE(a.service_managed, false)::boolean AS agent_managed,
        u.model_id, m.name AS model_name, p.name AS provider_name, m.input_price, m.output_price,
        sum(u.requests)::bigint AS requests, sum(u.input_tokens)::bigint AS input_tokens,
        sum(u.output_tokens)::bigint AS output_tokens, sum(u.cache_read_tokens)::bigint AS cache_read_tokens,
@@ -143,6 +143,6 @@ LEFT JOIN model_providers p ON p.id = m.provider_id
 WHERE u.created_at >= sqlc.arg(since) AND u.created_at < sqlc.arg(until)
   AND (sqlc.narg(team_id)::uuid IS NULL OR u.team_id = sqlc.narg(team_id)::uuid)
   AND (sqlc.narg(agent_ids)::uuid[] IS NULL
-       OR (u.agent_id = ANY(sqlc.narg(agent_ids)::uuid[]) AND (sqlc.arg(with_managed)::boolean OR a.external_key IS NULL)))
-GROUP BY 1, u.team_id, t.slug, t.name, u.agent_id, a.name, a.external_key, u.model_id, m.name, p.name, m.input_price, m.output_price
+       OR (u.agent_id = ANY(sqlc.narg(agent_ids)::uuid[]) AND (sqlc.arg(with_managed)::boolean OR NOT a.service_managed)))
+GROUP BY 1, u.team_id, t.slug, t.name, u.agent_id, a.name, a.service_managed, u.model_id, m.name, p.name, m.input_price, m.output_price
 ORDER BY 1;
