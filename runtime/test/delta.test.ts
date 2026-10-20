@@ -129,7 +129,7 @@ describe("delta events", () => {
 				expect(client, `seed ${seed} step ${step}`).toEqual(want);
 			}
 		}
-	});
+	}, 60_000); // 400 seeded runs: about a second here, several on a slow CI runner; the default 5 s timeout is for hangs
 
 	it("send bytes that follow the new tokens, not the transcript's length", () => {
 		const transcript = (n: number): ChatMessage[] =>
