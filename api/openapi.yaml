@@ -3293,7 +3293,7 @@ paths:
       - agents
       operationId: listTeamAgents
       summary: The team's agents (members and the team's service accounts; platform staff read any team's)
-      description: Service-managed agents (with an external key) are included with includeManaged=true, for the team's owners, admins and service accounts, and platform staff. Platform admins and auditors see any team's agents (settings and status, not conversations).
+      description: Service-managed agents (serviceManaged) are included with includeManaged=true, for the team's owners, admins and service accounts, and platform staff. Platform admins and auditors see any team's agents (settings and status, not conversations).
       parameters:
       - name: includeManaged
         in: query
@@ -3322,7 +3322,14 @@ paths:
       - agents
       operationId: createTeamAgent
       summary: Create a team agent from a template (team editors and above)
-      description: 409 name_taken (names are unique within the team, ignoring case); 409 team_archived; 404 template_not_found. At most 50 per team.
+      description: >-
+        409 name_taken (names are unique within the team, ignoring case); 409 team_archived; 404 template_not_found.
+        At most 50 per team. With an Idempotency-Key, a retry returns the agent the first request created (201, with
+        Idempotent-Replayed: true) instead of creating another; the same key with a different request is 422
+        idempotency_key_reused. Keys are remembered for 24 hours per caller: a person (browser session or personal
+        API key), an app the person connected (each connection separately), or a service account.
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
       requestBody:
         required: true
         content:
@@ -3331,10 +3338,12 @@ paths:
               $ref: '#/components/schemas/AgentCreate'
       responses:
         '201':
-          description: Created
+          description: Created (or, with Idempotent-Replayed, created by an earlier request with the same Idempotency-Key)
           headers:
             ETag:
               $ref: '#/components/headers/ETag'
+            Idempotent-Replayed:
+              $ref: '#/components/headers/IdempotentReplayed'
           content:
             application/json:
               schema:
@@ -3352,13 +3361,15 @@ paths:
           $ref: '#/components/responses/ErrorReply'
         '409':
           $ref: '#/components/responses/ErrorReply'
+        '422':
+          $ref: '#/components/responses/ErrorReply'
   /v1/teams/{team}/agents/by-key/{externalKey}:
     parameters:
     - $ref: '#/components/parameters/TeamParam'
     - name: externalKey
       in: path
       required: true
-      description: The service's own key for the agent, for example its user's ID
+      description: The caller's own key for the agent, for example a user's ID or a purpose
       schema:
         type: string
         pattern: '^[A-Za-z0-9._:@-]{1,200}$'
@@ -3366,12 +3377,16 @@ paths:
       tags:
       - agents
       operationId: ensureTeamAgentByKey
-      summary: The team's service-managed agent with this key, created the first time (editor service accounts)
+      summary: The agent with this key, created the first time (editor service accounts in their team; a person in their own personal workspace)
       description: >-
-        Idempotent; 201 when it was created. For services that give each of their users an agent, such as a chat
-        app. Service-managed agents are used only by the team's service accounts: the team's people don't see their
-        conversations, though its owners and admins can delete them. The body names a new agent and is ignored for
-        an existing one.
+        Idempotent; 201 when it was created. The body names a new agent and is ignored for an existing one. In a
+        shared team, for services that give each of their users an agent, such as a chat app: only editor service
+        accounts call it, and the agent is service-managed (serviceManaged), used only by the team's service
+        accounts; the team's people don't see its conversations, though its owners and admins can delete it. In a
+        personal workspace, its owner calls it (a browser session, a personal API key, or an app the owner
+        connected), so an app can keep one agent per purpose for a person: the agent is the workspace's like any
+        other, not service-managed. Anyone else is refused (403 forbidden in a shared team, 404 team_not_found in
+        another person's workspace).
       requestBody:
         required: false
         content:
@@ -4196,6 +4211,11 @@ components:
       description: Quoted revision, for If-Match on the next update
       schema:
         type: string
+    IdempotentReplayed:
+      description: '"true" when the answer is an earlier request''s with the same Idempotency-Key'
+      schema:
+        type: string
+        enum: ['true']
   parameters:
     McpServerIdParam:
       name: serverId
@@ -4311,6 +4331,17 @@ components:
       description: nextCursor from the previous page
       schema:
         type: string
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: >-
+        A key the client chooses for one request (a UUID, for example), so a retry doesn't repeat it
+        (draft-ietf-httpapi-idempotency-key-header). 1-255 printable ASCII characters, optionally quoted as a
+        structured-field string. Invalid: 400 invalid_idempotency_key.
+      schema:
+        type: string
+        maxLength: 257
     IfMatchHeader:
       name: If-Match
       in: header
@@ -5336,7 +5367,7 @@ components:
           description: Shown to the team when rejected
     Agent:
       type: object
-      required: [id, name, description, teamId, teamSlug, teamName, templateId, templateSlug, templateName, templateVersion, templateCurrentVersion, enabled, running, revision, createdAt, updatedAt]
+      required: [id, name, description, teamId, teamSlug, teamName, templateId, templateSlug, templateName, templateVersion, templateCurrentVersion, serviceManaged, enabled, running, revision, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -5370,7 +5401,12 @@ components:
         externalKey:
           type: string
           nullable: true
-          description: Set for service-managed agents (created by a service account with its own key)
+          description: The key it was ensured with (PUT .../agents/by-key/{key}), if any
+        serviceManaged:
+          type: boolean
+          description: >-
+            An app's agent for one of its users (made by a service account with an external key, in a shared team):
+            only the team's service accounts use it. An agent with a key in a personal workspace is not.
         enabled:
           type: boolean
         running:

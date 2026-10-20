@@ -47,7 +47,12 @@ func TestAgentRules(t *testing.T) {
 	if CheckTeamAgentCreate(RoleMember) == nil || CheckTeamAgentCreate(RoleEditor) != nil {
 		t.Error("team agent creation: editors and above only")
 	}
-	if CheckServiceManagedCreate(false, RoleOwner) == nil || CheckServiceManagedCreate(true, RoleMember) == nil || CheckServiceManagedCreate(true, RoleEditor) != nil {
-		t.Error("service-managed agents: editor service accounts only")
+	if CheckKeyedAgentCreate(false, RoleOwner, false) == nil || CheckKeyedAgentCreate(true, RoleMember, false) == nil ||
+		CheckKeyedAgentCreate(true, RoleEditor, false) != nil {
+		t.Error("keyed agents in a shared team: editor service accounts only")
+	}
+	if CheckKeyedAgentCreate(false, RoleOwner, true) != nil || CheckKeyedAgentCreate(false, "", true) == nil ||
+		CheckKeyedAgentCreate(true, RoleEditor, true) == nil {
+		t.Error("keyed agents in a personal workspace: its owner only")
 	}
 }

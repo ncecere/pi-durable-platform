@@ -33,7 +33,7 @@ export function ConversationsTab({ agent, personal, canRead }: Props) {
   const forbidden = threads.error instanceof ApiError && threads.error.status === 403;
   const hiddenTitles = personal
     ? "Titles in a personal workspace are hidden, shared or not."
-    : agent.externalKey != null
+    : agent.serviceManaged
       ? "Titles of a service-managed agent's conversations are hidden, shared or not."
       : "Titles of private conversations are hidden.";
   const readLabel = (t: AdminAgentThread) => {

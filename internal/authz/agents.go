@@ -101,11 +101,29 @@ func CheckTeamAgentCreate(role string) error {
 	return nil
 }
 
-// CheckServiceManagedCreate decides whether the actor may create
-// service-managed agents: editor service accounts only.
-func CheckServiceManagedCreate(isService bool, role string) error {
+// CheckKeyedAgentCreate decides whether the actor may create an agent with
+// an external key (PUT .../agents/by-key/{key}) in a team where it has role:
+//
+//   - In a shared team, editor service accounts: the agent is
+//     service-managed (it holds an app's users' conversations, which the
+//     team's people must not read), so a person creating one would make an
+//     agent they could not use, and a team's service could find it by a key
+//     a person chose.
+//   - In a personal workspace (personal), its owner, however they call (a
+//     browser session, a personal API key, an app they connected): only the
+//     owner reaches the workspace's agents, so a key there is a handle for
+//     one agent per purpose and the agent is the owner's like any other, not
+//     service-managed. Nobody else is on the workspace (and service accounts
+//     never are).
+func CheckKeyedAgentCreate(isService bool, role string, personal bool) error {
+	if personal {
+		if !isService && role == RoleOwner {
+			return nil
+		}
+		return apperr.Forbidden("Only its owner creates agents in a personal workspace")
+	}
 	if !isService {
-		return apperr.Forbidden("Agents with an external key are created by service accounts (with their keys)")
+		return apperr.Forbidden("Agents with an external key are created by service accounts (with their keys), or by a person in their own personal workspace")
 	}
 	if !RoleAtLeast(role, RoleEditor) {
 		return apperr.Forbidden("Only editor service accounts can create agents")

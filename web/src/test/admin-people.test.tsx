@@ -210,7 +210,7 @@ describe("Admin → Teams", () => {
 });
 
 describe("Admin › Teams › a team's agents (platform staff who aren't members)", () => {
-  const managed = agent({ id: "29292929-2929-4292-8292-292929292929", name: "Assistant for user 42", externalKey: "user-42" });
+  const managed = agent({ id: "29292929-2929-4292-8292-292929292929", name: "Assistant for user 42", externalKey: "user-42", serviceManaged: true });
   const staffRoutes = (role: "platform_admin" | "platform_auditor"): Record<string, Handler> => ({
     ...shellRoutes(role, null),
     [`GET /v1/admin/teams/${team.slug}`]: () => teamSummary(),

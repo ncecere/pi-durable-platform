@@ -58,7 +58,7 @@ func toAPIAgent(v agents.View) apitypes.Agent {
 		TeamId: ag.TeamID, TeamSlug: v.TeamSlug, TeamName: v.TeamName, TemplateId: ag.TemplateID, TemplateSlug: v.TemplateSlug,
 		TemplateName: v.TemplateName, TemplateVersion: ag.TemplateVersion, TemplateCurrentVersion: v.TemplateCurrentVersion,
 		Enabled: ag.Enabled, Running: v.Running, LastUsedAt: ag.LastUsedAt, Revision: ag.Revision,
-		CreatedAt: ag.CreatedAt, UpdatedAt: ag.UpdatedAt, ExternalKey: ag.ExternalKey,
+		CreatedAt: ag.CreatedAt, UpdatedAt: ag.UpdatedAt, ExternalKey: ag.ExternalKey, ServiceManaged: ag.ServiceManaged,
 		Model: agentModel(v.Model),
 	}
 }
@@ -83,7 +83,20 @@ func (a *api) listAgents(w http.ResponseWriter, r *http.Request) {
 	writeList(w, r, rows, err, toAPIAgent)
 }
 
+// createTeamAgent reads an optional Idempotency-Key: a retry with the same
+// key and request gets the first answer (Idempotent-Replayed: true).
 func (a *api) createTeamAgent(w http.ResponseWriter, r *http.Request) {
+	var key string
+	if vs := r.Header.Values("Idempotency-Key"); len(vs) > 0 {
+		raw := vs[0]
+		if len(vs) > 1 {
+			raw = "" // a repeated header is invalid
+		}
+		var err error
+		if key, err = agents.ParseIdempotencyKey(raw); failed(w, r, err) {
+			return
+		}
+	}
 	var in apitypes.AgentCreate
 	if !httpx.Decode(w, r, &in) {
 		return
@@ -91,7 +104,10 @@ func (a *api) createTeamAgent(w http.ResponseWriter, r *http.Request) {
 	ci := agents.CreateInput{Name: in.Name, TemplateID: in.TemplateId, ModelID: in.ModelId}
 	setIf(&ci.Description, in.Description)
 	setIf(&ci.Template, in.Template)
-	v, err := a.Agents.CreateTeamAgent(r.Context(), a.actor(r), r.PathValue("team"), ci)
+	v, replayed, err := a.Agents.CreateTeamAgentOnce(r.Context(), a.actor(r), r.PathValue("team"), ci, key)
+	if replayed {
+		w.Header().Set("Idempotent-Replayed", "true")
+	}
 	a.writeAgent(w, r, http.StatusCreated, v, err)
 }
 
@@ -102,8 +118,9 @@ func (a *api) listTeamAgents(w http.ResponseWriter, r *http.Request) {
 	writeList(w, r, rows, err, toAPIAgent)
 }
 
-// ensureTeamAgentByKey returns the team's service-managed agent with the
-// key, creating it the first time (201).
+// ensureTeamAgentByKey returns the team's agent with the key, creating it
+// the first time (201): service-managed in a shared team, the owner's in a
+// personal workspace.
 func (a *api) ensureTeamAgentByKey(w http.ResponseWriter, r *http.Request) {
 	var in apitypes.AgentEnsure
 	if r.ContentLength != 0 && !httpx.Decode(w, r, &in) {

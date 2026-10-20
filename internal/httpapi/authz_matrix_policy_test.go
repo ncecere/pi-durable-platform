@@ -225,6 +225,7 @@ var matrixPolicies = map[string]policy{
 	}},
 	"listTeamAgents": {scope: scopeTeam, own: members, foreign: platform, build: func(c *mctx) request { return get(c.team("/agents")) }},
 	// Service-managed agents are created by editor service accounts only (agents_keys_integration_test.go).
+	// People may in their own personal workspace only (agents_by_key_integration_test.go).
 	"ensureTeamAgentByKey": {scope: scopeTeam, own: 0, build: func(c *mctx) request {
 		return request{method: "PUT", path: c.team(fmt.Sprintf("/agents/by-key/user-%d", c.e.next()))}
 	}},

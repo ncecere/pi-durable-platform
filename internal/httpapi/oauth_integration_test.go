@@ -253,12 +253,16 @@ func TestOAuthConnect(t *testing.T) {
 	var made apitypes.Agent
 	c, ec, _ = bearer(t, app, access, "POST", ws+"/agents", map[string]any{"name": "Chat assistant"}, &made)
 	mustCode(t, "create an agent in the personal workspace", c, ec, 201, "")
-	// Agents with an external key stay service-managed: an app acting as a
-	// person is not a service account.
-	c, ec, _ = bearer(t, app, access, "PUT", ws+"/agents/by-key/chat-1", map[string]any{"name": "Keyed"}, nil)
-	mustCode(t, "ensure by key as a person", c, ec, 403, "forbidden")
+	// An agent with a key in the person's own workspace is theirs (not
+	// service-managed): one per purpose (agents_once_integration_test.go).
+	var keyed apitypes.Agent
+	c, ec, _ = bearer(t, app, access, "PUT", ws+"/agents/by-key/chat-1", map[string]any{"name": "Keyed"}, &keyed)
+	mustCode(t, "ensure by key in the person's workspace", c, ec, 201, "")
+	if keyed.ServiceManaged {
+		t.Fatalf("keyed %+v", keyed)
+	}
 	var listed []apitypes.Agent
-	if c, _, _ := bearer(t, app, access, "GET", "/v1/agents", nil, &listed); c != 200 || len(listed) != 1 || listed[0].Id != made.Id {
+	if c, _, _ := bearer(t, app, access, "GET", "/v1/agents", nil, &listed); c != 200 || len(listed) != 2 {
 		t.Fatalf("agents %d %+v", c, listed)
 	}
 	if kind := scalar(t, app, `SELECT actor_kind FROM audit_log WHERE action = 'agent.create' AND target_id = $1`, made.Id.String()); kind != "oauth" {

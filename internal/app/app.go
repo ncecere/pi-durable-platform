@@ -326,7 +326,7 @@ func secretBox(cfg config.Config) (*secrets.Box, error) {
 
 // cleanupLoop deletes expired sessions and sign-in states, and expired
 // OAuth codes and tokens and unused registered OAuth clients, threads nobody
-// used and expired thread MCP servers. Deletes are idempotent, so every
+// used, expired thread MCP servers and idempotency keys older than a day. Deletes are idempotent, so every
 // replica may run it; no leader election is needed.
 func cleanupLoop(ctx context.Context, a *auth.Service, o *oauth.Service, ag *agents.Service, m *metrics.Metrics, log *slog.Logger) {
 	t := time.NewTicker(cleanupInterval)
@@ -356,6 +356,14 @@ func cleanupLoop(ctx context.Context, a *auth.Service, o *oauth.Service, ag *age
 			log.Warn("agent thread cleanup failed", "err", err)
 		case n > 0:
 			log.Debug("unused threads and expired thread MCP servers deleted", "rows", n)
+		}
+		n, err = ag.CleanupIdempotencyKeys(ctx)
+		failed = errors.Join(failed, err)
+		switch {
+		case err != nil && ctx.Err() == nil:
+			log.Warn("idempotency key cleanup failed", "err", err)
+		case n > 0:
+			log.Debug("expired idempotency keys deleted", "rows", n)
 		}
 		if ctx.Err() == nil {
 			done(failed)

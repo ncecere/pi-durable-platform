@@ -228,6 +228,7 @@ export const agent = (extra: Partial<Schemas["Agent"]> = {}): Schemas["Agent"] =
   templateVersion: 1,
   templateCurrentVersion: 1,
   externalKey: null,
+  serviceManaged: false,
   enabled: true,
   running: false,
   model: null,

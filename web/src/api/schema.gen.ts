@@ -1491,13 +1491,13 @@ export interface paths {
         };
         /**
          * The team's agents (members and the team's service accounts; platform staff read any team's)
-         * @description Service-managed agents (with an external key) are included with includeManaged=true, for the team's owners, admins and service accounts, and platform staff. Platform admins and auditors see any team's agents (settings and status, not conversations).
+         * @description Service-managed agents (serviceManaged) are included with includeManaged=true, for the team's owners, admins and service accounts, and platform staff. Platform admins and auditors see any team's agents (settings and status, not conversations).
          */
         get: operations["listTeamAgents"];
         put?: never;
         /**
          * Create a team agent from a template (team editors and above)
-         * @description 409 name_taken (names are unique within the team, ignoring case); 409 team_archived; 404 template_not_found. At most 50 per team.
+         * @description 409 name_taken (names are unique within the team, ignoring case); 409 team_archived; 404 template_not_found. At most 50 per team. With an Idempotency-Key, a retry returns the agent the first request created (201, with Idempotent-Replayed: true) instead of creating another; the same key with a different request is 422 idempotency_key_reused. Keys are remembered for 24 hours per caller: a person (browser session or personal API key), an app the person connected (each connection separately), or a service account.
          */
         post: operations["createTeamAgent"];
         delete?: never;
@@ -1513,15 +1513,15 @@ export interface paths {
             path: {
                 /** @description Team slug or ID */
                 team: components["parameters"]["TeamParam"];
-                /** @description The service's own key for the agent, for example its user's ID */
+                /** @description The caller's own key for the agent, for example a user's ID or a purpose */
                 externalKey: string;
             };
             cookie?: never;
         };
         get?: never;
         /**
-         * The team's service-managed agent with this key, created the first time (editor service accounts)
-         * @description Idempotent; 201 when it was created. For services that give each of their users an agent, such as a chat app. Service-managed agents are used only by the team's service accounts: the team's people don't see their conversations, though its owners and admins can delete them. The body names a new agent and is ignored for an existing one.
+         * The agent with this key, created the first time (editor service accounts in their team; a person in their own personal workspace)
+         * @description Idempotent; 201 when it was created. The body names a new agent and is ignored for an existing one. In a shared team, for services that give each of their users an agent, such as a chat app: only editor service accounts call it, and the agent is service-managed (serviceManaged), used only by the team's service accounts; the team's people don't see its conversations, though its owners and admins can delete it. In a personal workspace, its owner calls it (a browser session, a personal API key, or an app the owner connected), so an app can keep one agent per purpose for a person: the agent is the workspace's like any other, not service-managed. Anyone else is refused (403 forbidden in a shared team, 404 team_not_found in another person's workspace).
          */
         put: operations["ensureTeamAgentByKey"];
         post?: never;
@@ -2424,8 +2424,10 @@ export interface components {
              * @description The template's newest version (an upgrade is available when it is higher)
              */
             templateCurrentVersion: number;
-            /** @description Set for service-managed agents (created by a service account with its own key) */
+            /** @description The key it was ensured with (PUT .../agents/by-key/{key}), if any */
             externalKey?: string | null;
+            /** @description An app's agent for one of its users (made by a service account with an external key, in a shared team): only the team's service accounts use it. An agent with a key in a personal workspace is not. */
+            serviceManaged: boolean;
             enabled: boolean;
             /** @description Whether its runtime is up now (it hibernates when idle and wakes on the next request) */
             running: boolean;
@@ -3279,6 +3281,8 @@ export interface components {
         AuditToParam: string;
         /** @description nextCursor from the previous page */
         CursorParam: string;
+        /** @description A key the client chooses for one request (a UUID, for example), so a retry doesn't repeat it (draft-ietf-httpapi-idempotency-key-header). 1-255 printable ASCII characters, optionally quoted as a structured-field string. Invalid: 400 invalid_idempotency_key. */
+        IdempotencyKeyHeader: string;
         /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
         IfMatchHeader: string;
         LimitParam: number;
@@ -3294,6 +3298,8 @@ export interface components {
     headers: {
         /** @description Quoted revision, for If-Match on the next update */
         ETag: string;
+        /** @description "true" when the answer is an earlier request's with the same Idempotency-Key */
+        IdempotentReplayed: "true";
     };
     pathItems: never;
 }
@@ -6365,7 +6371,10 @@ export interface operations {
     createTeamAgent: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description A key the client chooses for one request (a UUID, for example), so a retry doesn't repeat it (draft-ietf-httpapi-idempotency-key-header). 1-255 printable ASCII characters, optionally quoted as a structured-field string. Invalid: 400 invalid_idempotency_key. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKeyHeader"];
+            };
             path: {
                 /** @description Team slug or ID */
                 team: components["parameters"]["TeamParam"];
@@ -6378,10 +6387,11 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Created */
+            /** @description Created (or, with Idempotent-Replayed, created by an earlier request with the same Idempotency-Key) */
             201: {
                 headers: {
                     ETag: components["headers"]["ETag"];
+                    "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -6394,6 +6404,7 @@ export interface operations {
             403: components["responses"]["ErrorReply"];
             404: components["responses"]["ErrorReply"];
             409: components["responses"]["ErrorReply"];
+            422: components["responses"]["ErrorReply"];
         };
     };
     ensureTeamAgentByKey: {
@@ -6403,7 +6414,7 @@ export interface operations {
             path: {
                 /** @description Team slug or ID */
                 team: components["parameters"]["TeamParam"];
-                /** @description The service's own key for the agent, for example its user's ID */
+                /** @description The caller's own key for the agent, for example a user's ID or a purpose */
                 externalKey: string;
             };
             cookie?: never;

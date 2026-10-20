@@ -1172,7 +1172,7 @@ type Agent struct {
 	Description string    `json:"description"`
 	Enabled     bool      `json:"enabled"`
 
-	// ExternalKey Set for service-managed agents (created by a service account with its own key)
+	// ExternalKey The key it was ensured with (PUT .../agents/by-key/{key}), if any
 	ExternalKey *string            `json:"externalKey,omitempty"`
 	Id          openapi_types.UUID `json:"id"`
 	LastUsedAt  *time.Time         `json:"lastUsedAt,omitempty"`
@@ -1183,10 +1183,13 @@ type Agent struct {
 	Revision int64       `json:"revision"`
 
 	// Running Whether its runtime is up now (it hibernates when idle and wakes on the next request)
-	Running  bool               `json:"running"`
-	TeamId   openapi_types.UUID `json:"teamId"`
-	TeamName string             `json:"teamName"`
-	TeamSlug string             `json:"teamSlug"`
+	Running bool `json:"running"`
+
+	// ServiceManaged An app's agent for one of its users (made by a service account with an external key, in a shared team): only the team's service accounts use it. An agent with a key in a personal workspace is not.
+	ServiceManaged bool               `json:"serviceManaged"`
+	TeamId         openapi_types.UUID `json:"teamId"`
+	TeamName       string             `json:"teamName"`
+	TeamSlug       string             `json:"teamSlug"`
 
 	// TemplateCurrentVersion The template's newest version (an upgrade is available when it is higher)
 	TemplateCurrentVersion int32              `json:"templateCurrentVersion"`
@@ -2693,6 +2696,9 @@ type CursorParam = string
 // GrantIdParam defines model for GrantIdParam.
 type GrantIdParam = openapi_types.UUID
 
+// IdempotencyKeyHeader defines model for IdempotencyKeyHeader.
+type IdempotencyKeyHeader = string
+
 // IfMatchHeader defines model for IfMatchHeader.
 type IfMatchHeader = string
 
@@ -3021,6 +3027,12 @@ type GetOAuthConsentParams struct {
 // ListTeamAgentsParams defines parameters for ListTeamAgents.
 type ListTeamAgentsParams struct {
 	IncludeManaged *bool `form:"includeManaged,omitempty" json:"includeManaged,omitempty"`
+}
+
+// CreateTeamAgentParams defines parameters for CreateTeamAgent.
+type CreateTeamAgentParams struct {
+	// IdempotencyKey A key the client chooses for one request (a UUID, for example), so a retry doesn't repeat it (draft-ietf-httpapi-idempotency-key-header). 1-255 printable ASCII characters, optionally quoted as a structured-field string. Invalid: 400 invalid_idempotency_key.
+	IdempotencyKey *IdempotencyKeyHeader `json:"Idempotency-Key,omitempty"`
 }
 
 // ListTeamAuditParams defines parameters for ListTeamAudit.

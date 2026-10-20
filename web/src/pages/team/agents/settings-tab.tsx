@@ -110,7 +110,7 @@ export function SettingsTab({
       revision={revision}
       canEdit={canEdit}
       readOnlyNote={
-        agent.externalKey
+        agent.serviceManaged
           ? "The service that created this agent manages it."
           : undefined
       }
