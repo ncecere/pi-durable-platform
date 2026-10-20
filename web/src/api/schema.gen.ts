@@ -2475,7 +2475,7 @@ export interface components {
             fireId: string;
             threadId: string | null;
             status: components["schemas"]["TriggerRunStatus"];
-            /** @description Why it was skipped (trigger_paused, agent_paused, team_archived, concurrency, budget, backoff, missed, agent_daily_runs), stopped (max_run_time, budget) or failed (reply_error, delivery_failed, agent_disabled, thread_private, …) */
+            /** @description Why it was skipped (trigger_paused, agent_paused, team_archived, concurrency, budget, backoff, missed, agent_daily_runs), stopped (max_run_time, budget) or failed (reply_error, delivery_failed, agent_moved, agent_disabled, thread_private, …) */
             reason: string | null;
             /** Format: date-time */
             scheduledFor?: string | null;

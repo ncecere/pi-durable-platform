@@ -183,7 +183,9 @@ triggers are `trigger.create`, `trigger.update`, `trigger.delete` and `trigger.s
 - An archived team's triggers are read-only, and its schedules don't fire. A turned-off agent's runs fail
   (`agent_disabled`) and count as failures.
 - **Moving an agent** deletes its triggers (their addresses stop working; the move plan counts them, `triggers`): a
-  trigger was set up with the old team's limits, callback and secrets in mind. Runs stay where they happened.
+  trigger was set up with the old team's limits, callback and secrets in mind. Runs stay where they happened. A run
+  fired before the move and not delivered yet (waiting to wake the agent, or retrying) is never delivered to the new
+  team: at its next delivery attempt it fails with reason `agent_moved`.
 
 ## Limits that hold
 

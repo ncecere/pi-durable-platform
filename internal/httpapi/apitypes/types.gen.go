@@ -3642,7 +3642,7 @@ type TriggerRun struct {
 	// Link The console's path of the run's thread
 	Link *string `json:"link,omitempty"`
 
-	// Reason Why it was skipped (trigger_paused, agent_paused, team_archived, concurrency, budget, backoff, missed, agent_daily_runs), stopped (max_run_time, budget) or failed (reply_error, delivery_failed, agent_disabled, thread_private, …)
+	// Reason Why it was skipped (trigger_paused, agent_paused, team_archived, concurrency, budget, backoff, missed, agent_daily_runs), stopped (max_run_time, budget) or failed (reply_error, delivery_failed, agent_moved, agent_disabled, thread_private, …)
 	Reason       *string             `json:"reason"`
 	Requests     int64               `json:"requests"`
 	ScheduledFor *time.Time          `json:"scheduledFor,omitempty"`

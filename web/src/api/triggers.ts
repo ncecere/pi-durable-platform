@@ -106,6 +106,7 @@ const reasons: Record<string, string> = {
   reply_error: "the reply failed",
   thread_deleted: "its conversation was deleted",
   delivery_failed: "the agent couldn't be reached",
+  agent_moved: "the agent moved to another team before it ran",
   agent_disabled: "the agent is turned off",
   agent_unavailable: "the agent couldn't be started",
   thread_private: "its conversation is someone's private one",
