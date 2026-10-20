@@ -2071,6 +2071,12 @@ export interface components {
             teams?: components["schemas"]["ModelTeam"][] | null;
             hasHeaders: boolean;
             tools: components["schemas"]["McpTool"][];
+            /** @description In proxy mode, every request the platform forwards carries a signed identity token (MCP-Gateway-Identity: the agent, its team, the thread's visibility and, when the platform's records say so, the person the call is for). Direct mode never does. See docs/mcp-identity.md */
+            sendIdentity: boolean;
+            /** @description The identity token's audience (aud); null when it is the server's URL */
+            identityAudience: string | null;
+            /** @description The identity token includes the person's email */
+            identityEmail: boolean;
             /** Format: date-time */
             toolsRefreshedAt?: string | null;
             /** @description Why the tools could not be read the last time */
@@ -2102,6 +2108,12 @@ export interface components {
             personal?: boolean;
             teams?: string[];
             enabled?: boolean;
+            /** @description Send the signed identity token in proxy mode (default on). See docs/mcp-identity.md */
+            sendIdentity?: boolean;
+            /** @description The identity token's audience; empty for the server's URL (the default) */
+            identityAudience?: string;
+            /** @description Include the person's email in the identity token (default off) */
+            identityEmail?: boolean;
         };
         McpServerUpdate: {
             name?: string;
@@ -2119,6 +2131,12 @@ export interface components {
             personal?: boolean;
             teams?: string[];
             enabled?: boolean;
+            /** @description Send the signed identity token in proxy mode (default on). See docs/mcp-identity.md */
+            sendIdentity?: boolean;
+            /** @description The identity token's audience; empty for the server's URL (the default) */
+            identityAudience?: string;
+            /** @description Include the person's email in the identity token (default off) */
+            identityEmail?: boolean;
         };
         McpAttach: {
             /** Format: uuid */

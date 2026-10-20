@@ -14,13 +14,14 @@ SELECT * FROM mcp_servers WHERE id = $1;
 SELECT * FROM mcp_servers WHERE id = $1 FOR UPDATE;
 
 -- name: InsertMCPServer :one
-INSERT INTO mcp_servers (id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, created_by, personal, team_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+INSERT INTO mcp_servers (id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, created_by, personal, team_id,
+                         send_identity, identity_audience, identity_email)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 RETURNING *;
 
 -- name: UpdateMCPServer :one
 UPDATE mcp_servers SET name = $2, description = $3, url = $4, headers_enc = $5, access_mode = $6, enabled = $7, visibility = $8,
-       personal = $9, revision = revision + 1, updated_at = now()
+       personal = $9, send_identity = $10, identity_audience = $11, identity_email = $12, revision = revision + 1, updated_at = now()
 WHERE id = $1
 RETURNING *;
 

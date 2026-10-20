@@ -47,7 +47,11 @@ func toAPIMCPServer(v mcp.ServerView) apitypes.McpServer {
 		AccessMode: apitypes.McpServerAccessMode(m.AccessMode), Enabled: m.Enabled, Visibility: apitypes.McpServerVisibility(m.Visibility),
 		Personal:   m.Personal,
 		HasHeaders: v.HasHeaders, Tools: []apitypes.McpTool{}, ToolsRefreshedAt: m.ToolsRefreshedAt, ToolsError: m.ToolsError,
-		Revision: m.Revision, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt, Team: toAPIOwner(v.Team)}
+		Revision: m.Revision, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt, Team: toAPIOwner(v.Team),
+		SendIdentity: m.SendIdentity, IdentityEmail: m.IdentityEmail}
+	if m.IdentityAudience != "" {
+		out.IdentityAudience = &m.IdentityAudience
+	}
 	for _, t := range v.Tools {
 		tool := apitypes.McpTool{Name: t.Name}
 		if t.Title != "" {
@@ -104,7 +108,8 @@ func (a *api) createTeamMCPServer(w http.ResponseWriter, r *http.Request) {
 }
 
 func mcpServerInput(in apitypes.McpServerCreate) mcp.ServerInput {
-	si := mcp.ServerInput{Name: in.Name, URL: in.Url, Enabled: in.Enabled, Personal: in.Personal}
+	si := mcp.ServerInput{Name: in.Name, URL: in.Url, Enabled: in.Enabled, Personal: in.Personal,
+		Identity: mcp.IdentityInput{Send: in.SendIdentity, Audience: in.IdentityAudience, Email: in.IdentityEmail}}
 	setIf(&si.Slug, in.Slug)
 	setIf(&si.Description, in.Description)
 	if in.Headers != nil {
@@ -168,7 +173,7 @@ func (a *api) updateTeamMCPServer(w http.ResponseWriter, r *http.Request) {
 
 func mcpServerUpdate(in apitypes.McpServerUpdate) mcp.ServerUpdate {
 	su := mcp.ServerUpdate{Name: in.Name, Description: in.Description, URL: in.Url, Headers: in.Headers, Teams: in.Teams, Enabled: in.Enabled,
-		Personal: in.Personal}
+		Personal: in.Personal, Identity: mcp.IdentityInput{Send: in.SendIdentity, Audience: in.IdentityAudience, Email: in.IdentityEmail}}
 	if in.AccessMode != nil {
 		mode := string(*in.AccessMode)
 		su.AccessMode = &mode
