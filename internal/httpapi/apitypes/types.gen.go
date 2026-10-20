@@ -9,6 +9,24 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AgentMessageCreateWhenBusy.
+const (
+	FollowUp AgentMessageCreateWhenBusy = "followUp"
+	Steer    AgentMessageCreateWhenBusy = "steer"
+)
+
+// Valid indicates whether the value is a known member of the AgentMessageCreateWhenBusy enum.
+func (e AgentMessageCreateWhenBusy) Valid() bool {
+	switch e {
+	case FollowUp:
+		return true
+	case Steer:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AgentModelSource.
 const (
 	AgentModelSourceAgent    AgentModelSource = "agent"
@@ -171,6 +189,54 @@ func (e ChatAuthorKind) Valid() bool {
 	case ChatAuthorKindServiceAccount:
 		return true
 	case ChatAuthorKindUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChatDeltaEventType.
+const (
+	MessageAdded    ChatDeltaEventType = "message.added"
+	MessageUpdated  ChatDeltaEventType = "message.updated"
+	PartialAppended ChatDeltaEventType = "partial.appended"
+	PartialCleared  ChatDeltaEventType = "partial.cleared"
+	PartialSet      ChatDeltaEventType = "partial.set"
+	Run             ChatDeltaEventType = "run"
+	Snapshot        ChatDeltaEventType = "snapshot"
+	ToolFinished    ChatDeltaEventType = "tool.finished"
+	ToolRemoved     ChatDeltaEventType = "tool.removed"
+	ToolStarted     ChatDeltaEventType = "tool.started"
+	ToolUpdated     ChatDeltaEventType = "tool.updated"
+	ToolsSet        ChatDeltaEventType = "tools.set"
+)
+
+// Valid indicates whether the value is a known member of the ChatDeltaEventType enum.
+func (e ChatDeltaEventType) Valid() bool {
+	switch e {
+	case MessageAdded:
+		return true
+	case MessageUpdated:
+		return true
+	case PartialAppended:
+		return true
+	case PartialCleared:
+		return true
+	case PartialSet:
+		return true
+	case Run:
+		return true
+	case Snapshot:
+		return true
+	case ToolFinished:
+		return true
+	case ToolRemoved:
+		return true
+	case ToolStarted:
+		return true
+	case ToolUpdated:
+		return true
+	case ToolsSet:
 		return true
 	default:
 		return false
@@ -1005,6 +1071,39 @@ func (e AdminGetUsageParamsGroupBy) Valid() bool {
 	}
 }
 
+// Defines values for StreamAgentThreadParamsFormat.
+const (
+	Delta StreamAgentThreadParamsFormat = "delta"
+	View  StreamAgentThreadParamsFormat = "view"
+)
+
+// Valid indicates whether the value is a known member of the StreamAgentThreadParamsFormat enum.
+func (e StreamAgentThreadParamsFormat) Valid() bool {
+	switch e {
+	case Delta:
+		return true
+	case View:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for StreamAgentThreadParamsV.
+const (
+	N1 StreamAgentThreadParamsV = 1
+)
+
+// Valid indicates whether the value is a known member of the StreamAgentThreadParamsV enum.
+func (e StreamAgentThreadParamsV) Valid() bool {
+	switch e {
+	case N1:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListTeamAuditParamsActorKind.
 const (
 	ListTeamAuditParamsActorKindSystem ListTeamAuditParamsActorKind = "system"
@@ -1146,7 +1245,13 @@ type AgentMessageCreate struct {
 
 	// Visibility The thread's visibility, chosen with its first message (default shared). On a later message it may be omitted; a different value is refused (409 visibility_fixed). The message's author is always the caller: author fields a client sends are ignored.
 	Visibility *ThreadVisibility `json:"visibility,omitempty"`
+
+	// WhenBusy While a reply is running: followUp (the default) waits for it to end and starts the next one; steer joins it, placed after its current tool round (or its answer) so the model sees it before going on. The transcript shows a steering message where it was placed: after the tool results of the reply it changed. No effect on an idle thread.
+	WhenBusy *AgentMessageCreateWhenBusy `json:"whenBusy,omitempty"`
 }
+
+// AgentMessageCreateWhenBusy While a reply is running: followUp (the default) waits for it to end and starts the next one; steer joins it, placed after its current tool round (or its answer) so the model sees it before going on. The transcript shows a steering message where it was placed: after the tool results of the reply it changed. No effect on an idle thread.
+type AgentMessageCreateWhenBusy string
 
 // AgentModel defines model for AgentModel.
 type AgentModel struct {
@@ -1476,6 +1581,43 @@ type ChatAuthor struct {
 // ChatAuthorKind defines model for ChatAuthor.Kind.
 type ChatAuthorKind string
 
+// ChatDeltaEvent One event of a thread's delta stream (`format=delta`, version 1). Which fields are set depends on `type`; see the stream's description.
+type ChatDeltaEvent struct {
+	Busy   *bool   `json:"busy,omitempty"`
+	CallId *string `json:"callId,omitempty"`
+
+	// ElapsedMs How long the tool call had run when the event was sent
+	ElapsedMs      *int64       `json:"elapsedMs,omitempty"`
+	Message        *ChatMessage `json:"message,omitempty"`
+	Output         *string      `json:"output,omitempty"`
+	OutputAppended *string      `json:"outputAppended,omitempty"`
+	Partial        *struct {
+		Text     string `json:"text"`
+		Thinking string `json:"thinking"`
+	} `json:"partial,omitempty"`
+	Seq int64 `json:"seq"`
+
+	// StartedAt When the tool call started (Unix milliseconds)
+	StartedAt *int64  `json:"startedAt,omitempty"`
+	Status    *string `json:"status,omitempty"`
+
+	// Text partial.appended
+	Text *string `json:"text,omitempty"`
+
+	// Thinking partial.appended
+	Thinking *string            `json:"thinking,omitempty"`
+	Tool     *ChatToolSlot      `json:"tool,omitempty"`
+	Tools    *[]ChatToolSlot    `json:"tools,omitempty"`
+	Type     ChatDeltaEventType `json:"type"`
+
+	// V The format's version (snapshot)
+	V    *int      `json:"v,omitempty"`
+	View *ChatView `json:"view,omitempty"`
+}
+
+// ChatDeltaEventType defines model for ChatDeltaEvent.Type.
+type ChatDeltaEventType string
+
 // ChatMessage defines model for ChatMessage.
 type ChatMessage struct {
 	// At When the message was sent or the reply started (Unix milliseconds)
@@ -1546,8 +1688,11 @@ type ChatUsage struct {
 
 // ChatView defines model for ChatView.
 type ChatView struct {
-	Busy     bool          `json:"busy"`
-	Messages []ChatMessage `json:"messages"`
+	Busy bool `json:"busy"`
+
+	// EarlierCursor Paged reads only; pass it as `before` for the earlier messages (absent when there are none)
+	EarlierCursor *string       `json:"earlierCursor,omitempty"`
+	Messages      []ChatMessage `json:"messages"`
 
 	// Partial The assistant reply being generated
 	Partial *struct {
@@ -2796,11 +2941,50 @@ type UpdateAgentParams struct {
 	IfMatch IfMatchHeader `json:"If-Match"`
 }
 
+// ListAgentThreadsParams defines parameters for ListAgentThreads.
+type ListAgentThreadsParams struct {
+	// Limit Page size (1-200). Without it, every thread.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor nextCursor from the previous page (opaque; a malformed one is 400 invalid_cursor)
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Q Case-insensitive substring match
+	Q *SearchParam `form:"q,omitempty" json:"q,omitempty"`
+}
+
+// GetAgentThreadParams defines parameters for GetAgentThread.
+type GetAgentThreadParams struct {
+	// Limit Messages per page (1-200, default 50 when `before` is given)
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Before earlierCursor from the previous page (opaque; a malformed one is 400 invalid_cursor)
+	Before *string `form:"before,omitempty" json:"before,omitempty"`
+}
+
 // StreamAgentThreadParams defines parameters for StreamAgentThread.
 type StreamAgentThreadParams struct {
-	// Once Send the current view as one event, then end the stream
+	// Once Send the current view (or snapshot) as one event, then end the stream
 	Once *bool `form:"once,omitempty" json:"once,omitempty"`
+
+	// Format view (default) for whole views, delta for a snapshot and then changes
+	Format *StreamAgentThreadParamsFormat `form:"format,omitempty" json:"format,omitempty"`
+
+	// V The delta format's version (1); other values are 400 unsupported_version
+	V *StreamAgentThreadParamsV `form:"v,omitempty" json:"v,omitempty"`
+
+	// Limit Only the latest messages (1-200) in views and snapshots
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// LastEventID The last delta event a reconnecting client applied; the new stream's numbering goes on after it
+	LastEventID *string `json:"Last-Event-ID,omitempty"`
 }
+
+// StreamAgentThreadParamsFormat defines parameters for StreamAgentThread.
+type StreamAgentThreadParamsFormat string
+
+// StreamAgentThreadParamsV defines parameters for StreamAgentThread.
+type StreamAgentThreadParamsV int
 
 // SetThreadMcpServersJSONBody defines parameters for SetThreadMcpServers.
 type SetThreadMcpServersJSONBody struct {

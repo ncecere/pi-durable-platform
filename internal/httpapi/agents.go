@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -267,6 +268,14 @@ func (a *api) takeMessage(w http.ResponseWriter, r *http.Request, agentID uuid.U
 			return message{}, false
 		}
 	}
+	if v := body["whenBusy"]; v != nil && string(v) != "null" {
+		// Relayed as sent: the runtime passes it to pi-durable.
+		var whenBusy apitypes.AgentMessageCreateWhenBusy
+		if json.Unmarshal(v, &whenBusy) != nil || !whenBusy.Valid() {
+			httpx.Error(w, http.StatusBadRequest, "invalid_when_busy", "whenBusy must be followUp or steer")
+			return message{}, false
+		}
+	}
 	var servers []apitypes.ClientMcpServer
 	setServers := body["mcpServers"] != nil
 	if setServers {
@@ -347,13 +356,70 @@ func toAPIParticipants(ps []agents.Participant) []apitypes.ThreadParticipant {
 }
 
 // listAgentThreads reads the platform's record: it doesn't wake the agent.
+// ?q= filters titles. Paging is opt-in: without ?limit= the reply is the
+// whole list; with it, a page and nextCursor beside data when more follow.
 func (a *api) listAgentThreads(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathUUID(w, r, "agentId")
 	if !ok {
 		return
 	}
-	rows, err := a.Agents.Threads(r.Context(), a.actor(r), id)
-	writeList(w, r, rows, err, toAPIThread)
+	page, limit, ok := threadPage(w, r)
+	if !ok {
+		return
+	}
+	rows, err := a.Agents.Threads(r.Context(), a.actor(r), id, page)
+	if failed(w, r, err) {
+		return
+	}
+	var next *string
+	if limit > 0 && len(rows) > limit {
+		rows = rows[:limit]
+		last := rows[limit-1]
+		next = encodeCursor(strconv.FormatInt(last.UpdatedAt.UnixMicro(), 10), last.ThreadID)
+	}
+	out := make([]apitypes.AgentThread, len(rows))
+	for i, t := range rows {
+		out[i] = toAPIThread(t)
+	}
+	httpx.JSONWithCursor(w, http.StatusOK, out, next)
+}
+
+// threadPage reads ?q=, ?cursor= and ?limit= for a thread list. limit is 0
+// when the caller doesn't page; the query then fetches every thread, else
+// one more than limit to detect a next page.
+func threadPage(w http.ResponseWriter, r *http.Request) (agents.ThreadPage, int, bool) {
+	var page agents.ThreadPage
+	q, ok := search(w, r)
+	if !ok {
+		return page, 0, false
+	}
+	if q != nil {
+		page.Search = *q
+	}
+	limit := 0
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > maxPageSize {
+			httpx.Error(w, http.StatusBadRequest, "invalid_limit", "limit must be between 1 and 200")
+			return page, 0, false
+		}
+		limit = n
+		rows := int32(n + 1)
+		page.Limit = &rows
+	}
+	keys, ok := decodeCursor(w, r, 2)
+	if !ok {
+		return page, 0, false
+	}
+	if keys != nil {
+		micros, err := strconv.ParseInt(keys[0], 10, 64)
+		if err != nil || !threadIDRE.MatchString(keys[1]) {
+			httpx.Error(w, http.StatusBadRequest, "invalid_cursor", "Invalid cursor")
+			return page, 0, false
+		}
+		page.After = &agents.ThreadKey{UpdatedAt: time.UnixMicro(micros), ThreadID: keys[1]}
+	}
+	return page, limit, true
 }
 
 // createAgentThread starts a thread under a platform-chosen ID.
@@ -414,7 +480,7 @@ func (a *api) streamAgentEvents(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusBadRequest, "invalid_agent_id", "agentId must be an agent's ID")
 			return
 		}
-		if _, err := a.Agents.Threads(r.Context(), a.actor(r), id); failed(w, r, err) {
+		if _, err := a.Agents.Threads(r.Context(), a.actor(r), id, agents.ThreadPage{}); failed(w, r, err) {
 			return
 		}
 		only = &id

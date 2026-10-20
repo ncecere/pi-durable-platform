@@ -361,20 +361,41 @@ WHERE agent_id = $1
   AND ((visibility = 'shared' AND NOT reserved)
        OR ($2::uuid IS NOT NULL AND created_by_user = $2::uuid)
        OR ($3::uuid IS NOT NULL AND created_by_service = $3::uuid))
+  AND ($4::text IS NULL OR title ILIKE '%' || $4::text || '%' ESCAPE '\')
+  AND ($5::timestamptz IS NULL
+       OR updated_at < $5::timestamptz
+       OR (updated_at = $5::timestamptz AND thread_id > $6::text))
 ORDER BY updated_at DESC, thread_id
+LIMIT $7::int
 `
 
 type ListVisibleAgentThreadsParams struct {
 	AgentID       uuid.UUID
 	ViewerUser    uuid.NullUUID
 	ViewerService uuid.NullUUID
+	Search        *string
+	AfterAt       *time.Time
+	AfterID       *string
+	RowLimit      *int32
 }
 
 // The agent's shared threads and the viewer's own private ones (viewer_user
 // for a person, viewer_service for a service account). A reserved thread (no
-// message yet) is listed for its creator only.
+// message yet) is listed for its creator only. Optionally a page: titles
+// containing search (LIKE-escaped by the caller), the rows after
+// (after_at, after_id) in the list's order, at most row_limit of them (each
+// null: no filter). The agent's threads are few enough to filter titles
+// without an index (agent_threads_updated serves the order).
 func (q *Queries) ListVisibleAgentThreads(ctx context.Context, arg ListVisibleAgentThreadsParams) ([]AgentThread, error) {
-	rows, err := q.db.Query(ctx, listVisibleAgentThreads, arg.AgentID, arg.ViewerUser, arg.ViewerService)
+	rows, err := q.db.Query(ctx, listVisibleAgentThreads,
+		arg.AgentID,
+		arg.ViewerUser,
+		arg.ViewerService,
+		arg.Search,
+		arg.AfterAt,
+		arg.AfterID,
+		arg.RowLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

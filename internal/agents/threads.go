@@ -477,16 +477,39 @@ func (s *Service) usable(ctx context.Context, a authz.Actor, id uuid.UUID) (dbge
 
 // Threads lists an agent's conversations the actor may see (shared ones and
 // their own private ones), most recently used first, without waking it.
-func (s *Service) Threads(ctx context.Context, a authz.Actor, id uuid.UUID) ([]ThreadView, error) {
+func (s *Service) Threads(ctx context.Context, a authz.Actor, id uuid.UUID, page ThreadPage) ([]ThreadView, error) {
 	if _, err := s.usable(ctx, a, id); err != nil {
 		return nil, err
 	}
 	user, service := creator(a)
-	rows, err := s.q.ListVisibleAgentThreads(ctx, dbgen.ListVisibleAgentThreadsParams{AgentID: id, ViewerUser: user, ViewerService: service})
+	p := dbgen.ListVisibleAgentThreadsParams{AgentID: id, ViewerUser: user, ViewerService: service, RowLimit: page.Limit}
+	if page.Search != "" {
+		escaped := store.EscapeLike(page.Search)
+		p.Search = &escaped
+	}
+	if page.After != nil {
+		p.AfterAt, p.AfterID = &page.After.UpdatedAt, &page.After.ThreadID
+	}
+	rows, err := s.q.ListVisibleAgentThreads(ctx, p)
 	if err != nil {
 		return nil, err
 	}
 	return s.views(ctx, id, rows)
+}
+
+// ThreadPage narrows a thread list: titles containing Search
+// (case-insensitive), the threads after After in the list's order (newest
+// activity first), at most Limit of them. The zero value is the whole list.
+type ThreadPage struct {
+	Search string
+	After  *ThreadKey
+	Limit  *int32
+}
+
+// ThreadKey is a thread's place in the list's order.
+type ThreadKey struct {
+	UpdatedAt time.Time
+	ThreadID  string
 }
 
 // RenameThread sets a thread's title.

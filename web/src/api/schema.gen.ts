@@ -1585,7 +1585,7 @@ export interface paths {
         };
         /**
          * The agent's conversations, most recently used first, with their status (does not wake the agent)
-         * @description From the platform's record of each thread, kept as messages are relayed and as the agent reports replies ending. A thread whose agent has not run since this record began appears after the agent's next start. Shared threads and the caller's own private ones; others' private threads are never listed.
+         * @description From the platform's record of each thread, kept as messages are relayed and as the agent reports replies ending. A thread whose agent has not run since this record began appears after the agent's next start. Shared threads and the caller's own private ones; others' private threads are never listed. Paging is opt-in: without `limit` the reply is the whole list. With `limit` it is one page (newest activity first) and `nextCursor`, next to `data`, when more follow; pass it back as `cursor` with the same `q`. `q` filters by title (case-insensitive substring), with or without `limit`.
          */
         get: operations["listAgentThreads"];
         put?: never;
@@ -1611,7 +1611,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** A conversation's transcript and the reply in progress */
+        /**
+         * A conversation's transcript and the reply in progress
+         * @description Without `limit` and `before`, the whole transcript. With either, one page of messages going backwards: the `limit` (default 50) messages before the one `before` names (the latest when absent), and `earlierCursor` when earlier messages exist (pass it as `before`). A page never starts with a tool result (it then also holds the reply that made the call). A cursor whose message has left the conversation's view (compacted or reset) gives an empty page. The reply in progress and the tools are always the current ones.
+         */
         get: operations["getAgentThread"];
         put?: never;
         post?: never;
@@ -1638,7 +1641,7 @@ export interface paths {
         put?: never;
         /**
          * Send a message (creates the thread on first use)
-         * @description Accepted, not answered; follow the thread's events for the reply. While the agent is busy the message runs after the current reply. A repeated requestId is not submitted twice.
+         * @description Accepted, not answered; follow the thread's events for the reply. While the agent is busy the message runs after the current reply (`whenBusy: followUp`, the default) or steers it (`whenBusy: steer`). A repeated requestId is not submitted twice.
          */
         post: operations["sendAgentMessage"];
         delete?: never;
@@ -1681,9 +1684,25 @@ export interface paths {
         };
         /**
          * Server-sent events with the conversation's view after every change
-         * @description Each `view` event's data is a ChatView (JSON). The stream keeps the agent awake while open. Access is checked
-         *     again every 30 seconds: the stream ends when the caller is no longer active (suspended, or denied by the
-         *     group re-check), may no longer use the agent, or the thread is another's private one.
+         * @description Each `view` event's data is a ChatView (JSON), sent after every change (at most 10 a second). The stream keeps
+         *     the agent awake while open. Access is checked again every 30 seconds: the stream ends when the caller is no
+         *     longer active (suspended, or denied by the group re-check), may no longer use the agent, or the thread is
+         *     another's private one.
+         *
+         *     `format=delta` (version `v=1`, the only one) sends changes instead of whole views: a `snapshot` event first
+         *     (a ChatView), then events for what changed, each a ChatDeltaEvent whose `type` is also the event's name and
+         *     whose `seq` (also the event's `id`) counts up by one. Types: `message.added`, `message.updated` (replace the
+         *     message with that id), `partial.set`, `partial.appended` (text and thinking to append to the reply in
+         *     progress), `partial.cleared`, `tool.started`, `tool.updated` and `tool.finished` (status, `outputAppended` or
+         *     `output`; null: none), `tool.removed`, `tools.set`, and `run` (`busy`). Tool events carry `startedAt` and
+         *     `elapsedMs` (live metadata, not part of the view). Applying the events in order to the snapshot gives the
+         *     view a new snapshot would; whatever can't be sent as a change (the conversation was compacted or reset) comes
+         *     as a new snapshot. Every connection starts with a snapshot; with `Last-Event-ID` (EventSource sends it when it
+         *     reconnects) its numbering goes on after that ID. A steering message is a `message.added` (a user message)
+         *     after the tool results of the reply it steers, before that reply's next answer.
+         *
+         *     `limit` keeps whole views and snapshots to the latest messages, with `earlierCursor` for the earlier ones
+         *     (`GET` the thread with `before`); new messages are added to the window.
          */
         get: operations["streamAgentThread"];
         put?: never;
@@ -2561,6 +2580,11 @@ export interface components {
             mcpServers?: components["schemas"]["ClientMcpServer"][];
             /** @description The thread's visibility, chosen with its first message (default shared). On a later message it may be omitted; a different value is refused (409 visibility_fixed). The message's author is always the caller: author fields a client sends are ignored. */
             visibility?: components["schemas"]["ThreadVisibility"];
+            /**
+             * @description While a reply is running: followUp (the default) waits for it to end and starts the next one; steer joins it, placed after its current tool round (or its answer) so the model sees it before going on. The transcript shows a steering message where it was placed: after the tool results of the reply it changed. No effect on an idle thread.
+             * @enum {string}
+             */
+            whenBusy?: "followUp" | "steer";
         };
         AgentMessageAccepted: {
             /** Format: int64 */
@@ -2648,6 +2672,44 @@ export interface components {
                 thinking: string;
             };
             tools: components["schemas"]["ChatToolSlot"][];
+            /** @description Paged reads only; pass it as `before` for the earlier messages (absent when there are none) */
+            earlierCursor?: string;
+        };
+        /** @description One event of a thread's delta stream (`format=delta`, version 1). Which fields are set depends on `type`; see the stream's description. */
+        ChatDeltaEvent: {
+            /** @enum {string} */
+            type: "snapshot" | "message.added" | "message.updated" | "partial.set" | "partial.appended" | "partial.cleared" | "tool.started" | "tool.updated" | "tool.finished" | "tool.removed" | "tools.set" | "run";
+            /** Format: int64 */
+            seq: number;
+            /** @description The format's version (snapshot) */
+            v?: number;
+            view?: components["schemas"]["ChatView"];
+            message?: components["schemas"]["ChatMessage"];
+            partial?: {
+                text: string;
+                thinking: string;
+            };
+            /** @description partial.appended */
+            text?: string;
+            /** @description partial.appended */
+            thinking?: string;
+            tool?: components["schemas"]["ChatToolSlot"];
+            tools?: components["schemas"]["ChatToolSlot"][];
+            callId?: string;
+            status?: string;
+            output?: string | null;
+            outputAppended?: string;
+            /**
+             * Format: int64
+             * @description When the tool call started (Unix milliseconds)
+             */
+            startedAt?: number;
+            /**
+             * Format: int64
+             * @description How long the tool call had run when the event was sent
+             */
+            elapsedMs?: number;
+            busy?: boolean;
         };
         /** @description Who made the change, resolved when the log is read */
         AuditActor: {
@@ -6500,7 +6562,14 @@ export interface operations {
     };
     listAgentThreads: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Page size (1-200). Without it, every thread. */
+                limit?: number;
+                /** @description nextCursor from the previous page (opaque; a malformed one is 400 invalid_cursor) */
+                cursor?: string;
+                /** @description Case-insensitive substring match */
+                q?: components["parameters"]["SearchParam"];
+            };
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
@@ -6517,9 +6586,12 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["AgentThread"][];
+                        /** @description Only with `limit`, when more threads follow */
+                        nextCursor?: string;
                     };
                 };
             };
+            400: components["responses"]["ErrorReply"];
             404: components["responses"]["ErrorReply"];
             409: components["responses"]["ErrorReply"];
             503: components["responses"]["ErrorReply"];
@@ -6561,7 +6633,12 @@ export interface operations {
     };
     getAgentThread: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Messages per page (1-200, default 50 when `before` is given) */
+                limit?: number;
+                /** @description earlierCursor from the previous page (opaque; a malformed one is 400 invalid_cursor) */
+                before?: string;
+            };
             header?: never;
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
@@ -6583,6 +6660,7 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["ErrorReply"];
             404: components["responses"]["ErrorReply"];
             409: components["responses"]["ErrorReply"];
             503: components["responses"]["ErrorReply"];
@@ -6715,10 +6793,19 @@ export interface operations {
     streamAgentThread: {
         parameters: {
             query?: {
-                /** @description Send the current view as one event, then end the stream */
+                /** @description Send the current view (or snapshot) as one event, then end the stream */
                 once?: boolean;
+                /** @description view (default) for whole views, delta for a snapshot and then changes */
+                format?: "view" | "delta";
+                /** @description The delta format's version (1); other values are 400 unsupported_version */
+                v?: 1;
+                /** @description Only the latest messages (1-200) in views and snapshots */
+                limit?: number;
             };
-            header?: never;
+            header?: {
+                /** @description The last delta event a reconnecting client applied; the new stream's numbering goes on after it */
+                "Last-Event-ID"?: string;
+            };
             path: {
                 agentId: components["parameters"]["AgentIdParam"];
                 /** @description Thread ID (1-64 letters, digits, dashes or underscores): the platform's, from createAgentThread, or one the client chooses (use a random one: whoever uses an ID first starts that thread) */
