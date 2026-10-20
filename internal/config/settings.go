@@ -166,6 +166,7 @@ var settings = []setting{
 	{key: "AGENTS_CLIENT_MCP_MODE", apply: str(func(c *Config) *string { return &c.Agents.ClientMCPMode })},
 	{key: "AGENTS_SANDBOX_ACTIVATION_SECRET", apply: str(func(c *Config) *string { return &c.Agents.SandboxActivationSecret })},
 	{key: "AGENTS_IDLE_TIMEOUT", apply: duration(func(c *Config) *time.Duration { return &c.Agents.IdleTimeout }, 10*time.Second, 7*24*time.Hour)},
+	{key: "AGENTS_BACKGROUND_MAX", apply: duration(func(c *Config) *time.Duration { return &c.Agents.BackgroundMax }, time.Minute, 7*24*time.Hour)},
 	{key: "TRIGGERS_INTERVAL", apply: duration(func(c *Config) *time.Duration { return &c.Triggers.Interval }, time.Second, 5*time.Minute)},
 	{key: "TRIGGERS_MAX_RUN_TIME", apply: duration(func(c *Config) *time.Duration { return &c.Triggers.MaxRunTime }, time.Minute, 24*time.Hour)},
 	{key: "TRIGGERS_MAX_CONCURRENT_RUNS", apply: integer(func(c *Config) *int { return &c.Triggers.MaxConcurrentRuns }, 1, 100)},

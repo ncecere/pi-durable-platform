@@ -60,6 +60,12 @@ const (
 	// startLockWait bounds how long a wake waits for another replica's start
 	// of the same agent (longer than a launcher's own start timeouts).
 	startLockWait = 3 * time.Minute
+	// DefaultBackgroundMax is how long background work keeps an agent awake
+	// unless BackgroundMax says otherwise (AGENTS_BACKGROUND_MAX).
+	DefaultBackgroundMax = 2 * time.Hour
+	// abortTimeout bounds a ceiling abort: the runtime waits up to 5 seconds
+	// for the work to end.
+	abortTimeout = 15 * time.Second
 )
 
 // Manager wakes, proxies to and hibernates agent runtimes.
@@ -90,6 +96,15 @@ type Manager struct {
 	// this covers a runtime that didn't.
 	Admit func(ctx context.Context, agentID, piDurableVersion string) error
 
+	// BackgroundMax is the ceiling: background work that started longer ago
+	// no longer keeps an agent awake. The reaper has the runtime abort it and
+	// hibernates the agent (docs/hibernation.md). Zero or less: no ceiling.
+	BackgroundMax time.Duration
+
+	// BackgroundAborted is told about each ceiling abort that aborted work,
+	// to audit it (optional). An error is logged; the agent still hibernates.
+	BackgroundAborted func(ctx context.Context, agentID string, abort BackgroundAbort) error
+
 	// Resolve returns an agent's current spec, from the database: what a start
 	// runs (under the agent's start lock), and how the reaper finds a
 	// runtime's token after a platform restart. Optional (tests): without it a
@@ -101,6 +116,8 @@ type Manager struct {
 	lastUsed  map[string]time.Time // last request proxied by this replica, per agent
 	skipUntil map[string]time.Time // the reaper need not ask the runtime again before this
 	starting  map[string]*startGate
+	awake     map[string]awakeReasons // why the reaper last left each running agent awake (metrics)
+	awakeSeen map[string]awakeCache   // Awake's answers, per agent, for a few seconds
 
 	// closing ends every open event stream when the platform shuts down
 	// (clients reconnect to another replica, or after the restart).
@@ -121,8 +138,9 @@ func New(l launcher.Launcher, idle time.Duration, log *slog.Logger) *Manager {
 		launcher: l, idle: idle, log: log,
 		client:  &http.Client{Timeout: 10 * time.Second},
 		streams: map[string]int{}, lastUsed: map[string]time.Time{}, skipUntil: map[string]time.Time{},
-		starting: map[string]*startGate{},
-		closing:  make(chan struct{}),
+		starting: map[string]*startGate{}, awake: map[string]awakeReasons{}, awakeSeen: map[string]awakeCache{},
+		closing:       make(chan struct{}),
+		BackgroundMax: DefaultBackgroundMax,
 	}
 }
 
@@ -332,6 +350,8 @@ func (m *Manager) Remove(ctx context.Context, agentID string) error {
 	delete(m.lastUsed, agentID)
 	delete(m.streams, agentID)
 	delete(m.skipUntil, agentID)
+	delete(m.awake, agentID)
+	delete(m.awakeSeen, agentID)
 	m.mu.Unlock()
 	return m.launcher.Remove(ctx, agentID)
 }
@@ -491,13 +511,16 @@ func isEventStream(path string) bool {
 // runtimeStatus is what a runtime reports at /status (docs/runtime-contract.md).
 // OpenStreams is nil for a runtime that predates it (an agent started before
 // the platform was upgraded): the reaper then goes by this replica's streams
-// alone. ContractVersion and PiDurableVersion are nil and empty for a runtime
-// before contract version 1. PiDurableVersion is the upgrade check's input
-// after a start (Admit).
+// alone. Background is nil for a runtime before contract version 2, or one
+// whose report is malformed: the reaper then judges it by the other fields,
+// as before. ContractVersion and PiDurableVersion are nil and empty for a
+// runtime before contract version 1. PiDurableVersion is the upgrade check's
+// input after a start (Admit).
 type runtimeStatus struct {
 	BusyThreads      int
 	OpenStreams      *int
 	LastActivityAt   int64
+	Background       *backgroundWork
 	ContractVersion  *int
 	PiDurableVersion string
 }
@@ -513,25 +536,28 @@ var piDurableVersionPattern = regexp.MustCompile(`^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]
 // short pre-release.
 func ValidPiDurableVersion(v string) bool { return piDurableVersionPattern.MatchString(v) }
 
-// UnmarshalJSON reads the activity fields strictly (a malformed one is an
-// error, as before) and the version fields leniently: the runtime is not
-// trusted, and a version the platform would not accept (a contract version
-// outside 1..maxContractVersion, a pi-durable version that is not a short
-// semantic version, or a value of another type) is dropped rather than making
-// the whole report unreadable, which would keep the reaper from hibernating
-// the agent.
+// UnmarshalJSON reads busyThreads, openStreams and lastActivityAt strictly (a
+// malformed one is an error, as before) and the background work and version
+// fields leniently: the runtime is not trusted, and a value the platform would
+// not accept (background work out of bounds, see decodeBackground; a contract
+// version outside 1..maxContractVersion, a pi-durable version that is not a
+// short semantic version, or a value of another type) is dropped rather than
+// making the whole report unreadable, which would keep the reaper from
+// hibernating the agent.
 func (s *runtimeStatus) UnmarshalJSON(raw []byte) error {
 	var wire struct {
 		BusyThreads      int             `json:"busyThreads"`
 		OpenStreams      *int            `json:"openStreams"`
 		LastActivityAt   int64           `json:"lastActivityAt"`
+		BackgroundWork   json.RawMessage `json:"backgroundWork"`
 		ContractVersion  json.RawMessage `json:"contractVersion"`
 		PiDurableVersion json.RawMessage `json:"piDurableVersion"`
 	}
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return err
 	}
-	*s = runtimeStatus{BusyThreads: wire.BusyThreads, OpenStreams: wire.OpenStreams, LastActivityAt: wire.LastActivityAt}
+	*s = runtimeStatus{BusyThreads: wire.BusyThreads, OpenStreams: wire.OpenStreams, LastActivityAt: wire.LastActivityAt,
+		Background: decodeBackground(wire.BackgroundWork)}
 	var contract int
 	if json.Unmarshal(wire.ContractVersion, &contract) == nil && contract >= 1 && contract <= maxContractVersion {
 		s.ContractVersion = &contract
@@ -544,7 +570,10 @@ func (s *runtimeStatus) UnmarshalJSON(raw []byte) error {
 }
 
 // ReapOnce hibernates every running agent that has been idle for longer than
-// the idle timeout: no work in progress, no open streams, no recent requests.
+// the idle timeout: no reply in progress, no open streams, no recent requests,
+// and no background work younger than BackgroundMax. Background work past the
+// ceiling is aborted first, when it is all that keeps the agent awake
+// (docs/hibernation.md).
 //
 // Only one replica reaps at a time (a database lock taken for the pass; the
 // others skip it). The decision rests on the runtime's own report, which
@@ -569,6 +598,7 @@ func (m *Manager) ReapOnce(ctx context.Context) {
 	running := m.launcher.Running()
 	m.Metrics.SetAgentsRunning(len(running))
 	m.forgetStopped(running)
+	defer m.countAwake(running)
 	for agentID, ep := range running {
 		if ctx.Err() != nil {
 			return
@@ -576,7 +606,16 @@ func (m *Manager) ReapOnce(ctx context.Context) {
 		m.mu.Lock()
 		streams, last, skip := m.streams[agentID], m.lastUsed[agentID], m.skipUntil[agentID]
 		m.mu.Unlock()
-		if streams > 0 || time.Since(last) < m.idle || time.Now().Before(skip) {
+		// Plainly active on this replica, or not idle before skip (the last
+		// reasons found stand for the metrics).
+		switch {
+		case streams > 0:
+			m.setAwake(agentID, awakeStream)
+			continue
+		case time.Since(last) < m.idle:
+			m.setAwake(agentID, awakeRecent)
+			continue
+		case time.Now().Before(skip):
 			continue
 		}
 		if ep.Token == "" && m.Resolve != nil {
@@ -592,22 +631,27 @@ func (m *Manager) ReapOnce(ctx context.Context) {
 			m.log.Debug("agent status failed", "agent", agentID, "err", err)
 			continue
 		}
-		lastActive := time.UnixMilli(st.LastActivityAt)
-		open := st.OpenStreams != nil && *st.OpenStreams > 0
-		if st.BusyThreads > 0 || open || time.Since(lastActive) < m.idle {
-			// Not before the agent could be idle (its last activity plus the
-			// timeout), and while it works or is watched, not for half a
-			// timeout: it counts as active until it stops, and then the
-			// timeout starts.
-			wait := m.idle - time.Since(lastActive)
-			if st.BusyThreads > 0 || open {
-				wait = m.idle / 2
-			}
-			m.mu.Lock()
-			m.skipUntil[agentID] = time.Now().Add(max(wait, 0))
-			m.mu.Unlock()
+		if m.stillAwake(agentID, st) {
 			continue
 		}
+		if bg := st.Background; bg != nil {
+			if _, over := m.judge(st, 0, time.Now()); over {
+				// Past the ceiling and nothing else keeps the agent awake: the
+				// work is aborted, and the agent hibernates unless what is left
+				// (younger background work) keeps it awake.
+				m.abortBackground(ctx, agentID, ep, bg)
+				if st, err = m.status(ctx, ep); err != nil {
+					m.log.Debug("agent status failed", "agent", agentID, "err", err)
+					continue
+				}
+				if m.stillAwake(agentID, st) {
+					continue
+				}
+			}
+		}
+		m.mu.Lock()
+		delete(m.awake, agentID)
+		m.mu.Unlock()
 		m.log.Info("hibernating idle agent", "agent", agentID)
 		err = m.launcher.Stop(ctx, agentID)
 		m.Metrics.Hibernation("idle", err)
@@ -617,6 +661,23 @@ func (m *Manager) ReapOnce(ctx context.Context) {
 	}
 }
 
+// stillAwake applies the reaper's rule (judge) to a runtime's report: when
+// something keeps the agent awake, it records why and when to ask again, and
+// says so.
+func (m *Manager) stillAwake(agentID string, st runtimeStatus) bool {
+	now := time.Now()
+	reasons, _ := m.judge(st, 0, now)
+	if reasons == 0 {
+		return false
+	}
+	wait := m.recheckIn(st, reasons, now)
+	m.mu.Lock()
+	m.awake[agentID] = reasons
+	m.skipUntil[agentID] = now.Add(wait)
+	m.mu.Unlock()
+	return true
+}
+
 // forgetStopped drops the reaper's hints about agents no longer running.
 func (m *Manager) forgetStopped(running map[string]launcher.Endpoint) {
 	m.mu.Lock()
@@ -624,6 +685,16 @@ func (m *Manager) forgetStopped(running map[string]launcher.Endpoint) {
 	for id := range m.skipUntil {
 		if _, ok := running[id]; !ok {
 			delete(m.skipUntil, id)
+		}
+	}
+	for id := range m.awake {
+		if _, ok := running[id]; !ok {
+			delete(m.awake, id)
+		}
+	}
+	for id := range m.awakeSeen {
+		if _, ok := running[id]; !ok {
+			delete(m.awakeSeen, id)
 		}
 	}
 }

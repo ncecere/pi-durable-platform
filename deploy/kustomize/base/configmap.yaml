@@ -30,4 +30,5 @@ data:
   AGENTS_GATEWAY_URL: "http://pi-durable-platform-gateway.pi-durable-platform.svc:8099"
   AGENTS_CLIENT_MCP_MODE: "proxy"
   AGENTS_IDLE_TIMEOUT: "10m"
+  AGENTS_BACKGROUND_MAX: "2h"
   AGENTS_MODEL_PROVIDER: "demo"

@@ -56,6 +56,7 @@ export const actionLabels: Record<string, string> = {
   "agent.move": "Moved agent to another team",
   "agent.runtime_recorded": "Recorded the agent's runtime version",
   "agent.runtime_refused": "Refused an older runtime for the agent",
+  "agent.background_abort": "Stopped an agent's background work past the time limit",
   "trigger.create": "Added trigger",
   "trigger.update": "Changed trigger",
   "trigger.delete": "Deleted trigger",

@@ -95,6 +95,7 @@ func New(pool, agentsPool *pgxpool.Pool, box *secrets.Box, host *agenthost.Manag
 		}
 		return s.AdmitRuntime(ctx, id, version)
 	}
+	host.BackgroundAborted = s.auditBackgroundAbort
 	return s
 }
 
