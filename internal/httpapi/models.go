@@ -507,6 +507,7 @@ func (a *api) adminGetUsage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	q.ClientID = r.URL.Query().Get("clientId") // usage attributed to one connected app
 	rep, err := a.Models.PlatformUsage(r.Context(), a.actor(r), q)
 	writeUsage(w, r, rep, err)
 }

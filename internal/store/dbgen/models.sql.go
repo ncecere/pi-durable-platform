@@ -324,8 +324,8 @@ func (q *Queries) InsertModelProvider(ctx context.Context, arg InsertModelProvid
 }
 
 const insertModelUsage = `-- name: InsertModelUsage :exec
-INSERT INTO model_usage (team_id, agent_id, model_id, source, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO model_usage (team_id, agent_id, model_id, source, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, oauth_grant_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `
 
 type InsertModelUsageParams struct {
@@ -337,6 +337,7 @@ type InsertModelUsageParams struct {
 	OutputTokens     int64
 	CacheReadTokens  int64
 	CacheWriteTokens int64
+	OauthGrantID     uuid.NullUUID
 }
 
 func (q *Queries) InsertModelUsage(ctx context.Context, arg InsertModelUsageParams) error {
@@ -349,13 +350,14 @@ func (q *Queries) InsertModelUsage(ctx context.Context, arg InsertModelUsagePara
 		arg.OutputTokens,
 		arg.CacheReadTokens,
 		arg.CacheWriteTokens,
+		arg.OauthGrantID,
 	)
 	return err
 }
 
 const insertModelUsageBatch = `-- name: InsertModelUsageBatch :exec
-INSERT INTO model_usage (team_id, agent_id, model_id, source, requests, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO model_usage (team_id, agent_id, model_id, source, requests, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, oauth_grant_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 `
 
 type InsertModelUsageBatchParams struct {
@@ -368,6 +370,7 @@ type InsertModelUsageBatchParams struct {
 	OutputTokens     int64
 	CacheReadTokens  int64
 	CacheWriteTokens int64
+	OauthGrantID     uuid.NullUUID
 }
 
 func (q *Queries) InsertModelUsageBatch(ctx context.Context, arg InsertModelUsageBatchParams) error {
@@ -381,6 +384,7 @@ func (q *Queries) InsertModelUsageBatch(ctx context.Context, arg InsertModelUsag
 		arg.OutputTokens,
 		arg.CacheReadTokens,
 		arg.CacheWriteTokens,
+		arg.OauthGrantID,
 	)
 	return err
 }
@@ -857,16 +861,19 @@ WHERE u.created_at >= $1 AND u.created_at < $2
   AND ($3::uuid IS NULL OR u.team_id = $3::uuid)
   AND ($4::uuid[] IS NULL
        OR (u.agent_id = ANY($4::uuid[]) AND ($5::boolean OR NOT a.service_managed)))
+  AND ($6::text IS NULL
+       OR u.oauth_grant_id IN (SELECT g.id FROM oauth_grants g WHERE g.client_id = $6::text))
 GROUP BY 1, u.team_id, t.slug, t.name, u.agent_id, a.name, a.service_managed, u.model_id, m.name, p.name, m.input_price, m.output_price
 ORDER BY 1
 `
 
 type UsageFactsParams struct {
-	Since       time.Time
-	Until       time.Time
-	TeamID      uuid.NullUUID
-	AgentIds    []uuid.UUID
-	WithManaged bool
+	Since         time.Time
+	Until         time.Time
+	TeamID        uuid.NullUUID
+	AgentIds      []uuid.UUID
+	WithManaged   bool
+	OauthClientID *string
 }
 
 type UsageFactsRow struct {
@@ -891,8 +898,9 @@ type UsageFactsRow struct {
 
 // Usage summed per UTC day, team, agent and model in [since, until), for one
 // team (or every team), optionally some agents only (agent_ids; with
-// with_managed false, service-managed agents among them match nothing).
-// Prices are the models' current ones (USD per million tokens).
+// with_managed false, service-managed agents among them match nothing), or
+// one connected app's (the rows attributed to grants of a client). Prices
+// are the models' current ones (USD per million tokens).
 func (q *Queries) UsageFacts(ctx context.Context, arg UsageFactsParams) ([]UsageFactsRow, error) {
 	rows, err := q.db.Query(ctx, usageFacts,
 		arg.Since,
@@ -900,6 +908,7 @@ func (q *Queries) UsageFacts(ctx context.Context, arg UsageFactsParams) ([]Usage
 		arg.TeamID,
 		arg.AgentIds,
 		arg.WithManaged,
+		arg.OauthClientID,
 	)
 	if err != nil {
 		return nil, err

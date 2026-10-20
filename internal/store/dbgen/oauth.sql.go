@@ -183,7 +183,7 @@ func (q *Queries) GetOAuthSettings(ctx context.Context) (OauthSetting, error) {
 }
 
 const getOAuthToken = `-- name: GetOAuthToken :one
-SELECT t.id, t.grant_id, t.kind, t.token_hash, t.pepper_id, t.resource, t.expires_at, t.rotated_at, t.created_at, gr.id, gr.user_id, gr.client_id, gr.client_kind, gr.client_name, gr.client_uri, gr.logo_uri, gr.scopes, gr.resource, gr.created_at, gr.last_used_at, gr.revoked_at, gr.revoked_reason, u.id, u.oidc_issuer, u.oidc_subject, u.email, u.display_name, u.platform_role, u.status, u.claims, u.groups, u.revision, u.created_at, u.updated_at, u.last_login_at, u.group_denied_at, u.group_denied_reason
+SELECT t.id, t.grant_id, t.kind, t.token_hash, t.pepper_id, t.resource, t.expires_at, t.rotated_at, t.created_at, t.scopes, gr.id, gr.user_id, gr.client_id, gr.client_kind, gr.client_name, gr.client_uri, gr.logo_uri, gr.scopes, gr.resource, gr.created_at, gr.last_used_at, gr.revoked_at, gr.revoked_reason, u.id, u.oidc_issuer, u.oidc_subject, u.email, u.display_name, u.platform_role, u.status, u.claims, u.groups, u.revision, u.created_at, u.updated_at, u.last_login_at, u.group_denied_at, u.group_denied_reason
 FROM oauth_tokens t
 JOIN oauth_grants gr ON gr.id = t.grant_id
 JOIN users u ON u.id = gr.user_id
@@ -215,6 +215,7 @@ func (q *Queries) GetOAuthToken(ctx context.Context, arg GetOAuthTokenParams) (G
 		&i.OauthToken.ExpiresAt,
 		&i.OauthToken.RotatedAt,
 		&i.OauthToken.CreatedAt,
+		&i.OauthToken.Scopes,
 		&i.OauthGrant.ID,
 		&i.OauthGrant.UserID,
 		&i.OauthGrant.ClientID,
@@ -284,8 +285,8 @@ func (q *Queries) InsertOAuthClient(ctx context.Context, arg InsertOAuthClientPa
 }
 
 const insertOAuthCode = `-- name: InsertOAuthCode :exec
-INSERT INTO oauth_codes (code_hash, grant_id, client_id, redirect_uri, code_challenge, resource, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO oauth_codes (code_hash, grant_id, client_id, redirect_uri, code_challenge, resource, expires_at, scopes)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
 type InsertOAuthCodeParams struct {
@@ -296,6 +297,7 @@ type InsertOAuthCodeParams struct {
 	CodeChallenge string
 	Resource      string
 	ExpiresAt     time.Time
+	Scopes        []string
 }
 
 func (q *Queries) InsertOAuthCode(ctx context.Context, arg InsertOAuthCodeParams) error {
@@ -307,6 +309,7 @@ func (q *Queries) InsertOAuthCode(ctx context.Context, arg InsertOAuthCodeParams
 		arg.CodeChallenge,
 		arg.Resource,
 		arg.ExpiresAt,
+		arg.Scopes,
 	)
 	return err
 }
@@ -359,8 +362,8 @@ func (q *Queries) InsertOAuthGrant(ctx context.Context, arg InsertOAuthGrantPara
 }
 
 const insertOAuthToken = `-- name: InsertOAuthToken :exec
-INSERT INTO oauth_tokens (grant_id, kind, token_hash, pepper_id, resource, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO oauth_tokens (grant_id, kind, token_hash, pepper_id, resource, expires_at, scopes)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type InsertOAuthTokenParams struct {
@@ -370,6 +373,7 @@ type InsertOAuthTokenParams struct {
 	PepperID  []byte
 	Resource  string
 	ExpiresAt time.Time
+	Scopes    []string
 }
 
 func (q *Queries) InsertOAuthToken(ctx context.Context, arg InsertOAuthTokenParams) error {
@@ -380,6 +384,7 @@ func (q *Queries) InsertOAuthToken(ctx context.Context, arg InsertOAuthTokenPara
 		arg.PepperID,
 		arg.Resource,
 		arg.ExpiresAt,
+		arg.Scopes,
 	)
 	return err
 }
@@ -468,7 +473,7 @@ func (q *Queries) LockOAuthSettings(ctx context.Context) (OauthSetting, error) {
 }
 
 const lockOAuthToken = `-- name: LockOAuthToken :one
-SELECT id, grant_id, kind, token_hash, pepper_id, resource, expires_at, rotated_at, created_at FROM oauth_tokens WHERE id = $1 FOR UPDATE
+SELECT id, grant_id, kind, token_hash, pepper_id, resource, expires_at, rotated_at, created_at, scopes FROM oauth_tokens WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) LockOAuthToken(ctx context.Context, id uuid.UUID) (OauthToken, error) {
@@ -484,6 +489,7 @@ func (q *Queries) LockOAuthToken(ctx context.Context, id uuid.UUID) (OauthToken,
 		&i.ExpiresAt,
 		&i.RotatedAt,
 		&i.CreatedAt,
+		&i.Scopes,
 	)
 	return i, err
 }
@@ -519,7 +525,7 @@ func (q *Queries) RotateOAuthToken(ctx context.Context, id uuid.UUID) (int64, er
 }
 
 const takeOAuthCode = `-- name: TakeOAuthCode :one
-DELETE FROM oauth_codes WHERE code_hash = $1 RETURNING code_hash, grant_id, client_id, redirect_uri, code_challenge, resource, expires_at, created_at
+DELETE FROM oauth_codes WHERE code_hash = $1 RETURNING code_hash, grant_id, client_id, redirect_uri, code_challenge, resource, expires_at, created_at, scopes
 `
 
 // Consumes a code: it is deleted whether or not the exchange succeeds.
@@ -535,6 +541,7 @@ func (q *Queries) TakeOAuthCode(ctx context.Context, codeHash string) (OauthCode
 		&i.Resource,
 		&i.ExpiresAt,
 		&i.CreatedAt,
+		&i.Scopes,
 	)
 	return i, err
 }

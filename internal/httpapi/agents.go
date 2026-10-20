@@ -17,6 +17,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
+	"github.com/ncecere/pi-durable-platform/internal/oauth"
 )
 
 // Agents (api/openapi.yaml, tag agents). internal/agents authorizes every
@@ -374,6 +375,8 @@ func (a *api) takeMessage(w http.ResponseWriter, r *http.Request, agentID uuid.U
 		a.Agents.Unclaim(r.Context(), msg.claim)
 		return message{}, false
 	}
+	// Who the reply's model and tool requests count for (usage per connected app).
+	oauth.RecordRunSender(r.Context(), a.q, agentID, threadID, actor.OAuthGrantID, at)
 	for _, k := range []string{"visibility", "mcpServers", "author", "speaker", "announceAuthor"} {
 		delete(body, k)
 	}

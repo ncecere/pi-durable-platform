@@ -20,6 +20,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
 	"github.com/ncecere/pi-durable-platform/internal/metrics"
 	"github.com/ncecere/pi-durable-platform/internal/netguard"
+	"github.com/ncecere/pi-durable-platform/internal/oauth"
 	"github.com/ncecere/pi-durable-platform/internal/tracing"
 )
 
@@ -180,6 +181,9 @@ func (s *Service) relay(w http.ResponseWriter, r *http.Request, auth AgentAuth, 
 		proxyError(w, http.StatusForbidden, "model_not_allowed", "This agent has no model from the catalog")
 		return
 	}
+	// The connected app this request counts for, decided as it starts
+	// (oauth.Attribution: none unless unambiguous).
+	grant := oauth.Attribution(ctx, s.q, agentID, "")
 	m, err := s.Resolve(ctx, modelID, teamID)
 	if errors.Is(err, ErrUnavailable) {
 		proxyError(w, http.StatusForbidden, "model_unavailable", "The agent's model is disabled or not published to its team")
@@ -305,7 +309,7 @@ func (s *Service) relay(w http.ResponseWriter, r *http.Request, auth AgentAuth, 
 	}
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if err := s.RecordUsage(rctx, teamID, agentID, m.Model.ID, "proxy", u); err != nil {
+	if err := s.RecordUsage(rctx, teamID, agentID, m.Model.ID, "proxy", u, grant); err != nil {
 		log.Warn("model proxy: record usage", "agent", agentID, "err", err)
 	}
 	log.Debug("model proxy", "agent", agentID, "model", m.Model.UpstreamID, "input", u.Input, "output", u.Output,

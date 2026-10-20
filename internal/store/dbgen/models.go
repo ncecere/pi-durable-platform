@@ -32,6 +32,13 @@ type Agent struct {
 	ServiceManaged  bool
 }
 
+type AgentRunSender struct {
+	AgentID  uuid.UUID
+	ThreadID string
+	GrantID  uuid.NullUUID
+	SentAt   time.Time
+}
+
 type AgentTemplate struct {
 	ID             uuid.UUID
 	Slug           string
@@ -134,16 +141,17 @@ type LoginState struct {
 }
 
 type McpCall struct {
-	ID         int64
-	TeamID     uuid.UUID
-	AgentID    uuid.NullUUID
-	ServerID   uuid.NullUUID
-	ServerName string
-	Client     bool
-	Tool       string
-	Ok         bool
-	DurationMs int32
-	CreatedAt  time.Time
+	ID           int64
+	TeamID       uuid.UUID
+	AgentID      uuid.NullUUID
+	ServerID     uuid.NullUUID
+	ServerName   string
+	Client       bool
+	Tool         string
+	Ok           bool
+	DurationMs   int32
+	CreatedAt    time.Time
+	OauthGrantID uuid.NullUUID
 }
 
 type McpServer struct {
@@ -234,6 +242,7 @@ type ModelUsage struct {
 	CacheWriteTokens int64
 	CreatedAt        time.Time
 	Requests         int32
+	OauthGrantID     uuid.NullUUID
 }
 
 type OauthClient struct {
@@ -247,6 +256,24 @@ type OauthClient struct {
 	LastUsedAt   time.Time
 }
 
+type OauthClientSecret struct {
+	ID         uuid.UUID
+	ClientID   string
+	SecretHash string
+	PepperID   []byte
+	Prefix     string
+	CreatedBy  uuid.NullUUID
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+}
+
+type OauthClientSubject struct {
+	ClientID  string
+	UserID    uuid.UUID
+	Subject   uuid.UUID
+	CreatedAt time.Time
+}
+
 type OauthCode struct {
 	CodeHash      string
 	GrantID       uuid.UUID
@@ -256,6 +283,7 @@ type OauthCode struct {
 	Resource      string
 	ExpiresAt     time.Time
 	CreatedAt     time.Time
+	Scopes        []string
 }
 
 type OauthGrant struct {
@@ -292,6 +320,7 @@ type OauthToken struct {
 	ExpiresAt time.Time
 	RotatedAt *time.Time
 	CreatedAt time.Time
+	Scopes    []string
 }
 
 type PersonalWorkspaceSetting struct {

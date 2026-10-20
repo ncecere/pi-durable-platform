@@ -13,6 +13,7 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/ncecere/pi-durable-platform/internal/auth"
 	"github.com/ncecere/pi-durable-platform/internal/httpx"
@@ -150,6 +151,7 @@ func (a *api) oauthServerMetadata(w http.ResponseWriter, _ *http.Request) {
 		"token_endpoint_auth_methods_supported":          []string{"none"},
 		"revocation_endpoint_auth_methods_supported":     []string{"none"},
 		"code_challenge_methods_supported":               []string{"S256"},
+		"prompt_values_supported":                        []string{oauth.PromptNone, oauth.PromptConsent},
 		"client_id_metadata_document_supported":          true,
 		"authorization_response_iss_parameter_supported": true,
 	})
@@ -158,10 +160,15 @@ func (a *api) oauthServerMetadata(w http.ResponseWriter, _ *http.Request) {
 // oauthAuthorize is the authorization endpoint. A request whose client or
 // redirect URI isn't good gets a page (never a redirect); other errors go
 // back to the client. Without a browser session it sends the person to sign
-// in (the platform's own sign-in, so OIDC_ALLOWED_GROUPS and the rest apply)
-// and back here. Signed in, a client they already allowed, or a trusted
-// client, goes straight back with a code, and anyone else goes to the
-// consent page of the web app with the same request.
+// in (the platform's own sign-in, so OIDC_ALLOWED_GROUPS and the rest apply;
+// login_hint goes to the identity provider) and back here. Signed in as the
+// hinted person (or with no hint), a client they already allowed for the
+// scopes, or a trusted client, goes straight back with a code, and anything
+// else goes to the consent page of the web app with the same request (which
+// also explains a login_hint that isn't the signed-in person and offers to
+// switch accounts). With prompt=none no page is ever shown: what would need
+// one goes back to the app as login_required, consent_required or
+// interaction_required (internal/oauth/prompt.go).
 func (a *api) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	if len(r.URL.RawQuery) > oauth.MaxQueryLen {
 		a.oauthPage(w, r, oauth.PageError("invalid_request", "The request is too long."))
@@ -181,17 +188,35 @@ func (a *api) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		a.oauthPage(w, r, err)
 		return
 	}
+	silent := req.PromptNone()
+	needs := func(code string) {
+		http.Redirect(w, r, a.OAuth.ErrorRedirect(req, oauth.PromptError(code)), http.StatusFound)
+	}
 	user, ok, err := a.Auth.SessionUser(r)
 	if err != nil {
 		a.oauthPage(w, r, err)
 		return
 	}
-	if !ok {
-		http.Redirect(w, r, a.Auth.LoginURL("/oauth/authorize?"+r.URL.RawQuery), http.StatusFound)
+	switch {
+	case !ok && silent:
+		needs("login_required")
 		return
-	}
-	if !store.IsUserActive(user) {
+	case !ok:
+		http.Redirect(w, r, a.Auth.LoginURLWithHint("/oauth/authorize?"+r.URL.RawQuery, req.LoginHint), http.StatusFound)
+		return
+	case !store.IsUserActive(user) && silent:
+		needs("interaction_required")
+		return
+	case !store.IsUserActive(user):
 		a.oauthPage(w, r, oauth.PageError("access_denied", "This account is suspended or no longer in a group allowed to use this platform."))
+		return
+	case !oauth.HintMatches(user, req.LoginHint) && silent:
+		// Never the wrong account: the hinted person has to sign in.
+		needs("login_required")
+		return
+	case !oauth.HintMatches(user, req.LoginHint):
+		// The consent page says whom the app expected and offers to switch.
+		http.Redirect(w, r, connectConsentPath+"?"+r.URL.RawQuery, http.StatusFound)
 		return
 	}
 	trusted, err := a.OAuth.Trusted(r.Context(), c)
@@ -199,12 +224,16 @@ func (a *api) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		a.oauthPage(w, r, err)
 		return
 	}
-	remembered, err := a.OAuth.Remembered(r.Context(), user.ID, c.ID)
+	remembered, err := a.OAuth.Remembered(r.Context(), user.ID, c.ID, req.Scopes())
 	if err != nil {
 		a.oauthPage(w, r, err)
 		return
 	}
-	if !trusted && !remembered {
+	if !trusted && !remembered && silent {
+		needs("consent_required")
+		return
+	}
+	if req.PromptConsent() || (!trusted && !remembered) {
 		http.Redirect(w, r, connectConsentPath+"?"+r.URL.RawQuery, http.StatusFound)
 		return
 	}
@@ -341,7 +370,7 @@ func (a *api) oauthRegister(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{
 		"client_id": reg.ID, "client_id_issued_at": reg.IssuedAt, "client_name": reg.Name, "redirect_uris": reg.RedirectURIs,
 		"token_endpoint_auth_method": "none", "grant_types": []string{"authorization_code", "refresh_token"},
-		"response_types": []string{"code"}, "scope": oauth.ScopeAgents,
+		"response_types": []string{"code"}, "scope": strings.Join(oauth.Scopes, " "),
 	}
 	if reg.ApplicationType != "" {
 		out["application_type"] = reg.ApplicationType

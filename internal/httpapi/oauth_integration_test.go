@@ -148,7 +148,7 @@ func TestOAuthConnect(t *testing.T) {
 	_ = json.NewDecoder(res.Body).Decode(&meta)
 	res.Body.Close()
 	if meta["issuer"] != app.URL || meta["token_endpoint"] != app.URL+"/oauth/token" || meta["client_id_metadata_document_supported"] != true ||
-		meta["authorization_response_iss_parameter_supported"] != true || len(meta["scopes_supported"].([]any)) != 1 {
+		meta["authorization_response_iss_parameter_supported"] != true || len(meta["scopes_supported"].([]any)) != 2 {
 		t.Fatalf("server metadata %v", meta)
 	}
 	res, _ = http.Get(app.URL + "/.well-known/oauth-protected-resource")

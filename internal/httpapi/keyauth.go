@@ -64,6 +64,14 @@ func (a *api) withBearer(h http.HandlerFunc, personOnly bool) http.Handler {
 				"A service account acts for no person: use a personal API key, an app's token or a browser session")
 			return
 		}
+		if actor.OAuthReadOnly && !readMethod(r.Method) {
+			// agents:read reads (lists, conversations, event streams) and
+			// changes nothing: every route that takes bearer credentials
+			// reads with GET and changes with another method.
+			w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope", scope="agents"`)
+			httpx.Error(w, http.StatusForbidden, "insufficient_scope", "This app was connected to read only (scope agents:read)")
+			return
+		}
 		if !a.Auth.AdmitRequest(w, r, limitKey) {
 			return
 		}
@@ -86,7 +94,7 @@ func (a *api) authenticateKey(ctx context.Context, token string) (authz.Actor, s
 		}
 		// The person, without their platform role: an app acting for a
 		// platform admin gets no admin powers.
-		return oauth.Actor(p.Grant, "", ""), "user:" + p.User.ID.String(), nil
+		return p.Actor("", ""), "user:" + p.User.ID.String(), nil
 	case serviceaccounts.LooksLikeKey(token):
 		p, err := a.ServiceAccounts.Authenticate(ctx, token)
 		if err != nil {
@@ -110,6 +118,9 @@ func (a *api) authenticateKey(ctx context.Context, token string) (authz.Actor, s
 	}
 	return authz.Actor{}, "", apikeys.ErrInvalid
 }
+
+// readMethod reports a method that reads (and changes nothing).
+func readMethod(m string) bool { return m == http.MethodGet || m == http.MethodHead }
 
 // resourceMetadataURL is where the platform's protected resource metadata
 // (RFC 9728) is served.

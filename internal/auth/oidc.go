@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -85,7 +86,21 @@ func (s *Service) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setCookie(w, stateCookie, state, int(loginStateTTL.Seconds()))
-	http.Redirect(w, r, c.oauth.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier), oidc.Nonce(nonce)), http.StatusFound)
+	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier), oidc.Nonce(nonce)}
+	if hint := cleanLoginHint(r.URL.Query().Get("login_hint")); hint != "" {
+		opts = append(opts, oauth2.SetAuthURLParam("login_hint", hint))
+	}
+	http.Redirect(w, r, c.oauth.AuthCodeURL(state, opts...), http.StatusFound)
+}
+
+// cleanLoginHint is a login_hint fit to pass to the identity provider: at
+// most 320 characters on one line, else none.
+func cleanLoginHint(h string) string {
+	h = strings.TrimSpace(h)
+	if len(h) > 320 || strings.IndexFunc(h, unicode.IsControl) >= 0 {
+		return ""
+	}
+	return h
 }
 
 // Callback completes the authorization-code flow.

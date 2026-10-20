@@ -116,18 +116,19 @@ WHERE id = 1
 RETURNING *;
 
 -- name: InsertModelUsage :exec
-INSERT INTO model_usage (team_id, agent_id, model_id, source, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+INSERT INTO model_usage (team_id, agent_id, model_id, source, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, oauth_grant_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 
 -- name: InsertModelUsageBatch :exec
-INSERT INTO model_usage (team_id, agent_id, model_id, source, requests, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+INSERT INTO model_usage (team_id, agent_id, model_id, source, requests, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, oauth_grant_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
 
 -- name: UsageFacts :many
 -- Usage summed per UTC day, team, agent and model in [since, until), for one
 -- team (or every team), optionally some agents only (agent_ids; with
--- with_managed false, service-managed agents among them match nothing).
--- Prices are the models' current ones (USD per million tokens).
+-- with_managed false, service-managed agents among them match nothing), or
+-- one connected app's (the rows attributed to grants of a client). Prices
+-- are the models' current ones (USD per million tokens).
 SELECT (u.created_at AT TIME ZONE 'UTC')::date AS day,
        u.team_id, t.slug AS team_slug, t.name AS team_name,
        u.agent_id, a.name AS agent_name, COALESCE(a.service_managed, false)::boolean AS agent_managed,
@@ -144,5 +145,7 @@ WHERE u.created_at >= sqlc.arg(since) AND u.created_at < sqlc.arg(until)
   AND (sqlc.narg(team_id)::uuid IS NULL OR u.team_id = sqlc.narg(team_id)::uuid)
   AND (sqlc.narg(agent_ids)::uuid[] IS NULL
        OR (u.agent_id = ANY(sqlc.narg(agent_ids)::uuid[]) AND (sqlc.arg(with_managed)::boolean OR NOT a.service_managed)))
+  AND (sqlc.narg(oauth_client_id)::text IS NULL
+       OR u.oauth_grant_id IN (SELECT g.id FROM oauth_grants g WHERE g.client_id = sqlc.narg(oauth_client_id)::text))
 GROUP BY 1, u.team_id, t.slug, t.name, u.agent_id, a.name, a.service_managed, u.model_id, m.name, p.name, m.input_price, m.output_price
 ORDER BY 1;

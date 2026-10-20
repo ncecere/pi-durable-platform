@@ -68,6 +68,7 @@ CROSS JOIN LATERAL (
                                  FROM oauth_grants og JOIN users gu ON gu.id = og.user_id WHERE og.id = ids.target_uuid)
         WHEN 'oauth_client' THEN (SELECT oc.client_name FROM oauth_clients oc WHERE oc.id = ids.target_uuid)
         WHEN 'oauth_settings' THEN CASE a.target_id WHEN 'trusted-clients' THEN 'Trusted apps' END
+        WHEN 'oauth_client_secret' THEN (SELECT 'App secret ' || cs.prefix || '…' FROM oauth_client_secrets cs WHERE cs.id = ids.target_uuid)
     END)::text AS label
 ) live
 WHERE (sqlc.narg(team_id)::uuid IS NULL OR a.team_id = sqlc.narg(team_id)::uuid)

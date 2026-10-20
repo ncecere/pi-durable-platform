@@ -9,6 +9,7 @@ import (
 
 	"github.com/ncecere/pi-durable-platform/internal/apperr"
 	"github.com/ncecere/pi-durable-platform/internal/authz"
+	"github.com/ncecere/pi-durable-platform/internal/oauth"
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 	"github.com/ncecere/pi-durable-platform/internal/teams"
 )
@@ -48,6 +49,9 @@ type UsageQuery struct {
 	From, To time.Time
 	GroupBy  string
 	AgentIDs []uuid.UUID
+	// ClientID limits the platform's report to usage attributed to one
+	// connected app (OAuth Connect; "" for all usage).
+	ClientID string
 }
 
 // UsageRow is one group's totals. Key fields are set by the grouping: Day;
@@ -132,6 +136,7 @@ func (s *Service) TeamUsage(ctx context.Context, a authz.Actor, teamRef string, 
 	if !allowed {
 		return UsageReport{}, errTeamNotFound
 	}
+	q.ClientID = ""
 	return s.report(ctx, q, uuid.NullUUID{UUID: t.ID, Valid: true}, seeManaged)
 }
 
@@ -152,8 +157,12 @@ func (s *Service) report(ctx context.Context, q UsageQuery, team uuid.NullUUID, 
 	if len(q.AgentIDs) > 0 {
 		agents = q.AgentIDs
 	}
+	var client *string
+	if q.ClientID != "" {
+		client = &q.ClientID
+	}
 	facts, err := s.q.UsageFacts(ctx, dbgen.UsageFactsParams{Since: q.From, Until: q.To.AddDate(0, 0, 1), TeamID: team,
-		AgentIds: agents, WithManaged: seeManaged})
+		AgentIds: agents, WithManaged: seeManaged, OauthClientID: client})
 	if err != nil {
 		return UsageReport{}, err
 	}
@@ -301,8 +310,10 @@ func (u ReportedUsage) valid() bool {
 	return u.Requests > 0 && u.Requests <= 10_000
 }
 
-// RecordReported stores an agent's batch. It is ignored (false) when the
-// agent's model is proxied: the proxy counts those requests itself.
+// RecordReported stores an agent's batch, attributed to a connected app
+// when the agent's work is one app's now (oauth.Attribution). It is ignored
+// (false) when the agent's model is proxied: the proxy counts those
+// requests itself.
 func (s *Service) RecordReported(ctx context.Context, teamID, agentID, modelID uuid.UUID, u ReportedUsage) (bool, error) {
 	if !u.valid() {
 		return false, apperr.Invalid("invalid_usage", "Counts must be zero or more, with 1-10000 requests")
@@ -316,7 +327,7 @@ func (s *Service) RecordReported(ctx context.Context, teamID, agentID, modelID u
 	err := s.q.InsertModelUsageBatch(ctx, dbgen.InsertModelUsageBatchParams{TeamID: teamID,
 		AgentID: uuid.NullUUID{UUID: agentID, Valid: agentID != uuid.Nil}, ModelID: uuid.NullUUID{UUID: modelID, Valid: modelID != uuid.Nil},
 		Source: "agent", Requests: int32(u.Requests), InputTokens: u.Input, OutputTokens: u.Output, CacheReadTokens: u.CacheRead,
-		CacheWriteTokens: u.CacheWrite})
+		CacheWriteTokens: u.CacheWrite, OauthGrantID: oauth.Attribution(ctx, s.q, agentID, "")})
 	return err == nil, err
 }
 
