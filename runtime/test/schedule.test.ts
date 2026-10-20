@@ -39,7 +39,9 @@ async function fakeGateway() {
 			res.writeHead(status, { "content-type": "application/json" });
 			res.end(JSON.stringify(value));
 		};
-		if (path.startsWith("/threads/") || path.startsWith("/runtime/")) return send(200, { data: { ok: true } });
+		// Only schedule calls are this test's business: the runtime's other reports (thread status, the upgrade check, tool
+		// approvals, and whatever comes next) are answered and not recorded.
+		if (!path.startsWith("/schedules")) return send(200, { data: { ok: true } });
 		if (state.down) return void req.socket.destroy();
 		seen.push({ method: req.method ?? "", path, auth: req.headers.authorization, body });
 		if (req.method === "POST" && path === "/schedules") {
