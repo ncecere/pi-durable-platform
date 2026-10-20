@@ -946,7 +946,7 @@ func (s *Service) SetThreadMCP(ctx context.Context, a authz.Actor, agentID uuid.
 		if found && t.Reserved && !owns(a, t) {
 			return errThreadNotFound
 		}
-		return s.mcp.SetThreadServers(ctx, agentID, threadID, tv.ClientMcp, nil)
+		return s.mcp.SetThreadServers(ctx, agentID, threadID, tv.ClientMcp, nil, stillIn(agentID, ag.TeamID))
 	}
 	t, created, err := s.claim(ctx, a, agentID, threadID, visibility, DefaultTitle, true, time.Now())
 	if err != nil {
@@ -955,7 +955,7 @@ func (s *Service) SetThreadMCP(ctx context.Context, a authz.Actor, agentID uuid.
 	if !created && t.Reserved && !owns(a, t) {
 		return errThreadNotFound
 	}
-	if err := s.mcp.SetThreadServers(ctx, agentID, threadID, tv.ClientMcp, servers); err != nil {
+	if err := s.mcp.SetThreadServers(ctx, agentID, threadID, tv.ClientMcp, servers, stillIn(agentID, ag.TeamID)); err != nil {
 		s.Unclaim(ctx, Claim{Thread: t, Created: created})
 		return err
 	}
@@ -963,6 +963,23 @@ func (s *Service) SetThreadMCP(ctx context.Context, a authz.Actor, agentID uuid.
 		s.announce(ctx, t)
 	}
 	return nil
+}
+
+// stillIn re-checks, in the transaction that writes a thread's MCP servers,
+// that the agent is still in the team the caller was authorized for (not
+// found otherwise), and locks its row until the write commits. Without it a
+// write authorized before a move could land after the move removed the
+// thread servers, and the old team's caller's credentials would reach the new
+// team's people: the move locks the agent, so it waits for this write (and
+// removes its servers), or this write waits for the move and is refused.
+func stillIn(agentID, teamID uuid.UUID) func(context.Context, *dbgen.Queries) error {
+	return func(ctx context.Context, q *dbgen.Queries) error {
+		team, err := q.ShareLockAgentTeam(ctx, agentID)
+		if errors.Is(store.NotFound(err), store.ErrNotFound) || (err == nil && team != teamID) {
+			return errNotFound
+		}
+		return err
+	}
 }
 
 // ThreadMCP lists the MCP servers apps gave a thread (names and URLs only).

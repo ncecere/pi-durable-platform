@@ -29,6 +29,10 @@ type cluster struct {
 	stops  atomic.Int64
 	delay  time.Duration
 	url    string // every agent's runtime
+	// specs holds the spec each running agent was started with; starting is
+	// called (when set) as a start begins, before the pod exists.
+	specs    map[string]launcher.Spec
+	starting func(spec launcher.Spec)
 
 	// Running's concurrent callers (a reaper pass makes one call).
 	inRunning, maxRunning atomic.Int64
@@ -54,9 +58,15 @@ func (l *clusterLauncher) Ensure(_ context.Context, spec launcher.Spec) (launche
 	running := l.c.pods[spec.AgentID]
 	l.c.mu.Unlock()
 	if !running {
+		if l.c.starting != nil {
+			l.c.starting(spec)
+		}
 		time.Sleep(l.c.delay) // the pod starts
 		l.c.mu.Lock()
 		l.c.pods[spec.AgentID] = true
+		if l.c.specs != nil {
+			l.c.specs[spec.AgentID] = spec
+		}
 		l.c.mu.Unlock()
 		l.c.starts.Add(1)
 	}

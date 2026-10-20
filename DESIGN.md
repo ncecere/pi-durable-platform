@@ -849,7 +849,10 @@ with the inventory of what each replica keeps). In short:
   predates `openStreams` is judged by its own replica's streams until it restarts.
 - **Waking is serialised by a lock per agent.** A running agent costs one `Launcher.Lookup`; starting one takes an
   advisory lock (`pdp.agent-wake:<id>`) and calls `Ensure`, which re-checks under the lock, so two replicas waking an
-  agent start one runtime.
+  agent start one runtime. The runtime starts with the agent's spec read from the database under the lock, not the
+  one the request built when it was authorized, and a stop on request (a move, a change, a hibernate) takes the same
+  lock: a request in flight never restarts an agent with the configuration a change stopped (a moved agent with the
+  old team's model key and MCP servers).
 - Launchers: `kubernetes` and `agent-sandbox` share their state through the Kubernetes API. `local` is one process.
 - Not shared, and fine: caches with a TTL (OIDC discovery, OAuth client metadata documents and logos, team connections).
   A consent page's logo is a second request that may reach a replica that has not cached the app's document, and then
