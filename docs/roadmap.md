@@ -59,6 +59,7 @@ Bugs are tracked separately: issues labelled `bug`, with the next fix release's 
 | v0.5 | S. Limits for shared teams: maximum agents and maximum running | S | [#19](https://github.com/ncecere/pi-durable-platform/issues/19) |
 | v0.5 | Z3. Memory for assistants: an MCP server that remembers for each person | M | [#36](https://github.com/ncecere/pi-durable-platform/issues/36) |
 | v0.5 | Z5. MCP Apps: show MCP servers' interfaces in the console and in apps | L | [#51](https://github.com/ncecere/pi-durable-platform/issues/51) |
+| v0.5 | Z7. Code mode: agents call their tools from a sandboxed script | M | [#71](https://github.com/ncecere/pi-durable-platform/issues/71) |
 | v0.5 | Y. Custom agents, step 2: platform admins register agent runtimes, and a template version picks one | M | [#29](https://github.com/ncecere/pi-durable-platform/issues/29) |
 | v0.6 | Z4. Workspaces: files and a shell for coding agents | L | [#37](https://github.com/ncecere/pi-durable-platform/issues/37) |
 | later | T. Run without Kubernetes: a Docker Compose deployment with a bundled identity provider | L | [#20](https://github.com/ncecere/pi-durable-platform/issues/20) |
@@ -448,6 +449,21 @@ The MCP Apps extension (io.modelcontextprotocol/ui) lets a server attach an inte
 - What the interface sends back goes through the platform as the person: `tools/call` to the same server only, for tools whose visibility includes `app`, rate limited, audited and subject to approvals (#16); `ui/message` becomes a message in the thread; `ui/update-model-context` becomes context for the agent's next turn.
 
 **Done when:** A tool of an MCP server with an app shows its interface in the console's conversation, and the interface's tool calls run as the person who uses it, with the same access checks, audit and approvals as the agent's. Depends on #28 and #16.
+
+### Z7. Code mode: agents call their tools from a sandboxed script (M, [#71](https://github.com/ncecere/pi-durable-platform/issues/71))
+
+**Limitation:** The model calls tools one at a time, and every result reaches it whole, however large.
+
+Work that touches many tools or large results (a sweep over an issue queue, joining mail with calendar, filtering long MCP results) costs a model round trip per call and fills the context with output the model only needed to filter. pi-durable 1.3.0, which the runtime already pins, ships a durable code mode (`@earendil-works/pi-durable/codemode`, a QuickJS sandbox from `@earendil-works/pi-codemode`): the model writes JavaScript that calls the conversation's tools, only the script's output reaches the model, and the script survives a restart by replaying a journal of the results it already got.
+
+- Design note first: what scripts can call, what apps and the console see, the limits, and the threat model (scripts are model-written code: no network, files or timers; they reach the world only through tools).
+- A template version setting, off by default: `codemode: off | on | only` (`only` offers the model just the codemode tool; the other tools stay callable from scripts). Custom agents get it through the library (`defineAgent`), after their own extensions and before the guards.
+- Guards hold inside scripts: nested calls are tool tasks that run `beforeTool`, so tool approvals, the triage kind's tool allowlist and app-only MCP tools (never callable by the model, so not by its scripts) must be proven by tests, including an approval wait inside a script across a restart.
+- Apps and the console see a script's nested calls (name, status, `details`), not only one codemode call, in whole-view and delta events.
+- Limits: the sandbox's memory (default 256 MB, within the runtime's own limits), a time limit per script, output bounds; usage counts as usual. Scripts' `models` (classifiers, image models) only through the platform's model gateway, or left out of the first version.
+- Many tools: the library's tool search for deferred MCP tools, so a large MCP server doesn't fill the prompt.
+
+**Done when:** An agent whose template version turns code mode on answers a task that needs several tools with one script; approvals, allowlists and app-only tools hold inside it; a restart mid-script repeats no call; the console shows the script's calls; and an agent without the setting is unchanged.
 
 ### Y. Custom agents, step 2: platform admins register agent runtimes, and a template version picks one (M, [#29](https://github.com/ncecere/pi-durable-platform/issues/29))
 
