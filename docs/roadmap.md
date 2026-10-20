@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: **proposed 2026-10-18**, after v0.1.0; **revised 2026-10-19** for custom agents and unattended runs. It is an order of work, not a schedule. Each item is a GitHub issue
+Status: **proposed 2026-10-18**, after v0.1.0; **revised 2026-10-19** for custom agents and unattended runs, and **2026-10-20** for MCP Apps and the person behind an MCP call. It is an order of work, not a schedule. Each item is a GitHub issue
 (label `roadmap`, milestone per phase). Sizes are relative effort: **S** a few days, **M** a week or two, **L** several
 weeks. An item that needs a design gets a note in `docs/` before code.
 
@@ -19,7 +19,8 @@ documentation, and the first app's requests (a chat app using OAuth Connect).
 4. **Then files, memory and limits that hold**, once agents run unattended.
 5. **Last, coding agents.** A workspace with files and a shell, kept apart from the agent's credentials.
 
-**Shipped:** [v0.2.0](releases/v0.2.0.md) (2026-10-19) delivered phase v0.2 (items A to G and V).
+**Shipped:** [v0.2.0](releases/v0.2.0.md) (2026-10-19) delivered phase v0.2 (items A to G and V), and
+[v0.3.0](releases/v0.3.0.md) (2026-10-20) phase v0.3 (items H to M and W).
 
 Already fixed after v0.1.0, in [v0.1.1](releases/v0.1.1.md): a set of small UI bugs, `doctor` checking the
 agents database, and a console path for platform staff to a shared team's agents.
@@ -50,12 +51,13 @@ Bugs are tracked separately: issues labelled `bug`, with the next fix release's 
 | v0.4 | O. Triggers: schedules and webhooks wake agents and start runs | L | [#15](https://github.com/ncecere/pi-durable-platform/issues/15) |
 | v0.4 | Z1. Background-aware hibernation: an agent with work running in the background is not hibernated | M | [#34](https://github.com/ncecere/pi-durable-platform/issues/34) |
 | v0.4 | Z2. First-party agents: a triage agent and a deep researcher, built with the library | L | [#35](https://github.com/ncecere/pi-durable-platform/issues/35) |
+| v0.4 | Z6. The person behind an MCP tool call: a signed identity for MCP servers | M | [#57](https://github.com/ncecere/pi-durable-platform/issues/57) |
 | v0.4 | P. Tool approvals: a person approves sensitive tool calls before they run | L | [#16](https://github.com/ncecere/pi-durable-platform/issues/16) |
 | v0.5 | N. Files and images in messages, stored on S3-compatible object storage | L | [#14](https://github.com/ncecere/pi-durable-platform/issues/14) |
 | v0.5 | Q. Runtime resources per template version | S | [#17](https://github.com/ncecere/pi-durable-platform/issues/17) |
 | v0.5 | R. Enforce budgets: monthly cost limits for personal workspaces and teams | M | [#18](https://github.com/ncecere/pi-durable-platform/issues/18) |
 | v0.5 | S. Limits for shared teams: maximum agents and maximum running | S | [#19](https://github.com/ncecere/pi-durable-platform/issues/19) |
-| v0.5 | Z3. An assistant with memory: notes that last across conversations | M | [#36](https://github.com/ncecere/pi-durable-platform/issues/36) |
+| v0.5 | Z3. Memory for assistants: an MCP server that remembers for each person | M | [#36](https://github.com/ncecere/pi-durable-platform/issues/36) |
 | v0.5 | Z5. MCP Apps: show MCP servers' interfaces in the console and in apps | L | [#51](https://github.com/ncecere/pi-durable-platform/issues/51) |
 | v0.5 | Y. Custom agents, step 2: platform admins register agent runtimes, and a template version picks one | M | [#29](https://github.com/ncecere/pi-durable-platform/issues/29) |
 | v0.6 | Z4. Workspaces: files and a shell for coding agents | L | [#37](https://github.com/ncecere/pi-durable-platform/issues/37) |
@@ -189,6 +191,8 @@ People with hundreds of conversations, and long conversations, load everything a
 
 **Done when:** The console and the API page threads and messages; existing clients that don't pass parameters get today's behaviour.
 
+**Shipped in [v0.3.0](releases/v0.3.0.md):** thread lists page and search titles (`limit`, `cursor`, `q`; without `limit` the reply is unchanged), and conversations page backwards (`limit`, `before`).
+
 ### I. Incremental event streams: send changes, not the whole conversation view (M, [#9](https://github.com/ncecere/pi-durable-platform/issues/9))
 
 **Limitation:** Whole-view events: each change sends the whole conversation view (coalesced to 10 a second).
@@ -199,6 +203,8 @@ Long conversations make every token update resend the whole transcript.
 - Live metadata (elapsed time on a running tool) in the deltas.
 
 **Done when:** A client using deltas renders the same view as a full snapshot, with traffic proportional to new tokens.
+
+**Shipped in [v0.3.0](releases/v0.3.0.md):** `GET .../events?format=delta&v=1` sends a snapshot, then numbered changes (messages, partial text, tools with elapsed time, run state), with `Last-Event-ID`; property tests prove the deltas rebuild the snapshot.
 
 ### J. Steering: send a message that changes the reply in progress (S, [#10](https://github.com/ncecere/pi-durable-platform/issues/10))
 
@@ -211,6 +217,8 @@ People can't redirect an agent mid-reply; they have to stop it and resend.
 
 **Done when:** A steering message sent during a reply is applied to that reply, and the view shows it in order.
 
+**Shipped in [v0.3.0](releases/v0.3.0.md):** `whenBusy: steer` joins the reply in progress; the console's test chat offers Steer, and Enter queues a follow-up.
+
 ### K. Safe agent creation for people and apps: idempotency and keys in one's own workspace (M, [#11](https://github.com/ncecere/pi-durable-platform/issues/11))
 
 **Limitation:** Service-managed (by-key) agents are service-account only; agent creation has no idempotency key.
@@ -221,6 +229,8 @@ An app acting for a person (OAuth Connect) can't create an agent idempotently: a
 - Allow `PUT .../agents/by-key/{key}` for a person (session, API key or app token) in their own personal workspace, owned by them, so apps can ensure one agent per purpose.
 
 **Done when:** Retrying agent creation with the same key returns the first agent, for service accounts, people and apps.
+
+**Shipped in [v0.3.0](releases/v0.3.0.md):** an `Idempotency-Key` on agent creation (per caller, 24 hours), and by-key agents for a person in their own personal workspace (not service-managed).
 
 ### L. OAuth Connect for apps with many people: login_hint, prompt=none, app-level events and usage (M, [#12](https://github.com/ncecere/pi-durable-platform/issues/12))
 
@@ -235,6 +245,8 @@ Apps can't reconnect silently, pre-select the account, hold one event stream for
 
 **Done when:** A chat app reconnects silently, keeps one event stream for all its connected people, and shows their usage, with tests for each.
 
+**Shipped in [v0.3.0](releases/v0.3.0.md):** `prompt=none`, `login_hint`, the `agents:read` scope, app secrets for trusted apps, an app-level event stream with per-app subjects, and usage per connected app.
+
 ### M. Move an agent, with its conversations, to another team or workspace (M, [#13](https://github.com/ncecere/pi-durable-platform/issues/13))
 
 **Limitation:** No agent transfer between teams or workspaces.
@@ -246,6 +258,8 @@ Agents created in the wrong place, or service-managed agents a person wants to k
 
 **Done when:** An agent moved between teams keeps its conversations and is usable only under the new team's rules, audited on both sides.
 
+**Shipped in [v0.3.0](releases/v0.3.0.md):** `POST /v1/agents/{id}/move` with a dry run; the agent keeps its conversations, the target must offer its template and model, and service-managed agents don't move.
+
 ### W. Usage reports for several agents at once, grouped by agent and day (S, [#24](https://github.com/ncecere/pi-durable-platform/issues/24))
 
 **Limitation:** Usage grouped by day takes one agentId, so an app shows several agents' daily usage with one call per agent.
@@ -255,6 +269,8 @@ An app's usage page (a person's agents by day) makes one request per agent.
 - A repeatable `agentId` filter on the team usage report, and `groupBy=agent,day`.
 
 **Done when:** One request returns daily usage for several agents, with tests for the filters and grouping.
+
+**Shipped in [v0.3.0](releases/v0.3.0.md):** a repeatable `agentId` and `groupBy=agent,day` on usage reports.
 
 ## v0.4: Agents that run on their own
 
@@ -323,6 +339,19 @@ Two common jobs need more than instructions and tools: keeping track of what has
 
 **Done when:** A team makes a template of each kind in the console and runs one end to end: triage on a webhook with an approval before it comments, and a research run with subagents that ends in a report and a sources list. Neither uses an API that a custom agent could not.
 
+### Z6. The person behind an MCP tool call: a signed identity for MCP servers (M, [#57](https://github.com/ncecere/pi-durable-platform/issues/57))
+
+**Limitation:** MCP servers are called with the team's credentials and learn nothing about whose conversation a call is for.
+
+Servers that act for a person (their Microsoft 365 mail and calendar, their memory) need to know which person a tool call is for. Open MCP Portal already gives servers a person's delegated credentials and a signed identity, but only for callers it authenticates itself; calls from this platform's agents arrive as the team.
+
+- Design note first, with the threat model: the agent's code must not be able to claim a person.
+- In proxy mode the platform's gateway adds a short-lived signed token (ES256, audience = the server or the portal) naming the person (OIDC issuer and subject), the agent, the team and the thread's visibility. The gateway decides from its own records; the runtime only says which thread.
+- Only when it is clear who: a personal workspace, its owner; a private thread, its creator. Shared threads and runs nobody is present for (schedules, webhooks) carry no person, and tools that need one refuse.
+- The platform publishes its keys (JWKS) so servers can verify the token; Open MCP Portal trusts it as the caller's identity and finds the person by issuer and subject, so its delegated credentials apply.
+
+**Done when:** A tool call from a personal workspace reaches an MCP server (directly or through the portal) with a token naming its owner that the server verifies, a shared thread's call names nobody, and the agent can't change either. Unblocks the memory server (#36) and a Microsoft 365 server behind the portal.
+
 ### P. Tool approvals: a person approves sensitive tool calls before they run (L, [#16](https://github.com/ncecere/pi-durable-platform/issues/16))
 
 **Limitation:** No tool approvals: agents call allowed tools without asking anyone.
@@ -382,18 +411,17 @@ Only personal workspaces have limits; one team can fill the cluster.
 
 **Done when:** A team at its running limit gets `too_many_running` when waking another agent, as personal workspaces do.
 
-### Z3. An assistant with memory: notes that last across conversations (M, [#36](https://github.com/ncecere/pi-durable-platform/issues/36))
+### Z3. Memory for assistants: an MCP server that remembers for each person (M, [#36](https://github.com/ncecere/pi-durable-platform/issues/36))
 
 **Limitation:** An agent remembers only within a thread; nothing carries over.
 
-A personal assistant is useful because it remembers preferences and facts. Memory shared across threads can leak what one person said in a private thread to another person who uses the same team agent, so whose memory it is has to be decided before any is built.
+A personal assistant is useful because it remembers preferences and facts. Built into the platform, memory would be one more store to secure and back up, usable only by this platform's agents. As an MCP server it works for every agent of the person and for other MCP clients, and stays out of the agent's durable state (it shouldn't be forked or rolled back with a conversation). It needs to know whose memory a call is for, which #57 provides, and memory shared across threads must not leak what someone said in a private thread.
 
-- Design note first: whose memory it is (a person's, a thread's or the agent's), what a private thread may write to it, and who may read, edit and delete it.
-- A memory document with `remember`, `recall` and `forget` tools in the library (#28); in a personal workspace the memory belongs to the person, in a team agent it is per person or per agent as the team chooses. Private threads write to shared memory only if the person says so.
-- Memory is visible and editable in the console by whoever it belongs to, shown in the thread as `details`, and removed with the person or the agent.
-- It works with schedules (#15), so an assistant can remind and check back.
+- A memory MCP server (built outside this repository) with `remember`, `recall`, `forget` and `list`, keyed by the person named in the platform's signed identity (#57), optionally narrowed to one agent; full-text search first, vectors later.
+- Private threads write to memory only with the person's say-so (the identity says the thread's visibility).
+- The platform's part: the identity (#57), a template that grants the memory server, and the docs: what the server stores, who can read and delete it.
 
-**Done when:** An assistant remembers a fact in one conversation and uses it in another, its owner can read and delete it, and nothing from a private thread reaches anyone else's memory.
+**Done when:** An assistant in a personal workspace remembers a fact in one conversation and uses it in another, its owner can list and delete what it remembered, and nothing from a private thread reaches anyone else. Depends on #57.
 
 ### Z5. MCP Apps: show MCP servers' interfaces in the console and in apps (L, [#51](https://github.com/ncecere/pi-durable-platform/issues/51))
 

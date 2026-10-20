@@ -30,7 +30,7 @@ The same objects as the [Helm chart](../helm/pi-durable-platform/README.md), for
    - **the API server's address** in the `pi-durable-platform-egress-kube-api` NetworkPolicy: the base ships the
      placeholder `192.0.2.10/32` (`kubectl get endpointslices -l kubernetes.io/service-name=kubernetes`), or use
      `components/cilium`;
-   - the images by digest (`images:`, with `newTag: v0.2.0@sha256:...`; `images-config.yaml` makes the transformer
+   - the images by digest (`images:`, with `newTag: v0.3.0@sha256:...`; `images-config.yaml` makes the transformer
      reach the SandboxTemplate; with the `kubernetes` launcher the runtime image is `AGENTS_IMAGE` in the ConfigMap);
    - PostgreSQL's pod labels in `pi-durable-platform-egress` / `-agents-egress-database` (the base assumes the
      CloudNativePG cluster `pdp-db` in the platform namespace, as in
