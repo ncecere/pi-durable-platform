@@ -177,6 +177,37 @@ func TestOAuthPromptNoneAndLoginHint(t *testing.T) {
 	}
 }
 
+// prompt=none with a login_hint tells an app the person never connected
+// nothing about who is signed in: consent_required whether the hint is the
+// signed-in person's email or not (any registered client could otherwise
+// probe emails). The hint is compared only for apps the person connected.
+func TestOAuthPromptNoneHintIsNoOracle(t *testing.T) {
+	app := newTestApp(t, nil)
+	f := oauthFlow{t, app}
+	prober := registerClient(t, app)
+	user := app.signIn("user")
+	for i, hint := range []string{"user@localhost", "USER@localhost", "alex@localhost", "nobody@example.com"} {
+		state := "o" + string(rune('a'+i))
+		if got := f.redirectError(user, authQuery(prober, state, "prompt", "none", "login_hint", hint), state); got != "consent_required" {
+			t.Errorf("never connected, login_hint=%s: %q", hint, got)
+		}
+	}
+	// Connected (even for a narrower scope): the hint is compared as documented.
+	connectFull(t, f, user, prober, "c1", "scope", "agents:read")
+	if got := f.redirectError(user, authQuery(prober, "w1", "prompt", "none", "scope", "agents", "login_hint", "alex@localhost"), "w1"); got != "login_required" {
+		t.Fatalf("connected for agents:read, another account: %q", got)
+	}
+	if got := f.redirectError(user, authQuery(prober, "w2", "prompt", "none", "scope", "agents", "login_hint", "user@localhost"), "w2"); got != "consent_required" {
+		t.Fatalf("connected for agents:read, widening: %q", got)
+	}
+	// Another person's connection doesn't make the hint comparable for this one.
+	other := registerClient(t, app)
+	connectFull(t, f, app.signIn("alex"), other, "c2")
+	if got := f.redirectError(user, authQuery(other, "w3", "prompt", "none", "login_hint", "user@localhost"), "w3"); got != "consent_required" {
+		t.Fatalf("connected by another person only: %q", got)
+	}
+}
+
 // With single sign-on, an app's login_hint reaches the identity provider.
 func TestOAuthLoginHintReachesTheIdentityProvider(t *testing.T) {
 	app, p := oidcApp(t, nil)

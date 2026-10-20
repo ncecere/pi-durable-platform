@@ -203,10 +203,12 @@ allowing widens the grant (audited again as `oauth.consent`, with the scopes); a
 sends messages or changes anything"; Connected apps marks such a connection Read only.
 
 **Silent reconnects and the expected account (v0.3).** `prompt=none` never shows a page; what would need one goes
-back to the redirect URI (with `state` and `iss`): not signed in, `login_required`; signed in as someone other than
-`login_hint`, `login_required` too (the hinted person must sign in); signed in but unable to use the platform
-(suspended, denied by the group re-check: a page otherwise), `interaction_required`; no grant that covers the scope
-and the app isn't trusted, `consent_required`. With a grant (or a trusted app) the code comes back at once, as
+back to the redirect URI (with `state` and `iss`): not signed in, `login_required`; signed in but unable to use the
+platform (suspended, denied by the group re-check: a page otherwise), `interaction_required`; an app the person never
+connected (and not trusted), `consent_required` whatever `login_hint` says (the hint is compared only for apps the
+person connected or trusted ones, so no app can probe which email a browser is signed in as); signed in as someone
+other than `login_hint`, `login_required` (the hinted person must sign in); no grant that covers the scope and the
+app isn't trusted, `consent_required`. With a grant (or a trusted app) the code comes back at once, as
 without `prompt`, and no new consent is recorded. `prompt=consent` shows the consent page even then; `login`,
 `select_account` and combinations with `none` are `invalid_request` (the platform can't make the IdP re-authenticate
 or choose an account). `login_hint` (at most 320 characters on one line, else `invalid_request`) goes to the identity
