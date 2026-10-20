@@ -1,9 +1,10 @@
 # Custom agents: the runtime as a library
 
 Design note for roadmap item X, step 1 ([#28](https://github.com/ncecere/pi-durable-platform/issues/28)). Status:
-**the library, the facade, the test kit and the runtime contract are built** (this note, `runtime/src/lib`,
-[runtime-contract.md](runtime-contract.md)). Still to come in #28: the documents endpoint and `details` for apps, the
-platform's upgrade check, and the starter repository. Running code a team wrote is step 2
+**built**: the library, the facade, the test kit and the runtime contract (this note, `runtime/src/lib`,
+[runtime-contract.md](runtime-contract.md)), custom state for apps ([`details` and exposed documents](#custom-state-for-apps)),
+the [upgrade check](#upgrades), and a [starter project](#the-starter-project) (`examples/custom-agent/`, in this
+repository for now). Running code a team wrote is step 2
 ([#29](https://github.com/ncecere/pi-durable-platform/issues/29)), gated on the checks listed under
 [What step 2 must check](#what-step-2-must-check).
 
@@ -67,9 +68,10 @@ Before the platform runs code a team wrote (#29), each of these needs an answer:
    every credential.
 5. **What runs**: images from a registry the platform allows, signed, recorded per agent with who deployed them, and
    audited.
-6. **The contract on start**: the platform checks the runtime's contract version and refuses one it doesn't speak, and
-   refuses to start an agent on a runtime older than the one that last wrote its data (the upgrade check, later in
-   #28).
+6. **The contract on start**: the platform checks the runtime's contract version and refuses one it doesn't speak. (It
+   already refuses to start an agent on a runtime older than the one that last wrote its data: [Upgrades](#upgrades).
+   That check trusts the version the runtime reports, which is enough against an operator's rollback, not against
+   code that lies.)
 
 ## The library
 
@@ -121,13 +123,15 @@ await runAgentProcess(
 
 | Export | What it is |
 |---|---|
-| `defineAgent(definition)` | Checks and returns an agent definition: `name`, `extensions` (an array, or a function of the agent's context: `agentId`, `name`, the template's `instructions`, `env`), `documents`, `conversationCreated`, `settings` (pi-durable's settings without `extensions`, or a function of the context). |
+| `defineAgent(definition)` | Checks and returns an agent definition: `name`, `extensions` (an array, or a function of the agent's context: `agentId`, `name`, the template's `instructions`, `env`), `documents`, `expose` (the documents apps may read, see [Custom state for apps](#custom-state-for-apps)), `conversationCreated`, `settings` (pi-durable's settings without `extensions`, or a function of the context). |
 | `runAgentProcess(definition)` | Runs the definition as an agent process: from environment variables or in standby, with the exit codes and signals of the [contract](runtime-contract.md). A custom agent's entry point. |
 | `startAgent(config, definition, options)` | Starts one agent in this process and returns its HTTP handler, harness and thread store. `options` replaces storage, models or the fatal-error handler (for tests). |
 | `assistantExtension(instructions)`, `assistantAgent` | The platform's own agent: the template's instructions as the prompt's preamble and `get_time`. `assistantAgent` is `defineAgent({ extensions: ({ instructions }) => [assistantExtension(instructions)] })`, what `src/main.ts` runs. |
 | `defineSubagent(options)` | A foreground subagent as an extension: a replay-safe tool whose call creates a conversation it owns, gives it the task (request ID: the call's task) and returns its answer, with `details: { conversationId }`. Options: `name`, `description`, `model`, `instructions`, `extensions` (the child's selection, computed from the caller's resolved selection). |
 | The facade | `defineTool`, `defineExtension`, `section`, `hook`, `wrapTool`, `wrapSection`, `defineDoc`, `defineEntry`, `defineTask`, `configure`, `ToolTask`, `GenerationTask`, `CompactionTask`, `Type`, and the types an author needs (`Extension`, `ToolExecutionApi`, `HookApi`, `Tx`, `Context`, ...). |
-| `CONTRACT_VERSION`, `PI_DURABLE_VERSION` | What `/status` reports. |
+| `CONTRACT_VERSION`, `PI_DURABLE_VERSION` | What `/status` reports, and the runtime reports when it starts ([Upgrades](#upgrades)). |
+| `ExposedDocument`, `DEFAULT_EXPOSED_DOCUMENT_BYTES`, `MAX_EXPOSED_DOCUMENT_BYTES` | An entry of `expose` (`{ document, maxBytes }`) and its bounds (64 KiB by default, 1 MiB at most). |
+| `RuntimeRefusedError` | What `startAgent` throws when the platform refuses the runtime (the upgrade check); `runAgentProcess` serves the refusal. |
 | `@pdp/runtime/testing` | The [test kit](#testing). |
 
 The rest of the main entry (`openPostgresAgentStorage`, `createRuntimeServer`, `ThreadStore`, `AgentMcp`, ...) is the
@@ -169,8 +173,7 @@ that apply to agents built with the library:
   checks document kinds and task names; it can't check the entry kinds code writes.
 - **Document kinds are persisted protocol.** Never rename a kind or reuse one for another shape: a `migrate` can change
   a value, not its kind. Change the shape by raising `version` with a `migrate`. Data written by a newer version can't
-  be read by older code, so rolling an agent back after it wrote is not supported (the platform's check comes later in
-  #28). Extension, tool and task names are stored too (in each conversation's selection, in transcripts, in live tasks):
+  be read by older code, so rolling an agent back after it wrote is not supported ([Upgrades](#upgrades)). Extension, tool and task names are stored too (in each conversation's selection, in transcripts, in live tasks):
   keep them stable, and keep a task's definition installed while tasks of it may be pending.
 - **Don't select extensions yourself.** An array passed to `configure({ extensions })` selects exactly those, and a
   guard left out runs nowhere until the library reapplies the selection at the next message. Change other fields
@@ -191,15 +194,77 @@ that apply to agents built with the library:
   and never send them anywhere but where the platform meant them to go.
 - **Import the library, not pi-durable.** What the facade leaves out is not covered by the library's promise.
 
+## Custom state for apps
+
+An agent's state reaches the apps that use it in two ways, both through the platform and with exactly the access
+reading the thread needs (another's private thread is not found; platform roles never reach it, but a platform admin's
+reasoned, audited read):
+
+- **`details` on tool results.** A tool's `details` (pi-durable's channel for UIs: the result's `details`, or the last
+  `api.details()` while it runs) appear on its result message in the thread view (`details`) and on the current
+  round's tool (`tools[].details`), in both event formats (`message.added`, `tool.updated`/`tool.finished` with
+  `details`). JSON only, at most 16 KiB each: larger ones are left out and `detailsOmitted` says so. The console's chat
+  shows them, raw, in the tool call's card. The model never sees them.
+- **Exposed documents.** A conversation document listed in `documents` can be exposed, opt-in and bounded:
+
+  ```ts
+  defineAgent({ documents: [Board], expose: [{ document: Board, maxBytes: 32 * 1024 }] }); // or expose: [Board] (64 KiB)
+  ```
+
+  Apps read it with `GET /v1/agents/{agent}/threads/{thread}/documents/{kind}`: `{kind, version, revision, value}`,
+  where `version` is the definition's (values are migrated to it when read) and `revision` a hash of its content. A
+  kind the agent doesn't expose, or the thread doesn't have, is `404 document_not_found` (a pi-durable or platform
+  document, `pi.*` and `pdp.*`, can never be exposed); one larger than its bound is `422 document_too_large`, never cut.
+  The thread's view lists its exposed documents with their revisions (`documents: {kind: {revision}}`, in whole views
+  too), and the delta stream sends `document.updated` (`kind`, `revision`) when one changes; the event never carries
+  the document. Platform admins read one with a reason (`POST /v1/admin/agents/{agent}/threads/{thread}/documents/{kind}/read`),
+  recorded as `thread.admin_read` with the document's kind.
+
+**Session documents are not exposed.** A session document is one per agent, shared by every thread: reading it through
+a thread would show other threads' state, private ones included, to anyone who can read that thread, and reading it
+outside a thread needs an access rule threads don't give (who may read an agent's state across its conversations). An
+author who wants per-thread state for apps keeps it in a conversation document; an agent-wide view for its team (the
+triage queue, #31) is a later design, with its own rule.
+
+## Upgrades
+
+pi-durable migrates a document when it reads it, and code that finds a document a newer version wrote refuses it. So
+once a runtime with a newer pi-durable has written an agent's storage, an older runtime can't run the agent: its
+resumed runs and its tools would fail on every read. The platform checks:
+
+- The runtime reports its contract and pi-durable versions when it starts, **before it opens the agent's storage**
+  (`POST {PLATFORM_GATEWAY_URL}/runtime/start`), and at `/status`.
+- The platform records, per agent, the newest pi-durable version that has written its storage
+  (`agent_storage_versions`), and refuses a runtime older than that: the gateway answers `409 runtime_too_old`, and the
+  runtime never opens the storage and answers every request with the refusal; the platform also checks `/status`
+  after every start (for a runtime that didn't ask) and stops a refused runtime. Requests that wake the agent answer
+  `409 runtime_too_old` with the reason, the agent (`runtimeRefused`, `storageVersion`) and its page say why, and the
+  first refusal of a version is audited (`agent.runtime_refused`). A runtime that reports no version counts as older.
+- A runtime as new or newer starts, and a newer one moves the record up (`agent.runtime_recorded`).
+
+**Rolling a runtime back after it has written an agent's data is not supported.** To undo an upgrade, fix forward:
+deploy a runtime with the newer pi-durable again. Before upgrading pi-durable, test the agent on a copy of its data;
+the record moves at the first start of the new runtime, before it writes anything.
+
+## The starter project
+
+[`examples/custom-agent/`](../examples/custom-agent/) is a starter agent (a task board on the assistant): one tool with
+details, one exposed document, one guard (a `beforeTool` hook that blocks a dangerous call), its tests with the test
+kit (a conversation against the fake model, restarts in the middle of a tool call and of the model's answer, the
+runtime conformance suite), a Dockerfile on the runtime image, and the local loop: the local launcher's
+`AGENTS_RUNTIME_DIR` pointed at it, the compose PostgreSQL, and the console's Test tab. It is in this repository, linked
+to `runtime/`, until the library is published; CI builds and tests it.
+
 ## Versioning
 
 - **The library's version** is the runtime's (`runtime/package.json`, the platform's release version).
 - **The contract version** (`CONTRACT_VERSION`, 1) is separate and reported at `/status`. It goes up only when a
   runtime and a platform of different contract versions can't work together; additions both sides may ignore keep it.
-  The platform accepts the field (bounded) and stores nothing yet.
+  The platform accepts the field (bounded) and stores nothing from it yet.
 - **pi-durable is pinned** (`1.3.0`, exact in `package.json`; `PI_DURABLE_VERSION` at `/status`, checked against the
   installed package by a test). An upgrade runs pi-durable's storage conformance suite on PostgreSQL, the restart tests
-  and the runtime conformance suite, and the facade absorbs API changes.
+  and the runtime conformance suite, and the facade absorbs API changes. It is a one-way step for every agent the new
+  runtime starts ([Upgrades](#upgrades)).
 
 ## Testing
 
@@ -211,7 +276,7 @@ the platform's own runtime tests use it:
   request or a subagent at a point the test controls.
 - `memoryStorage()`: in-memory storage that survives a simulated crash.
 - `startTestAgent(definition, options)`: the agent on in-memory storage and a fake model, with its HTTP API on a loopback
-  port; `send`, `view`, `settled`, `status`, and `restart()`, which crashes the process wherever it is (nothing more
+  port; `send`, `view`, `settled`, `status`, `document` (an exposed document, as apps read it), and `restart()`, which crashes the process wherever it is (nothing more
   reaches storage, running code is aborted) and starts it again on the same storage.
 - `expectReplayed(agent, threadId)`: after any number of restarts, every tool call has exactly one result, none was
   interrupted (unless `allowInterrupted`), the run ended with an answer, and every subagent was given its task once and

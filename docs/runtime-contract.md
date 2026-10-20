@@ -24,8 +24,8 @@ as the local launcher starts it) and against the test kit's in-memory agent, and
 
 A runtime starts in one of two modes, chosen by its environment:
 
-- **As an agent**: with `AGENT_ID`. It opens the agent's storage, takes ownership, resumes unfinished work and serves
-  the agent's HTTP API.
+- **As an agent**: with `AGENT_ID`. It reports its versions to the platform ([Starting](#starting-the-upgrade-check)),
+  opens the agent's storage, takes ownership, resumes unfinished work and serves the agent's HTTP API.
 - **In standby**: without `AGENT_ID`, with `RUNTIME_ACTIVATION_TOKEN` (Agent Sandbox warm pools). It serves `/healthz`
   and waits to be activated as one agent ([Standby and activation](#standby-and-activation)).
 
@@ -61,6 +61,23 @@ None of these values may be logged.
 | 2 | Misconfigured (neither `AGENT_ID` nor `RUNTIME_ACTIVATION_TOKEN`, a required variable missing). | Reports the error. |
 | 3 | Another process owns the agent (its previous runtime hasn't stopped yet). | Retries later. |
 
+### Starting: the upgrade check
+
+Before it opens the agent's storage (in either mode, after activation in standby), a runtime with `PLATFORM_GATEWAY_URL`
+and `PLATFORM_KEY` sends `POST {PLATFORM_GATEWAY_URL}/runtime/start` with `Authorization: Bearer <PLATFORM_KEY>` and
+`{contractVersion, piDurableVersion}`. The platform records, per agent, the newest pi-durable version that has written
+its storage, and answers:
+
+| Answer | The runtime |
+|---|---|
+| `200` | Opens the storage and goes on. |
+| `409 runtime_too_old` (`message`: why) | Never opens the storage. It serves `/healthz`, reports itself idle at `/status` with `refused: {code, message}`, and answers every other route `409 runtime_too_old` with the message, until it is stopped. |
+| `404`, another `4xx`, or no answer after 3 tries | Goes on (a platform without the check; the platform checks `/status` after the start). |
+
+After every start the platform also reads `/status`; a runtime whose `piDurableVersion` is older than the recorded one
+(or absent, once one is recorded) is stopped, and the request that woke it answers `409 runtime_too_old`. Rolling a
+runtime back after it has written an agent's data is not supported ([custom-agents.md](custom-agents.md#upgrades)).
+
 ### Storage and ownership
 
 - All durable state is in the agent's schema, so any process started for the agent resumes where the last one stopped.
@@ -84,13 +101,27 @@ Thread IDs and request IDs are 1-64 of `[A-Za-z0-9_-]`.
 | `GET /status` | `200`, the [status](#status). |
 | `GET /threads` | `200`, the threads, newest activity first: `{threadId, conversationId, title, createdAt, updatedAt}` (Unix ms; the title is the first line of the first message, at most 60 characters). |
 | `POST /threads/{thread}/messages` | Body `{text, requestId?, whenBusy?, author?, announceAuthor?}`. Starts the thread if it doesn't exist, submits the message, `202 {"submissionId"}`. A retried `requestId` returns the first submission. `whenBusy`: `followUp` (default: after the reply in progress) or `steer` (joins it after its current tool round). `author` (`{kind: user\|service_account\|trigger, id, name, via?}`; `trigger`: an unattended run a schedule or webhook started, docs/triggers.md) is set by the platform and recorded on the message; `announceAuthor: true` tells the model who is speaking (`[Message from <name>]` before the text, `[Message from trigger <name>]` for a trigger). Errors: `400 invalid_thread_id`, `invalid_text` (empty or over 32,000 characters), `invalid_request_id`, `invalid_when_busy`, `invalid_request` (not JSON), `413`. |
-| `GET /threads/{thread}` | `200`, the chat view: `{busy, messages, partial?, tools}` (DESIGN.md, Threads: message metadata). `?limit=&before=` pages it (`earlierCursor`); `400` for a bad `limit` or cursor. |
-| `GET /threads/{thread}/events` | Server-sent events, coalesced to at most 10 a second: `view` events (the whole view) by default; with `format=delta` (`v=1`) a `snapshot` and then changes, each with an `id` (its sequence; `Last-Event-ID` continues it). `once=true` sends the current state and ends; `limit` keeps the latest messages. `400 invalid_format`, `unsupported_version`. |
+| `GET /threads/{thread}` | `200`, the chat view: `{busy, messages, partial?, tools, documents?}` (DESIGN.md, Threads: message metadata; [Custom state](#custom-state-in-the-view)). `?limit=&before=` pages it (`earlierCursor`); `400` for a bad `limit` or cursor. |
+| `GET /threads/{thread}/documents/{kind}` | `200 {kind, version, revision, value}`: a conversation document the agent exposes. `404 document_not_found` for any kind it doesn't expose or the thread doesn't have (`pi.*` and `pdp.*` never), `422 document_too_large` over the author's bound (at most 1 MiB of JSON; the platform reads no more). |
+| `GET /threads/{thread}/events` | Server-sent events, coalesced to at most 10 a second: `view` events (the whole view) by default; with `format=delta` (`v=1`) a `snapshot` and then changes, each with an `id` (its sequence; `Last-Event-ID` continues it). `once=true` sends the current state and ends; `limit` keeps the latest messages. A change to an exposed document is a view with its new revision, or a `document.updated` event. `400 invalid_format`, `unsupported_version`. |
 | `POST /threads/{thread}/stop` | Aborts the reply in progress and withdraws queued input: `202 {"ok": true}`. |
 | `DELETE /threads/{thread}` | Stops and forgets the thread: `200 {"ok": true}`. |
 
 A thread the runtime doesn't have is `404 thread_not_found` on every thread route; any other path is
 `404 not_found`.
+
+### Custom state in the view
+
+Additions to the view and the delta format are additive: a client that ignores a field it doesn't know keeps a correct
+view of the rest, so they don't change the contract's version. Work on the view in parallel (approvals, #16) adds its
+fields the same way.
+
+- A tool result message (`role: "tool"`) and a current-round tool carry the tool's `details` (any JSON, at most 16 KiB)
+  or `detailsOmitted: true` when they were larger; `tool.updated` and `tool.finished` carry `details` (null: none) and
+  `detailsOmitted` when they change.
+- `documents`: the exposed documents the thread has, `{kind: {revision}}` (absent when none). `revision` is a hash of the
+  document's JSON. The delta event `document.updated` (`kind`, `revision`) sets one; a document that disappears comes
+  as a new snapshot.
 
 ### Status
 
@@ -105,10 +136,12 @@ activity fields say so for `AGENTS_IDLE_TIMEOUT`):
 | `lastActivityAt` | Unix ms of the last request, stream or reply end. |
 | `contractVersion` | The contract version the runtime implements: `1`. |
 | `piDurableVersion` | The pi-durable version it runs on (`1.3.0`). |
+| `refused` | Only on a runtime the platform refused ([Starting](#starting-the-upgrade-check)): `{code, message}`. |
 
 The platform reads at most 64 KiB, requires the activity fields to be well-formed, and accepts the versions only within
 bounds (a contract version from 1 to 1000; a pi-durable version that is a semantic version with an optional short
-pre-release), dropping anything else (`internal/agenthost`). It stores nothing from them yet.
+pre-release), dropping anything else (`internal/agenthost`). After a start it checks `piDurableVersion` against the
+version recorded for the agent (the upgrade check); it stores nothing from `contractVersion` yet.
 
 ## Standby and activation
 
@@ -152,7 +185,7 @@ Best effort: each is retried a few times, and the next start reconciles what was
 
 | Version | Change |
 |---|---|
-| 1 | First written version: what runtimes of platform 0.1 to 0.3 did, plus `contractVersion` and `piDurableVersion` at `/status`. |
+| 1 | First written version: what runtimes of platform 0.1 to 0.3 did, plus `contractVersion` and `piDurableVersion` at `/status`. Additions since (both sides may ignore them): the upgrade check at start (`/runtime/start`, `refused` at `/status`), tool `details` and exposed `documents` in the view, `document.updated`, and `GET /threads/{thread}/documents/{kind}`. |
 
 The version goes up when a runtime and a platform of different versions can't work together (a route or field one side
 needs and the other lacks, a changed meaning). Additions both sides may ignore keep it.
