@@ -1,0 +1,25 @@
+{
+  "name": "custom-agent-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A starter agent built with @pdp/runtime: one tool, one document exposed to apps, one guard",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=22.19"
+  },
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pdp/runtime": "link:../../runtime",
+    "tsx": "4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}
