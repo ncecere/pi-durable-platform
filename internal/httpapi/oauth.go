@@ -168,7 +168,9 @@ func (a *api) oauthServerMetadata(w http.ResponseWriter, _ *http.Request) {
 // also explains a login_hint that isn't the signed-in person and offers to
 // switch accounts). With prompt=none no page is ever shown: what would need
 // one goes back to the app as login_required, consent_required or
-// interaction_required (internal/oauth/prompt.go).
+// interaction_required (internal/oauth/prompt.go); the hint is compared only
+// for an app the person connected or a trusted one, so an app learns nothing
+// about which account is signed in from it.
 func (a *api) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	if len(r.URL.RawQuery) > oauth.MaxQueryLen {
 		a.oauthPage(w, r, oauth.PageError("invalid_request", "The request is too long."))
@@ -210,6 +212,27 @@ func (a *api) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	case !store.IsUserActive(user):
 		a.oauthPage(w, r, oauth.PageError("access_denied", "This account is suspended or no longer in a group allowed to use this platform."))
 		return
+	}
+	trusted, err := a.OAuth.Trusted(r.Context(), c)
+	if err != nil {
+		a.oauthPage(w, r, err)
+		return
+	}
+	if silent && !trusted && !oauth.HintMatches(user, req.LoginHint) {
+		// The hint is compared only for an app this person connected (for any
+		// scope): otherwise login_required against consent_required would tell
+		// any app whether the browser is signed in as a given email.
+		connected, err := a.OAuth.Remembered(r.Context(), user.ID, c.ID, nil)
+		if err != nil {
+			a.oauthPage(w, r, err)
+			return
+		}
+		if !connected {
+			needs("consent_required")
+			return
+		}
+	}
+	switch {
 	case !oauth.HintMatches(user, req.LoginHint) && silent:
 		// Never the wrong account: the hinted person has to sign in.
 		needs("login_required")
@@ -217,11 +240,6 @@ func (a *api) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	case !oauth.HintMatches(user, req.LoginHint):
 		// The consent page says whom the app expected and offers to switch.
 		http.Redirect(w, r, connectConsentPath+"?"+r.URL.RawQuery, http.StatusFound)
-		return
-	}
-	trusted, err := a.OAuth.Trusted(r.Context(), c)
-	if err != nil {
-		a.oauthPage(w, r, err)
 		return
 	}
 	remembered, err := a.OAuth.Remembered(r.Context(), user.ID, c.ID, req.Scopes())

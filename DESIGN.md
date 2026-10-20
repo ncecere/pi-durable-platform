@@ -203,10 +203,12 @@ allowing widens the grant (audited again as `oauth.consent`, with the scopes); a
 sends messages or changes anything"; Connected apps marks such a connection Read only.
 
 **Silent reconnects and the expected account (v0.3).** `prompt=none` never shows a page; what would need one goes
-back to the redirect URI (with `state` and `iss`): not signed in, `login_required`; signed in as someone other than
-`login_hint`, `login_required` too (the hinted person must sign in); signed in but unable to use the platform
-(suspended, denied by the group re-check: a page otherwise), `interaction_required`; no grant that covers the scope
-and the app isn't trusted, `consent_required`. With a grant (or a trusted app) the code comes back at once, as
+back to the redirect URI (with `state` and `iss`): not signed in, `login_required`; signed in but unable to use the
+platform (suspended, denied by the group re-check: a page otherwise), `interaction_required`; an app the person never
+connected (and not trusted), `consent_required` whatever `login_hint` says (the hint is compared only for apps the
+person connected or trusted ones, so no app can probe which email a browser is signed in as); signed in as someone
+other than `login_hint`, `login_required` (the hinted person must sign in); no grant that covers the scope and the
+app isn't trusted, `consent_required`. With a grant (or a trusted app) the code comes back at once, as
 without `prompt`, and no new consent is recorded. `prompt=consent` shows the consent page even then; `login`,
 `select_account` and combinations with `none` are `invalid_request` (the platform can't make the IdP re-authenticate
 or choose an account). `login_hint` (at most 320 characters on one line, else `invalid_request`) goes to the identity
@@ -223,7 +225,8 @@ keeps the person in one flow; an app that prefers an error uses `prompt=none` fi
 person. A platform admin issues a secret (`pdpcs_…`, 256 bits, shown once; Admin › Settings › App secrets,
 `POST /v1/admin/settings/oauth-clients/secrets`) to an app on the trusted list; at most two per app, to rotate. It is
 stored as a peppered digest like tokens, works only while the app is on the trusted list (read on every use and every
-30 s on open streams), and is used as `Authorization: Bearer pdpcs_…` on two endpoints only, which take nothing
+30 s on open streams; taking the app off the list deletes its secrets in the same transaction, audited, so trusting it
+again needs new ones), and is used as `Authorization: Bearer pdpcs_…` on two endpoints only, which take nothing
 else (not sessions, not people's tokens):
 
 - *Why a secret, not `private_key_jwt`.* Seeing every connected person's events and usage is more than any one
@@ -243,7 +246,11 @@ else (not sessions, not people's tokens):
   stream when its secret was deleted or the app is no longer trusted. A slow reader misses events, as on the person
   stream.
 - *Subjects* (`oauth_client_subjects`) are random UUIDs per app and person, made at consent: not the email or the
-  platform user ID, the same for one app across disconnecting and connecting again, different for each app.
+  platform user ID, the same for one app across disconnecting and connecting again, different for each app. The
+  stream's threads (`AppThread`) name people only this way: a thread's creator and participants who have an active
+  connection to the app appear as their subjects; anyone else (people who didn't connect the app or whose connection
+  ended, service accounts) appears with only their kind, so the app sees that someone else took part, and when, but
+  never a platform user ID, email or name.
 - *Usage per connected app.* Model and MCP requests are made by agents, not apps, so the platform records the latest
   sender of each thread and the grant behind it (`agent_run_senders`, written before a message is relayed), and the
   gateway attributes an agent's request to a grant when that is unambiguous: the latest senders of its threads that
@@ -344,7 +351,11 @@ or some, and can let apps give its agents their own servers for one thread (`cli
 - **Catalog servers** reach agents as `mcp__<slug>__<tool>` tools, defined from the stored tool list and connected on
   first use with pi-mcp. More than 20 MCP tools are deferred behind `tool_search`. Tools an MCP App keeps for its own
   interface (`_meta.ui.visibility` without `"model"`, the MCP Apps extension) are never offered to the model; the
-  platform shows no app interfaces yet, so an app's tools work as plain tools. Per server, **proxy** (default: the
+  platform shows no app interfaces yet, so an app's tools work as plain tools. Stored tools carry `modelVisible`; a
+  list stored before the platform read that field (any server, the platform's or a team's, enabled or not) is read
+  again once at start, in the background, through the normal refresh (a team's server through the address guard,
+  with the usual time limit); one that can't be read keeps its list, records the error and is tried at the next
+  start. Per server, **proxy** (default: the
   agent calls `/mcp-proxy/server/<id>` on the gateway, which adds the headers, refuses `tools/call` for tools the
   version left out and logs each call in `mcp_calls`) or **direct** (the runtime gets the URL and headers).
 - **App servers**: a chat app sends the MCP servers its user enabled with a message (`mcpServers`) or with

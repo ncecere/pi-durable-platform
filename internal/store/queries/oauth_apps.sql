@@ -25,6 +25,11 @@ SELECT count(*)::bigint FROM oauth_client_secrets WHERE client_id = $1;
 -- name: DeleteOAuthClientSecret :one
 DELETE FROM oauth_client_secrets WHERE id = $1 RETURNING *;
 
+-- name: DeleteOAuthClientSecretsExcept :many
+-- Deletes the secrets of every client but keep (the apps trusted before and
+-- after a change of the trusted list).
+DELETE FROM oauth_client_secrets WHERE NOT (client_id = ANY(@keep::text[])) RETURNING *;
+
 -- name: GetOAuthClientSecret :one
 SELECT * FROM oauth_client_secrets WHERE secret_hash = $1;
 
@@ -63,6 +68,20 @@ WHERE g.client_id = @client_id AND g.revoked_at IS NULL AND g.resource = @resour
   AND EXISTS (SELECT 1 FROM oauth_tokens t
               WHERE t.grant_id = g.id AND t.kind = 'refresh' AND t.expires_at > now() AND t.resource = @resource)
 ORDER BY s.subject;
+
+-- name: AppStreamSubjects :many
+-- The subjects of those of user_ids who are a client's people now (as in
+-- AppStreamPeople, whatever their team): how the app-level event stream
+-- names a thread's creator and participants.
+SELECT g.user_id, s.subject
+FROM oauth_grants g
+JOIN users u ON u.id = g.user_id
+JOIN oauth_client_subjects s ON s.client_id = g.client_id AND s.user_id = g.user_id
+WHERE g.client_id = @client_id AND g.revoked_at IS NULL AND g.resource = @resource
+  AND g.user_id = ANY(@user_ids::uuid[])
+  AND u.status = 'active' AND u.group_denied_at IS NULL
+  AND EXISTS (SELECT 1 FROM oauth_tokens t
+              WHERE t.grant_id = g.id AND t.kind = 'refresh' AND t.expires_at > now() AND t.resource = @resource);
 
 -- name: RecordRunSender :exec
 -- Who sent the latest message to a thread, and through which connected app

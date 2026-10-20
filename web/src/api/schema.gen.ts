@@ -1828,7 +1828,7 @@ export interface paths {
         };
         /**
          * Server-sent events for the threads of everyone who connected the calling app (trusted apps, with their secret)
-         * @description Authenticated as the app itself: `Authorization: Bearer <app secret>` (pdpcs_…, issued by a platform admin to a trusted app; never a person's token). `event: ready` first, then `event: thread` (an AppThreadEvent) whenever a thread changes that one or more of the app's people may see, with their subjects. The people are those with an active connection to the app (any scope; a connection whose refresh token expired or that was revoked counts no more, from the next change on) who are active (not suspended or denied by the group re-check), and each sees what their own GET /v1/agents/events through the app would show: agents of teams they are members of (no platform staff reads, never service-managed agents), shared threads and their own private ones, reserved threads only their own. `once=true` sends `ready` and ends. A keep-alive comment comes every 15 seconds. Every 30 seconds the stream checks that its secret still exists and its app is still trusted, and ends otherwise (the reconnect is then 401). A slow reader misses events; reconnect and re-list after a gap.
+         * @description Authenticated as the app itself: `Authorization: Bearer <app secret>` (pdpcs_…, issued by a platform admin to a trusted app; never a person's token). `event: ready` first, then `event: thread` (an AppThreadEvent) whenever a thread changes that one or more of the app's people may see, with their subjects (the thread names people only by subjects too: AppThread). The people are those with an active connection to the app (any scope; a connection whose refresh token expired or that was revoked counts no more, from the next change on) who are active (not suspended or denied by the group re-check), and each sees what their own GET /v1/agents/events through the app would show: agents of teams they are members of (no platform staff reads, never service-managed agents), shared threads and their own private ones, reserved threads only their own. `once=true` sends `ready` and ends. A keep-alive comment comes every 15 seconds. Every 30 seconds the stream checks that its secret still exists and its app is still trusted, and ends otherwise (the reconnect is then 401). A slow reader misses events; reconnect and re-list after a gap.
          */
         get: operations["getAppEvents"];
         put?: never;
@@ -1966,7 +1966,7 @@ export interface paths {
         get: operations["adminGetTrustedClients"];
         /**
          * Replace the trusted apps (platform admins)
-         * @description Only apps identified by a Client ID Metadata Document (an https URL with a path) can be trusted: a registered app's ID changes, and anyone can register any name. A trusted app skips the consent screen, never the sign-in (nor the login_hint account check). Only a trusted app can have app secrets (GET /v1/app/events and /v1/app/usage): taking an app off the list stops its secrets at once.
+         * @description Only apps identified by a Client ID Metadata Document (an https URL with a path) can be trusted: a registered app's ID changes, and anyone can register any name. A trusted app skips the consent screen, never the sign-in (nor the login_hint account check). Only a trusted app can have app secrets (GET /v1/app/events and /v1/app/usage): taking an app off the list deletes its secrets in the same change (each audited as oauth.client_secret_delete, reason untrusted), so they stop at once and trusting the app again needs new secrets. A secret survives only if its app is trusted before and after the change.
          */
         put: operations["adminUpdateTrustedClients"];
         post?: never;
@@ -3434,7 +3434,7 @@ export interface components {
         TrustedClientsUpdate: {
             clients: components["schemas"]["TrustedClient"][];
         };
-        /** @description A thread change on the app-level event stream, for the people (subjects) who may see it, by the rules of their own GET /v1/agents/events through the app. */
+        /** @description A thread change on the app-level event stream, for the people (subjects) who may see it, by the rules of their own GET /v1/agents/events through the app. People are named only by the app's subjects (AppThread). */
         AppThreadEvent: {
             /** @description The app-stable subjects of the people who connected the app and may see this change */
             subjects: string[];
@@ -3443,7 +3443,59 @@ export interface components {
             threadId: string;
             deleted: boolean;
             /** @description The thread now (absent when deleted) */
-            thread?: components["schemas"]["AgentThread"] | null;
+            thread?: components["schemas"]["AppThread"] | null;
+        };
+        /** @description A thread as the app-level event stream shows it: an AgentThread whose people are named only by the app's subjects, never by platform user ID, email or name. A person with an active connection to the app appears with their subject; anyone else (a person who didn't connect the app, or whose connection ended, and service accounts) appears with no identifier, so the app sees that someone else started or sent to the thread, and when, but not who. */
+        AppThread: {
+            threadId: string;
+            title: string;
+            /**
+             * Format: int64
+             * @description Unix milliseconds
+             */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description Unix milliseconds; moves when a message is sent and when a reply finishes
+             */
+            updatedAt: number;
+            /** @description A reply is in progress */
+            busy: boolean;
+            /**
+             * Format: int64
+             * @description When the last reply finished (Unix milliseconds)
+             */
+            lastReplyAt?: number | null;
+            /** @description Why the last reply failed (absent when it succeeded) */
+            lastError?: string | null;
+            visibility: components["schemas"]["ThreadVisibility"];
+            /** @description Who started the thread (absent when unknown) */
+            createdBy?: components["schemas"]["AppThreadPerson"] | null;
+            /** @description Everyone who has sent to the thread, first sender first */
+            participants: components["schemas"]["AppThreadParticipant"][];
+        };
+        AppThreadPerson: {
+            /** @enum {string} */
+            kind: "user" | "service_account";
+            /**
+             * Format: uuid
+             * @description The person's app-stable subject when they have an active connection to the app; absent for anyone else
+             */
+            subject?: string | null;
+        };
+        AppThreadParticipant: {
+            /** @enum {string} */
+            kind: "user" | "service_account";
+            /**
+             * Format: uuid
+             * @description The person's app-stable subject when they have an active connection to the app; absent for anyone else
+             */
+            subject?: string | null;
+            /**
+             * Format: int64
+             * @description When they last sent to the thread (Unix milliseconds)
+             */
+            lastSentAt: number;
         };
         AppUsageRow: {
             /** Format: date */
@@ -3521,7 +3573,7 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             lastUsedAt?: string | null;
-            /** @description Its app is on the trusted list now (the secret works only then) */
+            /** @description Its app is on the trusted list now (the secret works only then; removing an app from the list deletes its secrets) */
             trusted: boolean;
         };
         AppSecretCreated: components["schemas"]["AppSecret"] & {

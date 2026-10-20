@@ -11,11 +11,14 @@ import (
 // authorization server that issues no ID tokens):
 //
 //   - prompt=none: the endpoint never shows a page. Not signed in:
-//     login_required; signed in as someone other than login_hint:
-//     login_required too (the hinted person must sign in); signed in but the
-//     platform would show a page that isn't sign-in or consent (the account
-//     can't use the platform): interaction_required; no grant for this client
-//     that covers the scope (and the client isn't trusted): consent_required.
+//     login_required; signed in but the platform would show a page that
+//     isn't sign-in or consent (the account can't use the platform):
+//     interaction_required; no grant of this person for this client at all
+//     (and the client isn't trusted): consent_required, before login_hint is
+//     compared (else the answer would tell any app whether the browser is
+//     signed in as a given email); signed in as someone other than
+//     login_hint: login_required (the hinted person must sign in); a grant
+//     that doesn't cover the scope: consent_required.
 //     Each goes to the redirect URI with the state and iss. With a grant (or
 //     a trusted client) the code comes back at once, as without prompt.
 //   - prompt=consent: show the consent page even when the person allowed the

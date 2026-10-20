@@ -106,7 +106,13 @@ func validateTrusted(in []TrustedClient) ([]TrustedClient, error) {
 
 // UpdateTrustedClients replaces the list (platform admins), If-Match on its
 // revision. Audited as oauth.trusted_clients_update with the lists before
-// and after.
+// and after. A secret survives only if its app is trusted before and after:
+// an app taken off the list loses its secrets in the same transaction (each
+// audited as oauth.client_secret_delete, reason untrusted), so trusting it
+// again needs new ones (an admin who untrusts an app to cut off a leaked
+// secret doesn't revive it by trusting the app again). Secrets of an app
+// that wasn't trusted before (left from before secrets were deleted with
+// their app) go too.
 func (s *Service) UpdateTrustedClients(ctx context.Context, a authz.Actor, in []TrustedClient, expectedRevision int64) (TrustedClients, error) {
 	if !a.IsPlatformAdmin() {
 		return TrustedClients{}, errAdminOnly
@@ -134,7 +140,32 @@ func (s *Service) UpdateTrustedClients(ctx context.Context, a authz.Actor, in []
 		}
 		e := a.Audit("oauth.trusted_clients_update", "oauth_settings", "trusted-clients")
 		e.Before, e.After = map[string]any{"clients": decodeTrusted(cur.TrustedClients)}, map[string]any{"clients": clients}
-		return audit.Record(ctx, q, e)
+		if err := audit.Record(ctx, q, e); err != nil {
+			return err
+		}
+		was := map[string]bool{}
+		for _, c := range decodeTrusted(cur.TrustedClients) {
+			was[c.ClientID] = true
+		}
+		keep := []string{}
+		for _, c := range clients {
+			if was[c.ClientID] {
+				keep = append(keep, c.ClientID)
+			}
+		}
+		deleted, err := q.DeleteOAuthClientSecretsExcept(ctx, keep)
+		if err != nil {
+			return err
+		}
+		for _, d := range deleted {
+			e := a.Audit("oauth.client_secret_delete", "oauth_client_secret", d.ID.String())
+			e.Before = map[string]any{"clientId": d.ClientID, "prefix": d.Prefix}
+			e.Metadata = map[string]any{"clientId": d.ClientID, "prefix": d.Prefix, "reason": "untrusted"}
+			if err := audit.Record(ctx, q, e); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return TrustedClients{}, err

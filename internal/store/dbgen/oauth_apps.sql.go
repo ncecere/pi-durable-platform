@@ -70,6 +70,52 @@ func (q *Queries) AppStreamPeople(ctx context.Context, arg AppStreamPeopleParams
 	return items, nil
 }
 
+const appStreamSubjects = `-- name: AppStreamSubjects :many
+SELECT g.user_id, s.subject
+FROM oauth_grants g
+JOIN users u ON u.id = g.user_id
+JOIN oauth_client_subjects s ON s.client_id = g.client_id AND s.user_id = g.user_id
+WHERE g.client_id = $1 AND g.revoked_at IS NULL AND g.resource = $2
+  AND g.user_id = ANY($3::uuid[])
+  AND u.status = 'active' AND u.group_denied_at IS NULL
+  AND EXISTS (SELECT 1 FROM oauth_tokens t
+              WHERE t.grant_id = g.id AND t.kind = 'refresh' AND t.expires_at > now() AND t.resource = $2)
+`
+
+type AppStreamSubjectsParams struct {
+	ClientID string
+	Resource string
+	UserIds  []uuid.UUID
+}
+
+type AppStreamSubjectsRow struct {
+	UserID  uuid.UUID
+	Subject uuid.UUID
+}
+
+// The subjects of those of user_ids who are a client's people now (as in
+// AppStreamPeople, whatever their team): how the app-level event stream
+// names a thread's creator and participants.
+func (q *Queries) AppStreamSubjects(ctx context.Context, arg AppStreamSubjectsParams) ([]AppStreamSubjectsRow, error) {
+	rows, err := q.db.Query(ctx, appStreamSubjects, arg.ClientID, arg.Resource, arg.UserIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AppStreamSubjectsRow{}
+	for rows.Next() {
+		var i AppStreamSubjectsRow
+		if err := rows.Scan(&i.UserID, &i.Subject); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const appUsageByPersonDay = `-- name: AppUsageByPersonDay :many
 SELECT x.day, x.subject, x.requests, x.input_tokens, x.output_tokens, x.cache_read_tokens, x.cache_write_tokens,
        x.cost_usd, x.unpriced_requests, x.tool_calls
@@ -198,6 +244,41 @@ func (q *Queries) DeleteOAuthClientSecret(ctx context.Context, id uuid.UUID) (Oa
 		&i.LastUsedAt,
 	)
 	return i, err
+}
+
+const deleteOAuthClientSecretsExcept = `-- name: DeleteOAuthClientSecretsExcept :many
+DELETE FROM oauth_client_secrets WHERE NOT (client_id = ANY($1::text[])) RETURNING id, client_id, secret_hash, pepper_id, prefix, created_by, created_at, last_used_at
+`
+
+// Deletes the secrets of every client but keep (the apps trusted before and
+// after a change of the trusted list).
+func (q *Queries) DeleteOAuthClientSecretsExcept(ctx context.Context, keep []string) ([]OauthClientSecret, error) {
+	rows, err := q.db.Query(ctx, deleteOAuthClientSecretsExcept, keep)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OauthClientSecret{}
+	for rows.Next() {
+		var i OauthClientSecret
+		if err := rows.Scan(
+			&i.ID,
+			&i.ClientID,
+			&i.SecretHash,
+			&i.PepperID,
+			&i.Prefix,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.LastUsedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const ensureOAuthClientSubject = `-- name: EnsureOAuthClientSubject :one

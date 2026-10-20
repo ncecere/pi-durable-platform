@@ -408,6 +408,55 @@ func (q *Queries) ListMCPServers(ctx context.Context, arg ListMCPServersParams) 
 	return items, nil
 }
 
+const listMCPServersWithOldTools = `-- name: ListMCPServersWithOldTools :many
+SELECT id, name, slug, description, url, headers_enc, access_mode, enabled, visibility, tools, tools_refreshed_at, tools_error, revision, created_by, created_at, updated_at, personal, team_id FROM mcp_servers s
+WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(s.tools) = 'array' THEN s.tools ELSE '[]'::jsonb END) e
+              WHERE e->'modelVisible' IS NULL)
+ORDER BY s.created_at, s.id
+`
+
+// Servers (every owner's, enabled or not) whose stored tool list predates
+// reading MCP Apps' visibility (v0.3): a tool without modelVisible. Such a
+// list may offer agents tools an app keeps for its own interface.
+func (q *Queries) ListMCPServersWithOldTools(ctx context.Context) ([]McpServer, error) {
+	rows, err := q.db.Query(ctx, listMCPServersWithOldTools)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []McpServer{}
+	for rows.Next() {
+		var i McpServer
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Slug,
+			&i.Description,
+			&i.URL,
+			&i.HeadersEnc,
+			&i.AccessMode,
+			&i.Enabled,
+			&i.Visibility,
+			&i.Tools,
+			&i.ToolsRefreshedAt,
+			&i.ToolsError,
+			&i.Revision,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Personal,
+			&i.TeamID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTemplateVersionMCP = `-- name: ListTemplateVersionMCP :many
 SELECT vm.server_id, vm.tools, s.name, s.slug
 FROM template_version_mcp vm JOIN mcp_servers s ON s.id = vm.server_id

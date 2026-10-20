@@ -123,6 +123,42 @@ func (e ApiKeyStatus) Valid() bool {
 	}
 }
 
+// Defines values for AppThreadParticipantKind.
+const (
+	AppThreadParticipantKindServiceAccount AppThreadParticipantKind = "service_account"
+	AppThreadParticipantKindUser           AppThreadParticipantKind = "user"
+)
+
+// Valid indicates whether the value is a known member of the AppThreadParticipantKind enum.
+func (e AppThreadParticipantKind) Valid() bool {
+	switch e {
+	case AppThreadParticipantKindServiceAccount:
+		return true
+	case AppThreadParticipantKindUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AppThreadPersonKind.
+const (
+	AppThreadPersonKindServiceAccount AppThreadPersonKind = "service_account"
+	AppThreadPersonKindUser           AppThreadPersonKind = "user"
+)
+
+// Valid indicates whether the value is a known member of the AppThreadPersonKind enum.
+func (e AppThreadPersonKind) Valid() bool {
+	switch e {
+	case AppThreadPersonKindServiceAccount:
+		return true
+	case AppThreadPersonKindUser:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AuditActorKind.
 const (
 	AuditActorKindApiKey         AuditActorKind = "api_key"
@@ -1589,7 +1625,7 @@ type AppSecret struct {
 	// Prefix The secret's first characters, to tell it apart
 	Prefix string `json:"prefix"`
 
-	// Trusted Its app is on the trusted list now (the secret works only then)
+	// Trusted Its app is on the trusted list now (the secret works only then; removing an app from the list deletes its secrets)
 	Trusted bool `json:"trusted"`
 }
 
@@ -1612,11 +1648,40 @@ type AppSecretCreated struct {
 	// Secret The secret (pdpcs_…), shown this once
 	Secret string `json:"secret"`
 
-	// Trusted Its app is on the trusted list now (the secret works only then)
+	// Trusted Its app is on the trusted list now (the secret works only then; removing an app from the list deletes its secrets)
 	Trusted bool `json:"trusted"`
 }
 
-// AppThreadEvent A thread change on the app-level event stream, for the people (subjects) who may see it, by the rules of their own GET /v1/agents/events through the app.
+// AppThread A thread as the app-level event stream shows it: an AgentThread whose people are named only by the app's subjects, never by platform user ID, email or name. A person with an active connection to the app appears with their subject; anyone else (a person who didn't connect the app, or whose connection ended, and service accounts) appears with no identifier, so the app sees that someone else started or sent to the thread, and when, but not who.
+type AppThread struct {
+	// Busy A reply is in progress
+	Busy bool `json:"busy"`
+
+	// CreatedAt Unix milliseconds
+	CreatedAt int64 `json:"createdAt"`
+
+	// CreatedBy Who started the thread (absent when unknown)
+	CreatedBy *AppThreadPerson `json:"createdBy,omitempty"`
+
+	// LastError Why the last reply failed (absent when it succeeded)
+	LastError *string `json:"lastError,omitempty"`
+
+	// LastReplyAt When the last reply finished (Unix milliseconds)
+	LastReplyAt *int64 `json:"lastReplyAt,omitempty"`
+
+	// Participants Everyone who has sent to the thread, first sender first
+	Participants []AppThreadParticipant `json:"participants"`
+	ThreadId     string                 `json:"threadId"`
+	Title        string                 `json:"title"`
+
+	// UpdatedAt Unix milliseconds; moves when a message is sent and when a reply finishes
+	UpdatedAt int64 `json:"updatedAt"`
+
+	// Visibility shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen when the thread starts (createAgentThread, its first message, or its MCP servers being set); it never changes.
+	Visibility ThreadVisibility `json:"visibility"`
+}
+
+// AppThreadEvent A thread change on the app-level event stream, for the people (subjects) who may see it, by the rules of their own GET /v1/agents/events through the app. People are named only by the app's subjects (AppThread).
 type AppThreadEvent struct {
 	AgentId openapi_types.UUID `json:"agentId"`
 	Deleted bool               `json:"deleted"`
@@ -1625,9 +1690,34 @@ type AppThreadEvent struct {
 	Subjects []openapi_types.UUID `json:"subjects"`
 
 	// Thread The thread now (absent when deleted)
-	Thread   *AgentThread `json:"thread,omitempty"`
-	ThreadId string       `json:"threadId"`
+	Thread   *AppThread `json:"thread,omitempty"`
+	ThreadId string     `json:"threadId"`
 }
+
+// AppThreadParticipant defines model for AppThreadParticipant.
+type AppThreadParticipant struct {
+	Kind AppThreadParticipantKind `json:"kind"`
+
+	// LastSentAt When they last sent to the thread (Unix milliseconds)
+	LastSentAt int64 `json:"lastSentAt"`
+
+	// Subject The person's app-stable subject when they have an active connection to the app; absent for anyone else
+	Subject *openapi_types.UUID `json:"subject,omitempty"`
+}
+
+// AppThreadParticipantKind defines model for AppThreadParticipant.Kind.
+type AppThreadParticipantKind string
+
+// AppThreadPerson defines model for AppThreadPerson.
+type AppThreadPerson struct {
+	Kind AppThreadPersonKind `json:"kind"`
+
+	// Subject The person's app-stable subject when they have an active connection to the app; absent for anyone else
+	Subject *openapi_types.UUID `json:"subject,omitempty"`
+}
+
+// AppThreadPersonKind defines model for AppThreadPerson.Kind.
+type AppThreadPersonKind string
 
 // AppUsagePage defines model for AppUsagePage.
 type AppUsagePage struct {

@@ -153,6 +153,14 @@ func Run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	go deps.Agents.ObserveAgents(loopCtx, 30*time.Second)
 	go deps.Agents.Host().ReapLoop(loopCtx, 30*time.Second)
 	go deps.Agents.RunThreadEvents(loopCtx, log.With("component", "thread-events"))
+	// MCP tool lists stored before the platform read MCP Apps' visibility
+	// are read again once (in the background; failures retried at the next
+	// start), so agents aren't offered tools an app keeps for itself.
+	go func() {
+		if err := deps.MCP.RecheckToolLists(loopCtx, log.With("component", "mcp")); err != nil && loopCtx.Err() == nil {
+			log.Warn("mcp: reading old tool lists again failed", "err", err)
+		}
+	}()
 	if err := serve(ctx, log, servers...); err != nil {
 		return err
 	}

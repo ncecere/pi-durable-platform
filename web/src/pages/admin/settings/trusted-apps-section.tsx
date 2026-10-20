@@ -11,7 +11,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ApiError, api, ifMatch, unwrap } from "@/api/client";
-import { type TrustedClient, type TrustedClients, trustedClientsQuery } from "@/api/oauth";
+import { appSecretsQuery, type TrustedClient, type TrustedClients, trustedClientsQuery } from "@/api/oauth";
 import { ActionMenu } from "@/components/templates/action-menu";
 import { useRevisionForm } from "@/components/templates/revision-form";
 import { SettingsPage, SettingsSection } from "@/components/templates/settings-page";
@@ -68,6 +68,8 @@ function TrustedAppsForm({ saved }: { saved: TrustedClients }) {
     onSettled: () => setConfirming(false),
     onSuccess: (updated) => {
       qc.setQueryData(trustedClientsQuery().queryKey, updated);
+      // Removing an app deletes its secrets.
+      void qc.invalidateQueries({ queryKey: appSecretsQuery().queryKey });
       toast.success("Trusted apps saved", "New connections from them skip the approval screen.");
     },
   });
@@ -121,7 +123,11 @@ function TrustedAppsForm({ saved }: { saved: TrustedClients }) {
         onConfirm={() => save.mutate()}
       >
         {added.length > 0 && <p>Trusted from now on: {added.map(nameOf).join(", ")}.</p>}
-        {removed.length > 0 && <p>Asks for approval again: {removed.map(nameOf).join(", ")}.</p>}
+        {removed.length > 0 && (
+          <p>
+            Asks for approval again, and its app secrets are deleted (trusting it again needs new ones): {removed.map(nameOf).join(", ")}.
+          </p>
+        )}
       </AlertDialog>
       {editing !== null && (
         <TrustedAppDialog

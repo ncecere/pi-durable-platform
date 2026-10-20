@@ -24,6 +24,22 @@ func (s *Service) Subject(ctx context.Context, clientID string, userID uuid.UUID
 	return s.q.EnsureOAuthClientSubject(ctx, dbgen.EnsureOAuthClientSubjectParams{ClientID: clientID, UserID: userID})
 }
 
+// AppSubjects maps those of userIDs who are a client's people now (an
+// active connection, as on the app-level event stream) to their subjects:
+// how the stream names a thread's creator and participants. Anyone else is
+// left out (the stream shows them without an identifier).
+func (s *Service) AppSubjects(ctx context.Context, clientID string, userIDs []uuid.UUID) (map[uuid.UUID]uuid.UUID, error) {
+	out := map[uuid.UUID]uuid.UUID{}
+	if len(userIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.q.AppStreamSubjects(ctx, dbgen.AppStreamSubjectsParams{ClientID: clientID, Resource: s.Resource(), UserIds: userIDs})
+	for _, r := range rows {
+		out[r.UserID] = r.Subject
+	}
+	return out, err
+}
+
 // Bounds of an app usage request.
 const (
 	MaxAppUsageDays     = 92

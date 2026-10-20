@@ -29,8 +29,10 @@ import (
 //
 // A secret works only while its client is on the trusted list (read on
 // every use, so removing an app from the list stops it at once on every
-// replica). The authorization code flow stays public: the secret is not
-// used, or accepted, at the token endpoint.
+// replica), and removing an app from the list deletes its secrets
+// (UpdateTrustedClients): trusting it again needs new ones. The
+// authorization code flow stays public: the secret is not used, or
+// accepted, at the token endpoint.
 
 // SecretPrefix starts every app secret.
 const SecretPrefix = "pdpcs_"
