@@ -2279,7 +2279,7 @@ export interface paths {
         put?: never;
         /**
          * Deliver to a webhook trigger (no session or key - the signature is the credential)
-         * @description Sign the raw body - `X-PDP-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>." + body)>`. A missing, malformed or wrong signature, or one more than 5 minutes from the platform's clock, is 401 invalid_signature. The body (at most 256 KiB, JSON or text) fills the trigger's template; a JSON body that doesn't meet the trigger's filter is answered `matched: false` and starts nothing. A replay of a delivery is answered with the first delivery's run (`replayed: true`). Each address takes at most 120 deliveries a minute (429).
+         * @description Sign the raw body - `X-PDP-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>." + body)>`. A missing, malformed or wrong signature, or one more than 5 minutes from the platform's clock, is 401 invalid_signature. The body (at most 256 KiB, JSON or text) fills the trigger's template; a JSON body that doesn't meet the trigger's filter is answered `matched: false` and starts nothing. A replay of a delivery is answered with the first delivery's run (`replayed: true`). Each address takes at most 120 verified deliveries a minute, and at most 240 requests a minute from one client address, verified or not (429).
          */
         post: operations["deliverWebhook"];
         delete?: never;

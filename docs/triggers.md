@@ -55,9 +55,13 @@ secret is start anything.
   they need end-to-end de-duplication.
 - **Unknown, deleted or paused**: an unknown `hookId` is 404 (the ID is 128 random bits; its existence reveals
   nothing). The signature is checked before anything else is read or recorded, including the trigger's pause state.
-- **Flooding**: each address is rate-limited (120 deliveries a minute, shared by the replicas through the rate limit
-  store; 429 beyond). A sender with the secret can still start runs at that rate: the limits below bound what they
-  cost.
+- **Flooding**: two limits, shared by the replicas through the rate limit store, 429 beyond. Each address takes at
+  most 120 **verified** deliveries a minute: the trigger's bucket is counted only once the signature checks, so
+  someone with a leaked address but not the secret can't spend it and keep the real sender out. Every request, verified
+  or not, also counts in a bucket per address and client address (240 a minute, counted before the body is read; the
+  client address is the one the request log shows, `X-Forwarded-For` only from `TRUSTED_PROXIES`), so a flood of bad
+  signatures is limited on its own address and costs little. A sender with the secret can still start runs at 120 a
+  minute: the limits below bound what they cost.
 - **Never logged**: the body, the signature, the secret. The request log names the route pattern only
   (`/v1/hooks/{hookId}`), never the path.
 
@@ -68,6 +72,7 @@ secret is start anything.
 | Someone finds the address (a log, a referrer, a leaked config) | Without the secret nothing starts: 401 |
 | A captured delivery is replayed | Same fire ID: the first run is returned, nothing starts; after 5 minutes, 401 |
 | A captured delivery is re-dated or its body changed | The signature covers both: 401 |
+| Someone with the address but not the secret floods it | Their requests count per client address, never against the address's verified deliveries: the real sender gets through |
 | A sender with the secret floods the address | Rate limit per address; concurrency, budgets and back-off per trigger and agent |
 | The payload carries instructions for the model (prompt injection) | Inherent: a webhook's payload is untrusted text given to a model that may call the team's tools. The template should frame it as data; connect senders the team trusts; tool approvals (#16) let a person approve sensitive tool calls. The run never acts as a person (below), so the worst case is bounded by the team's own tools and budgets |
 | A template is crafted to execute something | Templates only insert text (above) |

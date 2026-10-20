@@ -15,8 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ncecere/pi-durable-platform/internal/config"
 	"github.com/ncecere/pi-durable-platform/internal/httpapi/apitypes"
 	"github.com/ncecere/pi-durable-platform/internal/teamnet"
+	"github.com/ncecere/pi-durable-platform/internal/testutil"
 	"github.com/ncecere/pi-durable-platform/internal/triggers"
 )
 
@@ -213,5 +215,65 @@ func TestTriggersEndToEnd(t *testing.T) {
 	}
 	if code, _, ec := deliver(triggers.Sign(*saved.WebhookSecret, time.Now(), []byte(payload)), payload); code != 404 || ec != "hook_not_found" {
 		t.Errorf("the moved agent's webhook: %d %s", code, ec)
+	}
+}
+
+// Only verified deliveries count against a webhook address's limit: someone
+// with the address but not the secret, flooding it with bad signatures from
+// their own client address, is limited on their own and never keeps the
+// real sender (another client address, X-Forwarded-For from a trusted
+// proxy) out.
+func TestWebhookBadSignaturesDontSpendTheSendersLimit(t *testing.T) {
+	app := newTestAppWith(t, func(c *config.Config) {
+		c.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")}
+	}, testutil.Logger(), nil, false)
+	e := newTeamEnvOn(t, app)
+	var ag apitypes.Agent
+	code, ec := e.owner.call("POST", toolsTeam+"/agents", map[string]any{"name": "Hooked"}, &ag, nil)
+	mustCode(t, "deploy", code, ec, 201, "")
+	// A filter that never matches: deliveries are verified, and start no run.
+	var saved apitypes.TriggerSaved
+	code, ec = e.owner.call("POST", "/v1/agents/"+ag.Id.String()+"/triggers", map[string]any{"kind": "webhook", "name": "Issues",
+		"messageTemplate": "x", "filter": map[string]any{"path": "action", "equals": "never"}}, &saved, nil)
+	mustCode(t, "create", code, ec, 201, "")
+	hook := *saved.Trigger.WebhookUrl
+	deliver := func(from, sig string) int {
+		t.Helper()
+		req, _ := http.NewRequest("POST", hook, strings.NewReader(`{"action":"opened"}`))
+		req.Header.Set("X-Forwarded-For", from)
+		if sig != "" {
+			req.Header.Set(triggers.SignatureHeader, sig)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, res.Body)
+		res.Body.Close()
+		return res.StatusCode
+	}
+	good := func() string { return triggers.Sign(*saved.WebhookSecret, time.Now(), []byte(`{"action":"opened"}`)) }
+	bad := triggers.Sign("pdpwh_guess", time.Now(), []byte(`{"action":"opened"}`))
+
+	// The flood: within two one-minute windows, one of them goes over the attacker's limit.
+	limited := false
+	for i := 0; i < 481 && !limited; i++ {
+		switch code := deliver("203.0.113.66", bad); code {
+		case 401:
+		case 429:
+			limited = true
+		default:
+			t.Fatalf("a bad signature: %d", code)
+		}
+	}
+	if !limited {
+		t.Fatal("a flood of bad signatures was never limited")
+	}
+	// The real sender, from its own address, is let through; so is a bad signature of its own (not 429).
+	if code := deliver("198.51.100.7", good()); code != 202 {
+		t.Fatalf("the real sender after the flood: %d", code)
+	}
+	if code := deliver("198.51.100.7", ""); code != 401 {
+		t.Fatalf("an unsigned request from another address: %d", code)
 	}
 }
