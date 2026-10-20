@@ -1,7 +1,8 @@
 /*
  * An agent's Settings: name, description, model and the switch (If-Match on
- * its revision). Editors change them; owners and admins delete the agent and all
- * its conversations in the Danger zone.
+ * its revision). Editors change them; owners and admins move the agent to
+ * another team (move-agent.tsx) or delete it and all its conversations in the
+ * Danger zone.
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -22,6 +23,7 @@ import { Input, Textarea } from "@/components/ui/input/input";
 import { Switch } from "@/components/ui/switch/switch";
 import { toast } from "@/components/ui/toast/toast";
 import { AgentModelField, chosenModel, useModelChoices } from "./agent-model";
+import { MoveAgent } from "./move-agent";
 import {
   type Agent,
   type AgentAbilities,
@@ -203,6 +205,7 @@ function DeleteAgent({ agent }: { agent: Agent }) {
   });
   return (
     <DangerZone>
+      <MoveAgent agent={agent} />
       <DangerAction
         title="Delete this agent"
         description={`Stops ${agent.name} and deletes its storage: every conversation it holds. This can't be undone.`}
