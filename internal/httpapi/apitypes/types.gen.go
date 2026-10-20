@@ -3160,7 +3160,7 @@ type AdminUpdateModelParams struct {
 
 // AdminListServiceAccountsParams defines parameters for AdminListServiceAccounts.
 type AdminListServiceAccountsParams struct {
-	// Q Case-insensitive substring match
+	// Q Case-insensitive substring match. Valid UTF-8 without NUL characters (else 400 invalid_query).
 	Q *SearchParam `form:"q,omitempty" json:"q,omitempty"`
 
 	// Team Team slug or ID (that team's service accounts)
@@ -3191,7 +3191,7 @@ type AdminUpdatePersonalSettingsParams struct {
 
 // AdminListTeamsParams defines parameters for AdminListTeams.
 type AdminListTeamsParams struct {
-	// Q Case-insensitive substring match
+	// Q Case-insensitive substring match. Valid UTF-8 without NUL characters (else 400 invalid_query).
 	Q      *SearchParam              `form:"q,omitempty" json:"q,omitempty"`
 	Status *TeamStatus               `form:"status,omitempty" json:"status,omitempty"`
 	Kind   *AdminListTeamsParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
@@ -3234,7 +3234,7 @@ type AdminGetUsageParamsGroupBy string
 
 // AdminListUsersParams defines parameters for AdminListUsers.
 type AdminListUsersParams struct {
-	// Q Case-insensitive substring match
+	// Q Case-insensitive substring match. Valid UTF-8 without NUL characters (else 400 invalid_query).
 	Q      *SearchParam  `form:"q,omitempty" json:"q,omitempty"`
 	Role   *PlatformRole `form:"role,omitempty" json:"role,omitempty"`
 	Status *UserStatus   `form:"status,omitempty" json:"status,omitempty"`
@@ -3302,7 +3302,7 @@ type ListAgentThreadsParams struct {
 	// Cursor nextCursor from the previous page (opaque; a malformed one is 400 invalid_cursor)
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Q Case-insensitive substring match
+	// Q Case-insensitive substring match. Valid UTF-8 without NUL characters (else 400 invalid_query).
 	Q *SearchParam `form:"q,omitempty" json:"q,omitempty"`
 }
 

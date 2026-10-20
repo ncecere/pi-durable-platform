@@ -3657,7 +3657,7 @@ export interface components {
         /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
         IfMatchHeader: string;
         LimitParam: number;
-        /** @description Case-insensitive substring match */
+        /** @description Case-insensitive substring match. Valid UTF-8 without NUL characters (else 400 invalid_query). */
         SearchParam: string;
         /** @description Team slug or ID */
         TeamParam: string;
@@ -4110,7 +4110,7 @@ export interface operations {
     adminListUsers: {
         parameters: {
             query?: {
-                /** @description Case-insensitive substring match */
+                /** @description Case-insensitive substring match. Valid UTF-8 without NUL characters (else 400 invalid_query). */
                 q?: components["parameters"]["SearchParam"];
                 role?: components["schemas"]["PlatformRole"];
                 status?: components["schemas"]["UserStatus"];
@@ -4206,7 +4206,7 @@ export interface operations {
     adminListTeams: {
         parameters: {
             query?: {
-                /** @description Case-insensitive substring match */
+                /** @description Case-insensitive substring match. Valid UTF-8 without NUL characters (else 400 invalid_query). */
                 q?: components["parameters"]["SearchParam"];
                 status?: components["schemas"]["TeamStatus"];
                 kind?: "team" | "personal";
@@ -4781,7 +4781,7 @@ export interface operations {
     adminListServiceAccounts: {
         parameters: {
             query?: {
-                /** @description Case-insensitive substring match */
+                /** @description Case-insensitive substring match. Valid UTF-8 without NUL characters (else 400 invalid_query). */
                 q?: components["parameters"]["SearchParam"];
                 /** @description Team slug or ID (that team's service accounts) */
                 team?: string;
@@ -7024,7 +7024,7 @@ export interface operations {
                 limit?: number;
                 /** @description nextCursor from the previous page (opaque; a malformed one is 400 invalid_cursor) */
                 cursor?: string;
-                /** @description Case-insensitive substring match */
+                /** @description Case-insensitive substring match. Valid UTF-8 without NUL characters (else 400 invalid_query). */
                 q?: components["parameters"]["SearchParam"];
             };
             header?: never;
