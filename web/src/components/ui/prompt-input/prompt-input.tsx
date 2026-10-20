@@ -38,8 +38,8 @@ import styles from "./prompt-input.module.css";
  *
  * - A real <form>: Enter submits, Shift+Enter inserts a newline, and Enter
  *   that confirms an IME composition (Japanese, Chinese, Korean…) never
- *   submits. Empty messages and submits while a response is in progress
- *   are ignored.
+ *   submits. Empty messages are ignored, and so are submits while a response
+ *   is in progress unless `submitWhileBusy` is set.
  * - An uncontrolled textarea is cleared after onSubmit (return false, or
  *   reject, to keep the text). A controlled one (`value`) is yours to clear.
  * - The textarea grows with its content up to a max height, then scrolls.
@@ -99,6 +99,11 @@ export type PromptInputProps = Omit<ComponentPropsWithRef<"form">, "onSubmit"> &
   status?: ChatStatus;
   /** Stops the in-progress response (PromptInputSubmit becomes a Stop button). */
   onStop?: () => void;
+  /**
+   * Enter submits while a response is in progress (default false: ignored), for chats that queue a
+   * message behind the running reply. The button stays Stop.
+   */
+  submitWhileBusy?: boolean;
   disabled?: boolean;
   /** Enable file attachments: picker, paste and drag-and-drop. */
   attachments?: boolean;
@@ -115,6 +120,7 @@ export function PromptInput({
   onSubmit,
   status = "ready",
   onStop,
+  submitWhileBusy = false,
   disabled = false,
   attachments = false,
   accept,
@@ -203,7 +209,7 @@ export function PromptInput({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (disabled || isBusy(status)) return;
+    if (disabled || (isBusy(status) && !submitWhileBusy)) return;
     const text = textareaRef.current?.value ?? "";
     const submitted = filesRef.current;
     if (!text.trim() && submitted.length === 0) return;

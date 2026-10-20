@@ -296,6 +296,24 @@ describe("test chat: paging, search and steering", () => {
     expect(messagePosts(calls)[0]!.body).toMatchObject({ text: "Only the backend, please", whenBusy: "steer" });
     await waitFor(() => expect(box).toHaveValue(""));
   });
+
+  it("queues a follow-up with Enter while a reply runs", async () => {
+    const u = userEvent.setup();
+    views.set("t1", { busy: true, tools: [], partial: { text: "Working on it", thinking: "" }, messages: [{ id: "m1", role: "user", text: "Plan the release", author: me, at: T }] });
+    const calls = mockApi(chatRoutes(() => [thread({ busy: true })], { [`POST /v1/agents/${agentId}/threads/t1/messages`]: () => new Reply(202, { data: { submissionId: 2 } }) }));
+    renderApp(`/teams/${team.slug}/agents/${agentId}?tab=test`);
+    const box = await screen.findByRole("textbox", { name: "Message" });
+    await screen.findByText("Working on it");
+    await u.type(box, "Then write the notes{Enter}");
+    await waitFor(() => expect(messagePosts(calls)).toHaveLength(1));
+    // No whenBusy: the platform's default, a follow-up that waits for the reply to end.
+    const body = messagePosts(calls)[0]!.body as Record<string, unknown>;
+    expect(body).toMatchObject({ text: "Then write the notes" });
+    expect(body).not.toHaveProperty("whenBusy");
+    await waitFor(() => expect(box).toHaveValue(""));
+    // The reply can still be stopped: the button stays Stop.
+    expect(screen.getByRole("button", { name: /stop/i })).toBeInTheDocument();
+  });
 });
 
 describe("Conversations tab for platform staff", () => {
