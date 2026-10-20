@@ -16,7 +16,7 @@ import (
 	"github.com/ncecere/pi-durable-platform/internal/store/dbgen"
 )
 
-// The upgrade check (docs/custom-agents.md, Upgrades; migration 00024).
+// The upgrade check (docs/custom-agents.md, Upgrades; migration 00023).
 //
 // pi-durable migrates a document when it reads it, and code that finds a
 // document a newer version wrote refuses it. So the platform records, per
