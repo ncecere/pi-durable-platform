@@ -392,6 +392,14 @@ func TestMCPIdentityToken(t *testing.T) {
 	proxied("no thread (background work)", teamCred, "", nil, false, "none")
 	proxied("a personal workspace without a thread", mineCred, "", &owner, false, "none")
 	proxied("the private thread again", teamCred, "p1", &blair, true, "private")
+	// A personal workspace thread working on a triggered run (the agent's own
+	// reminder, say): the owner, not present.
+	proxied("a personal workspace's thread", mineCred, "w1", &owner, true, "shared")
+	e.scalar(`INSERT INTO trigger_runs (fire_id, agent_id, team_id, trigger_name, trigger_kind, trigger_source, fired_by, thread_id, status, created_at)
+		SELECT 'sc_identity_1', id, team_id, 'Reminder', 'schedule', 'agent', 'schedule', 'w1', 'running', now() FROM agents WHERE id = $1 RETURNING fire_id`, mine.Id)
+	proxied("a personal workspace's thread in a triggered run", mineCred, "w1", &owner, false, "shared")
+	e.scalar(`UPDATE trigger_runs SET status = 'succeeded' WHERE fire_id = 'sc_identity_1' RETURNING fire_id`)
+	proxied("the thread after the run", mineCred, "w1", &owner, true, "shared")
 
 	// Another agent's private thread: alex starts one on the other agent;
 	// the first agent's runtime claims it and gets nobody.

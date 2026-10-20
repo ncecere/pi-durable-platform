@@ -24,9 +24,13 @@ WHERE EXISTS (SELECT 1 FROM mcp_identity_keys n
 -- name: MCPIdentityCaller :one
 -- What the identity token says about a call: the calling agent, its team,
 -- and the thread the call names, looked up among that agent's threads only
--- (no thread: the thread columns are NULL).
+-- (no thread: the thread columns are NULL). triggered: the thread is working
+-- on a triggered run (a schedule's or a webhook's), which nobody is present
+-- for.
 SELECT a.name AS agent_name, t.id AS team_id, t.slug AS team_slug, t.kind AS team_kind, t.personal_owner,
-       th.visibility AS thread_visibility, th.created_by_user AS thread_creator
+       th.visibility AS thread_visibility, th.created_by_user AS thread_creator,
+       EXISTS (SELECT 1 FROM trigger_runs r WHERE r.agent_id = a.id AND r.thread_id = sqlc.arg(thread_id)::text
+                                            AND r.status IN ('pending', 'running'))::boolean AS triggered
 FROM agents a
 JOIN teams t ON t.id = a.team_id
 LEFT JOIN agent_threads th ON th.agent_id = a.id AND th.thread_id = sqlc.arg(thread_id)::text
