@@ -82,17 +82,24 @@ again, with no credentials of its own to the IdP and no SCIM:
   the provider needs the `offline_access` scope mapping). Every `OIDC_GROUP_RECHECK_INTERVAL` (default 15m; 0 turns
   it off) the platform exchanges it at the token endpoint for fresh claims, takes the groups from the new ID token
   (else from the userinfo endpoint with the new access token) and applies the same rule, `OIDC_ALLOWED_GROUPS`
-  against `OIDC_GROUPS_CLAIM`. The refresh token the IdP rotates replaces the kept one. A background loop (every
+  against `OIDC_GROUPS_CLAIM` (every group the claim lists is matched; only the first 200, sorted, are stored and
+  shown). The refresh token the IdP rotates replaces the kept one. A background loop (every
   replica runs it; people are claimed with `FOR UPDATE SKIP LOCKED`) checks people who are *recently active* (a
   sign-in, a live session, or an API key or connected app used in the last 30 days), so a removal takes effect
   within the interval plus up to a minute. Not chosen: userinfo with the sign-in's access token (it expires in
   minutes, so it needs the refresh token anyway); checking on every request or at session first use (puts the IdP
   on the request path and makes its outage everyone's outage; the loop bounds the window instead).
+- *Rotated tokens and shutdown.* The IdP may rotate the refresh token with every exchange, so the new one must not
+  be lost: a check that has begun is finished and recorded under its own 10 s commit even while the platform stops
+  (shutdown waits up to 15 s for it; a check not yet begun is skipped), and the rotated token is kept whatever else
+  the answer says, even when the IdP couldn't vouch for the person. Losing it would make the next check
+  `invalid_grant` and deny a legitimate person.
 - *Outcome by answer.* The IdP lists an allowed group: access continues (the person's stored groups are updated).
   It lists none: **denied**, `not_in_group`. It refuses the refresh token (`invalid_grant`, `access_denied` and the
   like: the person was disabled, the grant revoked or expired): denied, `idp_refused`. It can't be asked
-  (unreachable, 5xx, an unexpected answer, or neither the ID token nor userinfo has the groups claim): nothing
-  changes and the platform logs a warning, until `OIDC_GROUP_RECHECK_GRACE` (default 24h) has passed since the IdP
+  (unreachable, 5xx, an unexpected answer, neither the ID token nor userinfo has the groups claim, or the stored
+  token can't be opened because `ENCRYPTION_KEY` changed without `ENCRYPTION_KEY_PREVIOUS`; the warning names the
+  person by ID): nothing changes and the platform logs a warning, until `OIDC_GROUP_RECHECK_GRACE` (default 24h) has passed since the IdP
   last vouched for the person: then denied, `idp_unreachable`. So an IdP outage costs nobody access for a day, and
   a person the IdP no longer answers for loses it after one.
 - *Denied is a separate state.* `users.group_denied_at`/`group_denied_reason`, apart from `users.status`, which only
@@ -101,15 +108,20 @@ again, with no credentials of its own to the IdP and no SCIM:
   (`store.IsUserActive`: sessions, personal API keys, app access tokens, refresh and authorization, the OAuth
   consent page, the last-admin guard). Denying also deletes their sessions, revokes their connected apps (grants
   and tokens; reason `access_denied`) and forgets the kept refresh token; their API keys are not revoked (they stop
-  working while denied), and their data, team memberships and agents stay. An event stream already open is not closed
-  (as with a suspension): every new request is refused.
+  working while denied), and their data, team memberships and agents stay. An event stream already open ends at its
+  next access check (every 30 s, see Threads), like one of a suspended person; every new request is refused.
 - *Coming back.* Signing in applies the rule afresh; when it passes, the denial is cleared (`user.group_restored`)
   and API keys work again (apps must be connected again). A person who is still outside the group can't sign in
   (403 `group_denied`) and nothing changes. Removing `OIDC_ALLOWED_GROUPS` lifts every denial at the next start.
 - *Not covered.* The bootstrap admin and development personas are never re-checked (no refresh token is kept for
   them). People who signed in before the upgrade, or when the IdP issued no refresh token, have nothing to check
-  with: their groups apply at their next sign-in (the platform warns at start when `OIDC_SCOPES` lacks
-  `offline_access`). Refresh tokens that an IdP lets expire for good (an absolute lifetime) end in
+  with: their groups apply at their next sign-in. That is fail-open on purpose (denying everyone without a token
+  would lock everybody out wherever the IdP isn't set up for refresh tokens), so it is made loud instead: the
+  platform warns at start when `OIDC_SCOPES` lacks `offline_access`; each such sign-in logs at Info (the user id,
+  never a token or an email) and counts `pdp_group_recheck_total{result="no_token"}`; the gauge
+  `pdp_group_recheck_people{state="with_token|without_token"}` counts the recently active people the re-check can
+  and can't check; and `pi-durable-platform doctor` warns, with the cause and the fix, while recently active people
+  have no stored token (the same *recently active* test as the loop). Refresh tokens that an IdP lets expire for good (an absolute lifetime) end in
   `idp_refused`: the person signs in again.
 - *Audit.* `user.group_denied` (system; target the person; the reason in words, its code and how many connected
   apps were revoked, each also `oauth.revoke` with reason `access_denied`) and `user.group_restored` (the person
@@ -319,6 +331,16 @@ on `GET /v1/agents/events`.
   and changing a thread's servers takes the same access as reading the thread: the creator for a private one, anyone
   who may use the agent for a shared one. An empty list on an unknown ID starts nothing; bad servers (host, template
   without `clientMcp`) start nothing.
+  *Reserved threads and other people's servers.* A thread whose servers were set but nobody has sent to yet is
+  reserved, hidden from everyone but its creator, so the servers on it are the creator's choice and nobody else knows
+  they are there. Two rules keep them from reaching someone else's turn. The first message from anyone other than the
+  creator (a client-chosen ID the creator guessed or learned) is accepted, but drops the creator's servers and ends
+  the reservation, in one transaction that holds the thread's row lock, so a concurrent write of servers is deleted
+  or lands on a thread that is no longer hidden; the sender's own `mcpServers` in that message apply. (Not chosen: a
+  409 for that message, which would break the documented use of a shared reserved thread by its ID.) And nobody but
+  the creator may set or clear servers on a reserved thread (404 `thread_not_found`): otherwise they would be active
+  for the creator's first message without the creator knowing. Once a thread has its first message it is an ordinary
+  shared thread, whose servers anyone who may use the agent can see and set.
   *Why claim rather than refuse.* Refusing servers for unrecorded threads (404) would break apps that set servers
   before the first message (the documented flow) and would need a second, identical step; claiming keeps that flow
   working and still binds the servers to a known creator. Platform-chosen IDs make the attack impossible rather
@@ -328,7 +350,8 @@ on `GET /v1/agents/events`.
   ID), titled "New chat" until its first message names it (a title given at creation stays), kept when the
   runtime lists the threads it has (it knows none of them), and deleted after 30 days without a message (with its
   servers; `agents.Cleanup`, which also prunes expired thread servers). The first accepted message ends the
-  reservation.
+  reservation (a first message from someone other than the creator ends it at once and drops the servers the creator
+  set).
 - **Shared or private.** The first message (or `POST …/threads`, or the servers `PUT`) chooses (`visibility`, default
   `shared`; it never changes: a different value later is 409 `visibility_fixed`). A shared thread is seen by everyone who may use the agent. A private one is
   listed and read only by the person or service account that started it: not other members, not the team's owners
@@ -336,6 +359,15 @@ on `GET /v1/agents/events`.
   delete, the thread's MCP servers), in listings and in event streams, another's private thread reads as not found
   (404 `thread_not_found`, the same as a missing one). A thread the runtime has but the platform has no record of
   (older threads) is shared. Personal workspaces' threads default to shared too: only the owner reaches the agent.
+- **Open streams are re-checked.** Access to an event stream (`GET /v1/agents/events`, with or without `agentId`,
+  and a thread's `…/events`, which relays the runtime's conversation) is decided when it opens and checked again
+  every 30 s (`agents.DefaultStreamRecheck`; one indexed read of the person per stream, plus the agent's team role
+  for a stream of one agent): the stream ends when the person is suspended, denied by the group re-check or deleted,
+  or may no longer use the agent (removed from its team, a lower role), or the thread is another's private one. A
+  stream of all their agents stays open but stops carrying an agent's threads once they can't use it. The reconnect is
+  refused like any request. Without this, titles and participant names would keep flowing for as long as the stream
+  stayed open. Not re-checked: a revoked personal API key, connected app grant or service account key (and its
+  team) behind a stream that is already open; those end with the stream.
 - **Recorded before relaying.** On a thread's first message the platform writes its record (creator, visibility)
   before relaying, so a private thread is never briefly shared; a message the runtime refuses (4xx), or that couldn't
   wake the agent (503), removes the record again unless the runtime has reported the thread since. Other failures
@@ -561,6 +593,8 @@ not part of `api/openapi.yaml`, as the gateway isn't.
 | `oauth_token_errors_total` | `error` (the OAuth error code) | Refused token requests |
 | `oauth_refresh_reuse_revocations_total` | none | Grants revoked for refresh token reuse |
 | `signins_total` | `method` (oidc, dev), `result`, `reason` (none, denied, invalid, unavailable, error) | Sign-ins |
+| `group_recheck_total` | `result` (allowed, denied, unknown, error, no_token) | Group re-check outcomes. `unknown`: the IdP couldn't say, access kept for now; `error`: the stored token can't be opened or the answer couldn't be recorded; `no_token` isn't a check but a sign-in under `OIDC_ALLOWED_GROUPS` that brought no refresh token (that person is never re-checked) |
+| `group_recheck_people` | `state` (with_token, without_token) | Recently active people the group re-check applies to, by whether a refresh token is kept for them (set by the re-check loop; the same on every replica: use `max`) |
 | `rate_limit_rejections_total` | `limiter` (login, user, apikey, service-account, oauth, …) | Requests refused with 429 |
 | `thread_event_subscribers` | none | Open thread event streams on this replica |
 | `background_runs_total`, `background_run_duration_seconds`, `background_last_success_timestamp_seconds` | `loop` (reaper, cleanup, rate_cleanup, group_recheck, thread_events, agent_count), `result` | Background loops; `thread_events` counts only listeners that failed |
@@ -687,4 +721,7 @@ enforcement, text-only messages, no paging, …; several replicas are supported 
 - Hostile-code isolation (gVisor/Kata on Talos) is required before self-service uploads.
 - Client-chosen thread IDs are guessable if the client picks guessable ones: whoever uses an ID first starts that
   thread (a shared one anyone allowed on the agent may join; a private one is 404 for everyone else). Use
-  `POST …/threads` or random IDs. (The v0.1.0 pre-seeding of thread MCP servers is closed: see Threads.)
+  `POST …/threads` or random IDs. (The v0.1.0 pre-seeding of thread MCP servers is closed: see Threads.) For the
+  same reason a 404 `thread_not_found` on a client-chosen ID tells the caller that the ID is someone's private
+  thread (every route does, since a free ID would have worked): that can't be hidden without refusing free IDs too,
+  and platform-chosen IDs (128 random bits) can't be probed that way.

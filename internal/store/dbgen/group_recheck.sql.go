@@ -12,6 +12,41 @@ import (
 	"github.com/google/uuid"
 )
 
+const countGroupRecheckPeople = `-- name: CountGroupRecheckPeople :one
+SELECT count(*) FILTER (WHERE t.user_id IS NOT NULL)::bigint AS with_token,
+       count(*) FILTER (WHERE t.user_id IS NULL)::bigint AS without_token
+FROM users u
+LEFT JOIN user_idp_tokens t ON t.user_id = u.id
+WHERE u.oidc_issuer = $1::text
+  AND u.group_denied_at IS NULL
+  AND ($2::text = '' OR u.oidc_subject <> $2::text)
+  AND (u.last_login_at > $3::timestamptz
+       OR EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id AND s.expires_at > now())
+       OR EXISTS (SELECT 1 FROM api_keys k WHERE k.user_id = u.id AND k.revoked_at IS NULL AND k.last_used_at > $3::timestamptz)
+       OR EXISTS (SELECT 1 FROM oauth_grants g WHERE g.user_id = u.id AND g.revoked_at IS NULL AND g.last_used_at > $3::timestamptz))
+`
+
+type CountGroupRecheckPeopleParams struct {
+	Issuer           string
+	BootstrapSubject string
+	ActiveSince      time.Time
+}
+
+type CountGroupRecheckPeopleRow struct {
+	WithToken    int64
+	WithoutToken int64
+}
+
+// The people ListDueGroupChecks would consider (recently active, of this
+// issuer, not denied, not the bootstrap admin) whatever their due time, by
+// whether a refresh token is kept for them. Keep the two in step.
+func (q *Queries) CountGroupRecheckPeople(ctx context.Context, arg CountGroupRecheckPeopleParams) (CountGroupRecheckPeopleRow, error) {
+	row := q.db.QueryRow(ctx, countGroupRecheckPeople, arg.Issuer, arg.BootstrapSubject, arg.ActiveSince)
+	var i CountGroupRecheckPeopleRow
+	err := row.Scan(&i.WithToken, &i.WithoutToken)
+	return i, err
+}
+
 const deleteIdPToken = `-- name: DeleteIdPToken :exec
 DELETE FROM user_idp_tokens WHERE user_id = $1
 `
@@ -210,6 +245,23 @@ func (q *Queries) RestoreUserGroup(ctx context.Context, id uuid.UUID) (User, err
 		&i.GroupDeniedReason,
 	)
 	return i, err
+}
+
+const setIdPRefreshToken = `-- name: SetIdPRefreshToken :exec
+UPDATE user_idp_tokens SET refresh_token_enc = $1 WHERE user_id = $2
+`
+
+type SetIdPRefreshTokenParams struct {
+	RefreshTokenEnc []byte
+	UserID          uuid.UUID
+}
+
+// The IdP rotated the refresh token but could not vouch for the person this
+// time: keep the new token (verified_at stays, so the grace period still counts
+// from the last answer).
+func (q *Queries) SetIdPRefreshToken(ctx context.Context, arg SetIdPRefreshTokenParams) error {
+	_, err := q.db.Exec(ctx, setIdPRefreshToken, arg.RefreshTokenEnc, arg.UserID)
+	return err
 }
 
 const setUserGroups = `-- name: SetUserGroups :exec

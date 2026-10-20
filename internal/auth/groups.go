@@ -7,7 +7,8 @@ import (
 	"unicode/utf8"
 )
 
-// Bounds of the groups stored per person (users.groups).
+// Bounds of the groups stored per person (users.groups). They bound what is
+// kept and shown, never what OIDC_ALLOWED_GROUPS is matched against.
 const (
 	MaxGroups      = 200
 	MaxGroupLength = 256
@@ -15,7 +16,10 @@ const (
 
 // Groups reads the person's IdP groups from claim: a list of strings, or a
 // single string. Entries that are empty, too long or contain control characters are
-// dropped. "" (no claim configured) or a missing claim is no groups.
+// dropped; the rest is distinct and sorted, and not capped: the group rule is
+// matched against all of it (a person in more than MaxGroups groups must not be
+// refused because the allowed group sorts late). Store it through boundGroups.
+// "" (no claim configured) or a missing claim is no groups.
 func Groups(claims map[string]any, claim string) []string {
 	if claim == "" {
 		return []string{}
@@ -33,11 +37,21 @@ func Groups(claims map[string]any, claim string) []string {
 			}
 		}
 	}
-	return boundGroups(raw)
+	return cleanGroups(raw)
 }
 
-// boundGroups keeps valid, distinct groups (at most MaxGroups), sorted.
+// boundGroups is what is stored and shown of a person's groups: cleanGroups,
+// at most MaxGroups of them.
 func boundGroups(in []string) []string {
+	out := cleanGroups(in)
+	if len(out) > MaxGroups {
+		out = out[:MaxGroups]
+	}
+	return out
+}
+
+// cleanGroups keeps valid, distinct groups, sorted.
+func cleanGroups(in []string) []string {
 	out := make([]string, 0, len(in))
 	seen := map[string]bool{}
 	for _, g := range in {
@@ -47,9 +61,6 @@ func boundGroups(in []string) []string {
 		}
 		seen[g] = true
 		out = append(out, g)
-		if len(out) == MaxGroups {
-			break
-		}
 	}
 	slices.Sort(out)
 	return out

@@ -149,6 +149,57 @@ func (q *Queries) DeleteStaleReservedThreads(ctx context.Context) (int64, error)
 	return result.RowsAffected(), nil
 }
 
+const deleteThreadMCPServers = `-- name: DeleteThreadMCPServers :exec
+DELETE FROM thread_mcp_servers WHERE agent_id = $1 AND thread_id = $2
+`
+
+type DeleteThreadMCPServersParams struct {
+	AgentID  uuid.UUID
+	ThreadID string
+}
+
+func (q *Queries) DeleteThreadMCPServers(ctx context.Context, arg DeleteThreadMCPServersParams) error {
+	_, err := q.db.Exec(ctx, deleteThreadMCPServers, arg.AgentID, arg.ThreadID)
+	return err
+}
+
+const endThreadReservation = `-- name: EndThreadReservation :one
+UPDATE agent_threads
+SET reserved = false,
+    title    = CASE WHEN title = 'New chat' THEN $1 ELSE title END
+WHERE agent_id = $2 AND thread_id = $3
+RETURNING agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at, visibility, reserved
+`
+
+type EndThreadReservationParams struct {
+	Title    string
+	AgentID  uuid.UUID
+	ThreadID string
+}
+
+// A reserved thread's first message came from someone other than its creator:
+// the reservation ends now (the thread is listed and titled like any other).
+func (q *Queries) EndThreadReservation(ctx context.Context, arg EndThreadReservationParams) (AgentThread, error) {
+	row := q.db.QueryRow(ctx, endThreadReservation, arg.Title, arg.AgentID, arg.ThreadID)
+	var i AgentThread
+	err := row.Scan(
+		&i.AgentID,
+		&i.ThreadID,
+		&i.Title,
+		&i.CreatedByUser,
+		&i.CreatedByService,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Busy,
+		&i.LastReplyAt,
+		&i.LastError,
+		&i.StatusAt,
+		&i.Visibility,
+		&i.Reserved,
+	)
+	return i, err
+}
+
 const getAgentThread = `-- name: GetAgentThread :one
 SELECT agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at, visibility, reserved FROM agent_threads WHERE agent_id = $1 AND thread_id = $2
 `
@@ -307,6 +358,38 @@ func (q *Queries) ListVisibleAgentThreads(ctx context.Context, arg ListVisibleAg
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockAgentThread = `-- name: LockAgentThread :one
+SELECT agent_id, thread_id, title, created_by_user, created_by_service, created_at, updated_at, busy, last_reply_at, last_error, status_at, visibility, reserved FROM agent_threads WHERE agent_id = $1 AND thread_id = $2 FOR UPDATE
+`
+
+type LockAgentThreadParams struct {
+	AgentID  uuid.UUID
+	ThreadID string
+}
+
+// The thread's record, locked: a concurrent write of the thread's MCP servers
+// (a foreign key check on this row) waits until the transaction ends.
+func (q *Queries) LockAgentThread(ctx context.Context, arg LockAgentThreadParams) (AgentThread, error) {
+	row := q.db.QueryRow(ctx, lockAgentThread, arg.AgentID, arg.ThreadID)
+	var i AgentThread
+	err := row.Scan(
+		&i.AgentID,
+		&i.ThreadID,
+		&i.Title,
+		&i.CreatedByUser,
+		&i.CreatedByService,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Busy,
+		&i.LastReplyAt,
+		&i.LastError,
+		&i.StatusAt,
+		&i.Visibility,
+		&i.Reserved,
+	)
+	return i, err
 }
 
 const notifyThreads = `-- name: NotifyThreads :exec

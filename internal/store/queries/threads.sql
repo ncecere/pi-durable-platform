@@ -23,6 +23,23 @@ VALUES (sqlc.arg(agent_id), sqlc.arg(thread_id), sqlc.arg(title), sqlc.narg(crea
 ON CONFLICT (agent_id, thread_id) DO NOTHING
 RETURNING *;
 
+-- name: LockAgentThread :one
+-- The thread's record, locked: a concurrent write of the thread's MCP servers
+-- (a foreign key check on this row) waits until the transaction ends.
+SELECT * FROM agent_threads WHERE agent_id = sqlc.arg(agent_id) AND thread_id = sqlc.arg(thread_id) FOR UPDATE;
+
+-- name: DeleteThreadMCPServers :exec
+DELETE FROM thread_mcp_servers WHERE agent_id = sqlc.arg(agent_id) AND thread_id = sqlc.arg(thread_id);
+
+-- name: EndThreadReservation :one
+-- A reserved thread's first message came from someone other than its creator:
+-- the reservation ends now (the thread is listed and titled like any other).
+UPDATE agent_threads
+SET reserved = false,
+    title    = CASE WHEN title = 'New chat' THEN sqlc.arg(title) ELSE title END
+WHERE agent_id = sqlc.arg(agent_id) AND thread_id = sqlc.arg(thread_id)
+RETURNING *;
+
 -- name: UnclaimAgentThread :execrows
 -- Removes a claimed record when its first message was refused, unless the
 -- runtime has reported the thread since.

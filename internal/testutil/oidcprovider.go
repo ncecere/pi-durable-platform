@@ -24,7 +24,9 @@ import (
 // offline_access scope it also issues refresh tokens, which it exchanges for
 // an ID token carrying the person's current claims (UpdateClaims changes
 // them after sign-in; Revoke, SetDown and OmitIDTokenOnRefresh make it
-// refuse, go away and answer through userinfo only).
+// refuse, go away and answer through userinfo only; RotateRefreshTokens makes
+// each refresh token good once, as strict providers do, and FailUserinfo
+// and OnRefresh let a test break the answer after the grant).
 type OIDCProvider struct {
 	*httptest.Server
 	ClientID     string
@@ -40,6 +42,9 @@ type OIDCProvider struct {
 	down      bool
 	noIDTok   bool
 	refreshes map[string]int
+	rotate    bool
+	noUserinf bool
+	onRefresh func(sub string)
 }
 
 type pendingCode struct {
@@ -117,6 +122,29 @@ func (p *OIDCProvider) OmitIDTokenOnRefresh(omit bool) {
 	p.noIDTok = omit
 }
 
+// RotateRefreshTokens makes a refresh token good for one exchange only: the
+// answer carries the next one, and presenting the old one again is invalid_grant.
+func (p *OIDCProvider) RotateRefreshTokens(on bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.rotate = on
+}
+
+// FailUserinfo makes the userinfo endpoint answer 503 (the token endpoint is unaffected).
+func (p *OIDCProvider) FailUserinfo(fail bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.noUserinf = fail
+}
+
+// OnRefresh calls fn(subject) after each refresh-token grant has been
+// answered (the answer is written; the client may still be reading it).
+func (p *OIDCProvider) OnRefresh(fn func(sub string)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.onRefresh = fn
+}
+
 // Refreshes counts the refresh-token exchanges made for a person.
 func (p *OIDCProvider) Refreshes(sub string) int {
 	p.mu.Lock()
@@ -127,7 +155,7 @@ func (p *OIDCProvider) Refreshes(sub string) int {
 func (p *OIDCProvider) userinfo(w http.ResponseWriter, r *http.Request) {
 	p.mu.Lock()
 	sub, ok := p.access[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
-	claims, down := p.current[sub], p.down
+	claims, down := p.current[sub], p.down || p.noUserinf
 	p.mu.Unlock()
 	if down {
 		http.Error(w, "down", http.StatusServiceUnavailable)
@@ -213,9 +241,12 @@ func (p *OIDCProvider) token(w http.ResponseWriter, r *http.Request) {
 func (p *OIDCProvider) refreshToken(w http.ResponseWriter, token string) {
 	p.mu.Lock()
 	sub, ok := p.refresh[token]
-	claims, down, noIDTok := p.current[sub], p.down, p.noIDTok
+	claims, down, noIDTok, onRefresh := p.current[sub], p.down, p.noIDTok, p.onRefresh
 	if ok && !down {
 		p.refreshes[sub]++
+		if p.rotate {
+			delete(p.refresh, token)
+		}
 	}
 	p.mu.Unlock()
 	if down {
@@ -229,6 +260,12 @@ func (p *OIDCProvider) refreshToken(w http.ResponseWriter, token string) {
 		return
 	}
 	p.reply(w, sub, claims, "", true, !noIDTok)
+	if onRefresh != nil {
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		onRefresh(sub)
+	}
 }
 
 // reply writes a token response: an access token, a refresh token when offline, an ID token when withIDToken.

@@ -2,10 +2,11 @@
 // and production safety checks, then PostgreSQL connectivity and the
 // migration state, with timings, then key rotation (API keys still on another
 // pepper, stored secrets still sealed with the previous encryption key), then
-// the agents database (AGENTS_DATABASE_URL): that it answers, that its role may
-// provision agents, and which agent roles belong to no agent, and whether PUBLIC
-// may connect to the platform database and the agents database's siblings
-// (publicconnect.go). It changes nothing.
+// (with OIDC_ALLOWED_GROUPS) how many recently active people the group re-check
+// has no refresh token for, then the agents database (AGENTS_DATABASE_URL): that
+// it answers, that its role may provision agents, which agent roles belong to no
+// agent, and whether PUBLIC may connect to the platform database and the agents
+// database's siblings (publicconnect.go). It changes nothing.
 package doctor
 
 import (
@@ -41,7 +42,7 @@ const (
 
 // Check is one line of the report.
 type Check struct {
-	Group      string  `json:"group"` // configuration, safety, postgres, keys, agents
+	Group      string  `json:"group"` // configuration, safety, postgres, keys, auth, agents
 	Name       string  `json:"name"`
 	Status     Status  `json:"status"`
 	Detail     string  `json:"detail"`
@@ -169,6 +170,7 @@ func (r *runner) postgres(ctx context.Context) *pgxpool.Pool {
 	if r.migrations(cctx, pool) {
 		r.keys(cctx, pool)
 		r.encryption(cctx, pool)
+		r.groupRecheck(ctx, pool)
 	}
 	return pool
 }

@@ -29,6 +29,22 @@ ORDER BY t.checked_at
 LIMIT @max_rows
 FOR UPDATE OF t SKIP LOCKED;
 
+-- name: CountGroupRecheckPeople :one
+-- The people ListDueGroupChecks would consider (recently active, of this
+-- issuer, not denied, not the bootstrap admin) whatever their due time, by
+-- whether a refresh token is kept for them. Keep the two in step.
+SELECT count(*) FILTER (WHERE t.user_id IS NOT NULL)::bigint AS with_token,
+       count(*) FILTER (WHERE t.user_id IS NULL)::bigint AS without_token
+FROM users u
+LEFT JOIN user_idp_tokens t ON t.user_id = u.id
+WHERE u.oidc_issuer = @issuer::text
+  AND u.group_denied_at IS NULL
+  AND (@bootstrap_subject::text = '' OR u.oidc_subject <> @bootstrap_subject::text)
+  AND (u.last_login_at > @active_since::timestamptz
+       OR EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id AND s.expires_at > now())
+       OR EXISTS (SELECT 1 FROM api_keys k WHERE k.user_id = u.id AND k.revoked_at IS NULL AND k.last_used_at > @active_since::timestamptz)
+       OR EXISTS (SELECT 1 FROM oauth_grants g WHERE g.user_id = u.id AND g.revoked_at IS NULL AND g.last_used_at > @active_since::timestamptz));
+
 -- name: TouchGroupChecks :exec
 UPDATE user_idp_tokens SET checked_at = now() WHERE user_id = ANY(@user_ids::uuid[]);
 
@@ -38,6 +54,12 @@ SELECT * FROM user_idp_tokens WHERE user_id = @user_id FOR UPDATE;
 -- name: MarkGroupVerified :exec
 -- The IdP confirmed the person (and may have rotated the refresh token).
 UPDATE user_idp_tokens SET refresh_token_enc = @refresh_token_enc, verified_at = now() WHERE user_id = @user_id;
+
+-- name: SetIdPRefreshToken :exec
+-- The IdP rotated the refresh token but could not vouch for the person this
+-- time: keep the new token (verified_at stays, so the grace period still counts
+-- from the last answer).
+UPDATE user_idp_tokens SET refresh_token_enc = @refresh_token_enc WHERE user_id = @user_id;
 
 -- name: SetUserGroups :exec
 UPDATE users SET groups = @groups::text[], updated_at = now() WHERE id = @user_id;

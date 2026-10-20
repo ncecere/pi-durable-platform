@@ -83,7 +83,8 @@ type Metrics struct {
 	loopDuration *prometheus.HistogramVec
 	loopLast     *prometheus.GaugeVec
 
-	pools *poolCollector
+	pools   *poolCollector
+	recheck *groupRecheck // grouprecheck.go
 
 	models, servers, limiters, kinds, routes *labelGuard
 }
@@ -163,6 +164,7 @@ func New(info Info) *Metrics {
 		m.oauthIssued, m.oauthErrors, m.oauthReuse, m.signIns, m.rateLimited, m.subscribers,
 		m.loopRuns, m.loopDuration, m.loopLast,
 	)
+	m.recheck = newGroupRecheck(m.reg)
 	return m
 }
 
