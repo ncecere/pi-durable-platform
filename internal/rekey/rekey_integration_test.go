@@ -523,6 +523,7 @@ func TestAssociatedDataMatchesTheServices(t *testing.T) {
 		"../agents/agents.go":           {`ad := []byte(p.ID.String())`, `[]byte(ag.ID.String())`},
 		"../auth/grouprecheck.go":       {`[]byte("idp_refresh_token:" + userID.String())`},
 		"../mcpidentity/mcpidentity.go": {`[]byte("mcp_identity_key:" + id.String())`},
+		"../triggers/triggers.go":       {`"trigger_webhook:" + id.String()`, `"trigger_callback:" + id.String()`, `"trigger_run:" + id.String()`},
 	} {
 		src, err := os.ReadFile(file)
 		if err != nil {

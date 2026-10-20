@@ -91,6 +91,48 @@ type AgentThreadParticipant struct {
 	LastSentAt       time.Time
 }
 
+type AgentTrigger struct {
+	ID                   uuid.UUID
+	AgentID              uuid.UUID
+	Kind                 string
+	Name                 string
+	Source               string
+	Paused               bool
+	PausedReason         *string
+	ThreadID             *string
+	MessageTemplate      string
+	Cron                 *string
+	Timezone             *string
+	MissedPolicy         *string
+	NextFireAt           *time.Time
+	HookID               *string
+	WebhookSecretEnc     []byte
+	WebhookSecretPrefix  *string
+	FilterPath           *string
+	FilterEquals         *string
+	CallbackUrl          *string
+	CallbackSecretEnc    []byte
+	CallbackSecretPrefix *string
+	DailyBudgetUsd       pgtype.Float8
+	ConsecutiveFailures  int32
+	BackoffUntil         *time.Time
+	LastFiredAt          *time.Time
+	CreatedBy            uuid.NullUUID
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	Revision             int64
+}
+
+type AgentTriggerSetting struct {
+	AgentID           uuid.UUID
+	Paused            bool
+	MaxConcurrentRuns *int32
+	MaxRunSeconds     *int32
+	DailyBudgetUsd    pgtype.Float8
+	Revision          int64
+	UpdatedAt         time.Time
+}
+
 type ApiKey struct {
 	ID         uuid.UUID
 	UserID     uuid.UUID
@@ -457,6 +499,32 @@ type ThreadMcpServer struct {
 	HeadersEnc []byte
 	ExpiresAt  time.Time
 	CreatedAt  time.Time
+}
+
+type TriggerRun struct {
+	ID               uuid.UUID
+	FireID           string
+	TriggerID        uuid.NullUUID
+	AgentID          uuid.UUID
+	TeamID           uuid.UUID
+	TriggerName      string
+	TriggerKind      string
+	FiredBy          string
+	ThreadID         *string
+	MessageEnc       []byte
+	Status           string
+	Reason           *string
+	ScheduledFor     *time.Time
+	Attempts         int32
+	NextAttemptAt    *time.Time
+	CreatedAt        time.Time
+	StartedAt        *time.Time
+	FinishedAt       *time.Time
+	CostUsd          float64
+	Requests         int64
+	CallbackStatus   *string
+	CallbackAttempts int32
+	CallbackNextAt   *time.Time
 }
 
 type User struct {
