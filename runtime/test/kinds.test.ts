@@ -2,8 +2,9 @@
 // library's public exports only, so a custom agent could build the same.
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { AgentDefinitionError, assistantAgent } from "@pdp/runtime";
+import { AgentDefinitionError, assistantAgent, assistantExtension, defineAgent, defineExtension, defineSubagent, section } from "@pdp/runtime";
 import * as kinds from "@pdp/runtime/kinds";
+import { fakeModel, startTestAgent, toolCall } from "@pdp/runtime/testing";
 import { describe, expect, it } from "vitest";
 
 const KINDS_DIR = fileURLToPath(new URL("../src/kinds/", import.meta.url));
@@ -56,6 +57,31 @@ describe("agent kinds", () => {
 				const allowed = specifier === "@pdp/runtime" || /^\.\/[a-z-]+\.ts$/.test(specifier);
 				expect(allowed, `${file} imports ${specifier}`).toBe(true);
 			}
+		}
+	});
+
+	it("make a variant from their parts (docs/first-party-agents.md, Building a variant)", async () => {
+		const settings = kinds.parseResearcherSettings('{"maxPlanSteps":2}');
+		const variant = defineAgent({
+			name: "cheap-researcher",
+			documents: [kinds.ResearchPlanDoc, kinds.ResearchSourcesDoc],
+			expose: [kinds.ResearchPlanDoc, kinds.ResearchSourcesDoc],
+			extensions: ({ instructions }) => [
+				assistantExtension(instructions),
+				defineExtension({ name: "research", tools: kinds.researchTools(settings), sections: [section("research", () => kinds.researchPrompt(settings))] }),
+				defineSubagent({ name: "research_quick", description: "A short question", instructions: kinds.SUBAGENT_INSTRUCTIONS }),
+			],
+			settings: { toolExecution: "parallel", compaction: { enabled: true } },
+		});
+		const model = fakeModel();
+		model.reply(toolCall("research_plan", { question: "Q?", steps: ["a", "b", "c"] }, { id: "p1" }), "Planned.");
+		const agent = await startTestAgent(variant, { model });
+		try {
+			await agent.send("t", "Research Q");
+			await agent.settled("t");
+			expect(((await agent.document("t", "research.plan"))?.value as kinds.ResearchPlan).steps.map((s) => s.text)).toEqual(["a", "b"]);
+		} finally {
+			await agent.close();
 		}
 	});
 });

@@ -131,6 +131,10 @@ callback's delivery state.
 last error, the time). A running run is finished when its thread is no longer busy with a status reported at or after
 the run started; with an error it failed. The trigger loop checks running runs every pass.
 
+Work a reply leaves running in the background (a background subagent) is not part of the run: neither its run time
+nor its cost covers it. The deep researcher keeps its subagents in the foreground in a triggered run for that reason
+([first-party-agents.md](first-party-agents.md#budgets-and-ceilings)).
+
 **Cost** is the agent's model usage (`model_usage`, priced at the models' current prices, as in the usage reports)
 between the run's start and its end. Usage is recorded per agent, not per thread (the runtime does not tag model
 requests with their thread), so a run that overlaps other work of the same agent (people talking to it, another run)

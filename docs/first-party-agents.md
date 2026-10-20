@@ -188,7 +188,8 @@ renders them; a different shape needs a kind of its own.
   background subagents off it waits.
 - `runtime/test/kinds.test.ts` and `runtime/test/contract.test.ts`: selection by kind (the process runs the named
   kind; an unknown kind or bad settings exit 2; an activation for an unknown kind is refused and the runtime stays in
-  standby), settings parsing, and the kinds' imports.
+  standby), settings parsing, the kinds' imports, and the variant above (built from `@pdp/runtime/kinds`, run on the
+  test kit).
 - `internal/agents` (integration): templates and versions with a kind, the refusals, keeping and changing a kind across
   versions, and the runtime's variables (`AGENT_KIND`, `AGENT_KIND_SETTINGS`, the write tools in `TOOL_APPROVALS`).
 - The console: the kind fields and the documents panel's renderings.
