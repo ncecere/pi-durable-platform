@@ -671,7 +671,7 @@ with the inventory of what each replica keeps). In short:
 ## Known limits and open items
 
 The [v0.1.0 release notes](docs/releases/v0.1.0.md#known-limitations) list the product limits as of v0.1.0 (no budget
-enforcement, text-only messages, no paging, …; several replicas are supported since v0.2, see above). The design-level ones:
+enforcement, text-only messages, no paging, …; several replicas and metrics are supported since v0.2, see above). The design-level ones:
 
 - Agent roles still share the server's connection and CPU capacity (no per-role quotas), and any role can see that
   other roles' sessions exist. Cross-agent ownership interference is closed (see Agent storage and ownership), but
