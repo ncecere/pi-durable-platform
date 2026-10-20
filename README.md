@@ -36,7 +36,8 @@ endorsed by Earendil.
 - **Threads.** Recorded by the platform (listing never wakes an agent), with status, an events stream, private and
   shared threads, message authors and metadata, and audited reads by platform admins who state a reason.
 - **Access for apps.** Team service accounts with expiring keys, personal API keys, and OAuth Connect (an OAuth 2.1
-  authorization server, so an app can act as the person who connects it).
+  authorization server, so an app can act as the person who connects it; silent reconnects with `prompt=none` and
+  `login_hint`, a read-only scope, and for trusted apps one event stream and usage for everyone who connected them).
 - **Operations and security.** Append-only audit log, `doctor`, forward-only migrations, sealed secrets, peppered key
   digests, an address guard for team-chosen URLs, production safety checks.
 
@@ -144,11 +145,13 @@ agents, personal API keys (`pdp_…`) work too, acting as their person.
 To act as a person instead (their personal workspace and their teams' agents), have them connect the app with **OAuth
 Connect**: the platform is an OAuth 2.1 authorization server (`/.well-known/oauth-authorization-server`, PKCE, a Client
 ID Metadata Document or Dynamic Client Registration), and the app's `pdpat_…` access token acts as the person, without
-their platform role, on the agent routes and a few read routes such as `GET /v1/me` and `/v1/teams`. See DESIGN.md,
-"OAuth Connect". Such an app can keep one agent per purpose in the person's personal workspace with the same
-`PUT …/agents/by-key/{key}` (the agent is the person's, not service-managed), and send an `Idempotency-Key` header
-when it creates agents with `POST /v1/teams/{team}/agents`, so a retry returns the first agent instead of making
-another.
+their platform role, on the agent routes and a few read routes such as `GET /v1/me` and `/v1/teams` (with scope
+`agents:read`, reads only). Apps reconnect silently with `prompt=none` and name the account they expect with
+`login_hint`. A trusted app with a secret from a platform admin (`pdpcs_…`) follows everyone who connected it on one
+stream (`GET /v1/app/events`) and reads their usage (`GET /v1/app/usage`). See DESIGN.md, "OAuth Connect". Such an app
+can keep one agent per purpose in the person's personal workspace with the same `PUT …/agents/by-key/{key}` (the
+agent is the person's, not service-managed), and send an `Idempotency-Key` header when it creates agents with
+`POST /v1/teams/{team}/agents`, so a retry returns the first agent instead of making another.
 
 Team owners and admins can move an agent, with its conversations, to another team or their personal workspace
 (`POST /v1/agents/{id}/move`, with a dry run at `GET …/move?team=`; the agent's Settings in the console). See
